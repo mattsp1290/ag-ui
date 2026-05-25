@@ -424,6 +424,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `fromJson` and re-attach it to the outbound payload manually, or
   preserve the original byte stream instead of round-tripping through the
   Dart event model.
+- **`ActivityDeltaEvent.patch` decodes as `List<Map<String, dynamic>>`**
+  and rejects non-object patch elements at the decoder boundary. Canonical TS
+  (`z.array(z.any())`) and Python (`List[Any]`) accept any element type and
+  defer validation to downstream RFC-6902 consumers. Producers emitting
+  non-object patch elements (legal per canonical schemas, illegal per RFC 6902)
+  will be rejected by the Dart decoder.
 - **`AssistantMessage.toJson` emits `toolCalls: []` when the in-memory list
   is non-null but empty.** The canonical TS/Python SDKs omit the key when the
   list is empty. This ensures round-trip symmetry

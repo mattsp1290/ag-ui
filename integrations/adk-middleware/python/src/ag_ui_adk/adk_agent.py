@@ -4,7 +4,7 @@
 from ag_ui_adk.agui_toolset import AGUIToolset
 
 import copy
-from typing import Optional, Dict, Callable, Any, AsyncGenerator, List, Iterable, TYPE_CHECKING, Tuple, Union
+from typing import Optional, Dict, Callable, Any, AsyncGenerator, List, Iterable, Set, TYPE_CHECKING, Tuple, Union
 
 if TYPE_CHECKING:
     from google.adk.apps import App
@@ -78,6 +78,82 @@ from .utils.converters import convert_message_content_to_parts
 import logging
 logger = logging.getLogger(__name__)
 
+
+class _HitlDeferringQueue(asyncio.Queue):
+    """``asyncio.Queue`` that defers HITL ``ToolCallEndEvent``s.
+
+    Why: writing ``pending_tool_calls`` to ``session.state`` while ADK's
+    Runner still owns its in-memory session trips
+    ``DatabaseSessionService``'s OCC check on ADK >= 1.27 (issue #1732).
+    PR #1735 fixed that by making the consumer ``await execution.task``
+    before persisting, but that approach buffers every event after the
+    first HITL ``TOOL_CALL_END`` in ``event_queue`` until the producer
+    exits — losing streaming fidelity for non-HITL events that arrive
+    afterwards (parallel tool calls, post-LRO text, backend tool
+    results in resumable HITL).
+
+    This queue defers ONLY the HITL ``ToolCallEndEvent`` itself. All
+    other events stream live. The producer flushes the deferred TCEs
+    once it has persisted the matching IDs to ``session.state`` — see
+    ``_run_adk_in_background``. Putting the completion sentinel
+    (``None``) implicitly flushes any remaining deferred TCEs, so the
+    consumer sees them before the stream ends.
+
+    The release-on-result branch handles the edge case of a tool that
+    is marked HITL but resolves in-stream: when a ``ToolCallResultEvent``
+    for a deferred id arrives, the buffered TCE is released
+    immediately (preserving TCE→Result ordering on the wire) and
+    removed from the deferred set so it is not persisted at flush time.
+    """
+
+    def __init__(self, long_running_tool_ids: Set[str]) -> None:
+        super().__init__()
+        self._long_running_tool_ids = long_running_tool_ids
+        self._deferred_hitl_ends: Dict[str, "ToolCallEndEvent"] = {}
+
+    async def put(self, item):  # type: ignore[override]
+        # ``None`` is the completion sentinel; release any remaining
+        # deferred TCEs first so the consumer sees them before the
+        # stream ends.
+        if item is None:
+            await self.flush_deferred()
+            await super().put(item)
+            return
+
+        # Defer HITL TOOL_CALL_END events until the producer has
+        # persisted the corresponding ``pending_tool_calls`` entry.
+        if isinstance(item, ToolCallEndEvent) and (
+            item.tool_call_id in self._long_running_tool_ids
+        ):
+            self._deferred_hitl_ends[item.tool_call_id] = item
+            return
+
+        # Tools marked HITL but resolving in-stream: release the
+        # buffered TCE first so the client sees TCE→Result in order,
+        # and remove the id from the deferred set so it is not
+        # persisted at flush time (the result implies no client-side
+        # continuation, so the cross-pod handoff invariant from #1581
+        # is moot for this id).
+        if isinstance(item, ToolCallResultEvent) and (
+            item.tool_call_id in self._deferred_hitl_ends
+        ):
+            deferred_end = self._deferred_hitl_ends.pop(item.tool_call_id)
+            await super().put(deferred_end)
+
+        await super().put(item)
+
+    @property
+    def deferred_hitl_ids(self) -> List[str]:
+        """Tool call IDs still buffered (not yet released)."""
+        return list(self._deferred_hitl_ends.keys())
+
+    async def flush_deferred(self) -> None:
+        """Release all buffered HITL TCEs onto the underlying queue."""
+        for event in list(self._deferred_hitl_ends.values()):
+            await super().put(event)
+        self._deferred_hitl_ends.clear()
+
+
 class ADKAgent:
     """Middleware to bridge AG-UI Protocol with Google ADK agents.
     
@@ -101,6 +177,7 @@ class ADKAgent:
 
         # ADK Services
         session_service: Optional[BaseSessionService] = None,
+        session_manager: Optional[SessionManager] = None,
         artifact_service: Optional[BaseArtifactService] = None,
         memory_service: Optional[BaseMemoryService] = None,
         credential_service: Optional[BaseCredentialService] = None,
@@ -143,7 +220,15 @@ class ADKAgent:
             app_name_extractor: Function to extract app name dynamically from input
             user_id: Static user ID for all requests
             user_id_extractor: Function to extract user ID dynamically from input
-            session_service: Session management service (defaults to InMemorySessionService)
+            session_service: Session management service (defaults to InMemorySessionService).
+                When provided, this ADKAgent gets a dedicated SessionManager wrapping
+                the service, so multiple ADKAgents with distinct services no longer
+                collide (see GitHub issue #1601).
+            session_manager: Pre-constructed SessionManager to use. When provided,
+                ``session_service`` and the session-cleanup configuration arguments
+                are ignored (configure the manager directly instead). Useful when
+                multiple ADKAgents should share a manager for consolidated cleanup
+                and per-user session limits.
             artifact_service: File/artifact storage service
             memory_service: Conversation memory and search service (also enables automatic session memory)
             credential_service: Authentication credential storage
@@ -226,32 +311,57 @@ class ADKAgent:
             self._credential_service = credential_service
         
         
-        # Session lifecycle management - use singleton
-        # Use provided session service or create default based on use_in_memory_services
-        if session_service is None:
-            session_service = InMemorySessionService()  # Default for both dev and production
+        # Session lifecycle management. Three construction modes:
+        #   1. session_manager= passed in -> use it as-is (escape hatch for
+        #      callers who want explicit sharing across multiple ADKAgents).
+        #   2. session_service= passed in -> dedicated SessionManager wrapping
+        #      that service. Fixes https://github.com/ag-ui-protocol/ag-ui/issues/1601
+        #      where distinct services were silently collapsed onto the first
+        #      ADKAgent's manager.
+        #   3. Neither -> shared process-wide default. Preserves the historical
+        #      behavior where multiple ADKAgents constructed with no explicit
+        #      service share one manager (and therefore one cleanup loop and
+        #      one set of per-user session limits).
+        if session_manager is not None and session_service is not None:
+            raise ValueError(
+                "Cannot specify both 'session_manager' and 'session_service'. "
+                "Configure the session service via the SessionManager you pass in."
+            )
 
-        # Wrap the session service so we can inject `temp:`-prefixed state into
-        # the session that ADK's Runner fetches at invocation time. See
-        # https://github.com/ag-ui-protocol/ag-ui/issues/1571 for context.
-        if not isinstance(session_service, RequestStateSessionService):
-            session_service = RequestStateSessionService(session_service)
+        if session_manager is not None:
+            self._session_manager = session_manager
+        elif session_service is not None:
+            # Wrap the session service so we can inject `temp:`-prefixed state into
+            # the session that ADK's Runner fetches at invocation time. See
+            # https://github.com/ag-ui-protocol/ag-ui/issues/1571 for context.
+            if not isinstance(session_service, RequestStateSessionService):
+                session_service = RequestStateSessionService(session_service)
+            self._session_manager = SessionManager(
+                session_service=session_service,
+                memory_service=self._memory_service,
+                session_timeout_seconds=session_timeout_seconds,
+                cleanup_interval_seconds=cleanup_interval_seconds,
+                max_sessions_per_user=max_sessions_per_user,
+                delete_session_on_cleanup=delete_session_on_cleanup,
+                save_session_to_memory_on_cleanup=save_session_to_memory_on_cleanup,
+                use_thread_id_as_session_id=use_thread_id_as_session_id,
+                hitl_max_wait_seconds=hitl_max_wait_seconds,
+            )
+        else:
+            self._session_manager = SessionManager.get_default(
+                memory_service=self._memory_service,
+                session_timeout_seconds=session_timeout_seconds,
+                cleanup_interval_seconds=cleanup_interval_seconds,
+                max_sessions_per_user=max_sessions_per_user,
+                delete_session_on_cleanup=delete_session_on_cleanup,
+                save_session_to_memory_on_cleanup=save_session_to_memory_on_cleanup,
+                use_thread_id_as_session_id=use_thread_id_as_session_id,
+                hitl_max_wait_seconds=hitl_max_wait_seconds,
+            )
 
-        self._session_manager = SessionManager.get_instance(
-            session_service=session_service,
-            memory_service=self._memory_service,  # Pass memory service for automatic session memory
-            session_timeout_seconds=session_timeout_seconds,  # 20 minutes default
-            cleanup_interval_seconds=cleanup_interval_seconds,
-            max_sessions_per_user=max_sessions_per_user,
-            delete_session_on_cleanup=delete_session_on_cleanup,
-            save_session_to_memory_on_cleanup=save_session_to_memory_on_cleanup,
-            use_thread_id_as_session_id=use_thread_id_as_session_id,
-            hitl_max_wait_seconds=hitl_max_wait_seconds,
-        )
-
-        # Reach through the singleton so every ADKAgent sharing this process
-        # writes pending `temp:` state onto whatever wrapper the singleton
-        # actually holds (the singleton ignores later session_service args).
+        # The shared default and externally-supplied managers may not yet have
+        # their session service wrapped. Ensure the wrapper is in place so
+        # `temp:` state injection works regardless of construction path.
         active_service = self._session_manager._session_service
         if not isinstance(active_service, RequestStateSessionService):
             active_service = RequestStateSessionService(active_service)
@@ -392,6 +502,7 @@ class ADKAgent:
         user_id_extractor: Optional[Callable[[RunAgentInput], str]] = None,
         # ADK Services (App does NOT contain these - still passed to Runner separately)
         session_service: Optional[BaseSessionService] = None,
+        session_manager: Optional[SessionManager] = None,
         artifact_service: Optional[BaseArtifactService] = None,
         memory_service: Optional[BaseMemoryService] = None,
         credential_service: Optional[BaseCredentialService] = None,
@@ -434,7 +545,11 @@ class ADKAgent:
             app: The ADK App instance containing the root agent and configuration
             user_id: Static user ID for all requests
             user_id_extractor: Function to extract user ID dynamically from input
-            session_service: Session management service (defaults to InMemorySessionService)
+            session_service: Session management service (defaults to InMemorySessionService).
+                See ADKAgent.__init__ for details.
+            session_manager: Pre-constructed SessionManager to use. When provided,
+                ``session_service`` and the session-cleanup configuration arguments
+                are ignored. See ADKAgent.__init__ for details.
             artifact_service: File/artifact storage service
             memory_service: Conversation memory and search service
             credential_service: Authentication credential storage
@@ -481,6 +596,7 @@ class ADKAgent:
             user_id=user_id,
             user_id_extractor=user_id_extractor,
             session_service=session_service,
+            session_manager=session_manager,
             artifact_service=artifact_service,
             memory_service=memory_service,
             credential_service=credential_service,
@@ -572,6 +688,40 @@ class ADKAgent:
         # Use thread_id as default (assumes thread per user)
         return f"thread_user_{input.thread_id}"
     
+    async def _finalize_hitl_buffer(
+        self,
+        event_queue,
+        thread_id: str,
+        app_name: str,
+        user_id: str,
+    ) -> None:
+        """Persist any HITL pending_tool_calls IDs buffered in the queue.
+
+        Used by ``_run_adk_in_background`` to flush HITL persistence work
+        right before signalling completion or returning early. The matching
+        deferred ``ToolCallEndEvent`` instances stay in the queue's buffer
+        until a subsequent ``put(None)`` (or explicit ``flush_deferred``)
+        releases them onto the underlying queue — that ordering preserves
+        PR #1581's invariant ("persist before the client sees the event").
+
+        Idempotent: safe to call multiple times. No-op when ``event_queue``
+        is not a :class:`_HitlDeferringQueue` or has no deferred events.
+        See issue #1755.
+        """
+        if not isinstance(event_queue, _HitlDeferringQueue):
+            return
+        for hitl_tool_call_id in list(event_queue.deferred_hitl_ids):
+            try:
+                await self._add_pending_tool_call_with_context(
+                    thread_id, hitl_tool_call_id, app_name, user_id
+                )
+            except Exception as persist_error:
+                logger.error(
+                    f"Failed to persist HITL pending_tool_call "
+                    f"{hitl_tool_call_id} for thread {thread_id}: "
+                    f"{persist_error}"
+                )
+
     async def _add_pending_tool_call_with_context(self, thread_id: str, tool_call_id: str, app_name: str, user_id: str):
         """Add a tool call to the session's pending list for HITL tracking.
 
@@ -1658,34 +1808,24 @@ class ADKAgent:
             # Stream events and track tool calls
             logger.debug(f"Starting to stream events for execution {execution.thread_id}")
             app_name = self._get_app_name(input)
-            tool_call_ids: List[str] = []
 
             logger.debug(f"About to iterate over _stream_events for execution {execution.thread_id}")
             async for event in self._stream_events(execution):
-                # Register HITL tool calls in the backend session store BEFORE
-                # yielding ToolCallEndEvent. Otherwise a horizontally-scaled
-                # deployment can race: the client receives the event, posts the
-                # tool result to a different pod, and that pod sees an empty
-                # pending_tool_calls list because this pod hasn't written yet.
-                # See issue #1581.
-                if isinstance(event, ToolCallEndEvent):
-                    logger.info(f"Detected ToolCallEndEvent with id: {event.tool_call_id}")
-                    tool_call_ids.append(event.tool_call_id)
-                    await self._add_pending_tool_call_with_context(
-                        execution.thread_id, event.tool_call_id, app_name, user_id
-                    )
+                # HITL pending_tool_calls persistence happens on the producer
+                # side via _HitlDeferringQueue: HITL TOOL_CALL_END events are
+                # buffered until the producer's persistence write completes
+                # after runner.run_async exits. By the time the consumer
+                # observes a ToolCallEndEvent here, the corresponding
+                # pending_tool_calls entry is already in session.state (or
+                # the event was a non-HITL TCE that doesn't need persistence
+                # at all). See issues #1581, #1652, #1732, and #1755.
 
-                # Backend tools complete within the same stream and emit a
-                # ToolCallResultEvent — no client continuation is expected, so
-                # remove the just-registered ID from the pending list before
-                # yielding the result.
-                if isinstance(event, ToolCallResultEvent) and event.tool_call_id in tool_call_ids:
+                # Always mark tool_call_id as processed when its result is
+                # observed, so replay logic skips it on resumption (fixes #437
+                # replay bug). This is in-memory bookkeeping; it does NOT
+                # touch session.state or any DB marker.
+                if isinstance(event, ToolCallResultEvent):
                     logger.info(f"Detected ToolCallResultEvent with id: {event.tool_call_id}")
-                    tool_call_ids.remove(event.tool_call_id)
-                    await self._remove_pending_tool_call(
-                        execution.thread_id, event.tool_call_id, user_id
-                    )
-                    # Mark tool_call_id as processed so replay will skip it (fixes #437 replay bug)
                     self._session_manager.mark_messages_processed(
                         app_name, execution.thread_id, [event.tool_call_id]
                     )
@@ -1766,7 +1906,18 @@ class ADKAgent:
 
         sub_agents = getattr(copied, 'sub_agents', None)
         if isinstance(sub_agents, (list, tuple)):
-            copied.sub_agents = [ADKAgent._shallow_copy_agent_tree(sa) for sa in sub_agents]
+            copied_subs = [ADKAgent._shallow_copy_agent_tree(sa) for sa in sub_agents]
+            # Re-parent each copied sub-agent so parent_agent points at the
+            # copied parent rather than the original.  Without this, ADK's
+            # transfer_to_agent walks parent_agent up to the original (stale)
+            # tree, escaping the per-run copy whose tools were replaced.
+            # Skip the early-return case where the sub-agent could not be
+            # copied and was returned as-is (e.g. non-Pydantic test mocks) —
+            # mutating its parent_agent would leak into the original tree.
+            for sub, original in zip(copied_subs, sub_agents):
+                if isinstance(sub, BaseAgent) and sub is not original:
+                    sub.parent_agent = copied
+            copied.sub_agents = copied_subs
 
         return copied
 
@@ -1785,7 +1936,19 @@ class ADKAgent:
         Returns:
             ExecutionState tracking the background execution
         """
-        event_queue = asyncio.Queue()
+        # Shared set of HITL (long-running) tool call IDs. Populated by the
+        # producer side (EventTranslator's LRO branch in
+        # _run_adk_in_background and ClientProxyTool) BEFORE TOOL_CALL_END is
+        # enqueued, so the deferring queue (next line) can identify HITL
+        # ends at put time. See issues #1652 and #1755.
+        long_running_tool_ids: set[str] = set()
+
+        # Wrap the inner asyncio.Queue with _HitlDeferringQueue so HITL
+        # ToolCallEndEvents are held back until the producer has persisted
+        # the matching pending_tool_calls IDs. Non-HITL events stream
+        # through unblocked, restoring the streaming fidelity that PR
+        # #1735's consumer-side gate sacrificed. See issue #1755.
+        event_queue: _HitlDeferringQueue = _HitlDeferringQueue(long_running_tool_ids)
         logger.debug(f"Created event queue {id(event_queue)} for thread {input.thread_id}")
         # Extract necessary information
         user_id = self._get_user_id(input)
@@ -1896,6 +2059,7 @@ class ADKAgent:
             "app_name": app_name,
             "event_queue": event_queue,
             "client_proxy_toolsets": client_proxy_toolsets,
+            "long_running_tool_ids": long_running_tool_ids,
         }
 
         if tool_results is not None:
@@ -1906,11 +2070,12 @@ class ADKAgent:
 
         task = asyncio.create_task(self._run_adk_in_background(**run_kwargs))
         logger.debug(f"Background task created for thread {input.thread_id}: {task}")
-        
+
         return ExecutionState(
             task=task,
             thread_id=input.thread_id,
-            event_queue=event_queue
+            event_queue=event_queue,
+            long_running_tool_ids=long_running_tool_ids,
         )
     
     async def _run_adk_in_background(
@@ -1921,6 +2086,7 @@ class ADKAgent:
         app_name: str,
         event_queue: asyncio.Queue,
         client_proxy_toolsets: List[ClientProxyToolset],
+        long_running_tool_ids: Optional[Set[str]] = None,
         tool_results: Optional[List[Dict]] = None,
         message_batch: Optional[List[Any]] = None,
     ):
@@ -1932,9 +2098,24 @@ class ADKAgent:
             user_id: User ID
             app_name: App name
             event_queue: Queue for emitting events
+            long_running_tool_ids: Shared set of HITL tool call IDs. Populated
+                by this producer (from ADK Event.long_running_tool_ids) and by
+                ClientProxyTool before TOOL_CALL_END events are enqueued, so the
+                consumer can gate session.state writes on HITL membership.
+                See issue #1652.
         """
+        # Default for older call paths / tests that don't supply the set.
+        if long_running_tool_ids is None:
+            long_running_tool_ids = set()
         runner: Optional[Runner] = None
         backend_session_id: Optional[str] = None
+        # Buffer LRO ID remap updates discovered during the runner loop.
+        # Flushed once in the finally block AFTER runner.run_async has
+        # finished, so the mid-runner session-state write that would
+        # otherwise trip DatabaseSessionService's OCC check on ADK >= 1.27
+        # never happens. See issue #1754 (same shape as #1732, different
+        # writer that PR #1735's consumer-side fix can't reach).
+        pending_lro_id_remap: Dict[str, str] = {}
         logger.debug(f"[BG_EXEC] _run_adk_in_background called for thread={input.thread_id}")
         logger.debug(f"[BG_EXEC]   tool_results={len(tool_results) if tool_results else 0}, message_batch={len(message_batch) if message_batch else 0}")
         try:
@@ -2252,6 +2433,12 @@ class ADKAgent:
             for toolset in client_proxy_toolsets:
                 toolset._emitted_tool_call_ids = client_emitted_ids
 
+            # Share the per-execution HITL tool-call set with proxy toolsets so
+            # ClientProxyTool can register IDs synchronously before its
+            # TOOL_CALL_START is enqueued. See issue #1652.
+            for toolset in client_proxy_toolsets:
+                toolset._long_running_tool_ids = long_running_tool_ids
+
             # Collect client-side tool names from proxy toolsets
             client_tool_names: set[str] = set()
             for toolset in client_proxy_toolsets:
@@ -2385,17 +2572,26 @@ class ADKAgent:
                     if not event_partial:
                         # Capture LRO ID remapping: the final (persisted) event
                         # may carry different function-call IDs than the partial
-                        # event we already emitted to the client.
+                        # event we already emitted to the client. Buffer here
+                        # and flush in finally; writing mid-runner would bump
+                        # the session row's storage marker and trip OCC on
+                        # ADK's next ``append_event`` (issue #1754).
                         lro_remap = self._extract_lro_id_remap(adk_event, event_translator)
                         if lro_remap:
-                            await self._store_lro_id_remap(
-                                lro_remap, backend_session_id, app_name, user_id
-                            )
+                            pending_lro_id_remap.update(lro_remap)
 
                         logger.info(
                             f"Received non-partial event during LRO drain, persistence complete "
                             f"(thread={input.thread_id})"
                         )
+                        # #1755: persist any buffered HITL pending_tool_calls
+                        # IDs, then signal completion so the deferring queue
+                        # flushes the deferred TCE(s) onto the underlying
+                        # queue before the consumer exits.
+                        await self._finalize_hitl_buffer(
+                            event_queue, input.thread_id, app_name, user_id
+                        )
+                        await event_queue.put(None)
                         return
                     else:
                         # Still partial, keep draining
@@ -2415,6 +2611,13 @@ class ADKAgent:
                 has_lro_function_call = False
                 try:
                     lro_ids = set(getattr(adk_event, 'long_running_tool_ids', []) or [])
+                    # Mark every LRO id from the ADK event as HITL on the
+                    # shared execution set. Synchronous mutation before any
+                    # downstream `await event_queue.put(...)` of this event's
+                    # TOOL_CALL_END, so the consumer's gate sees the id at
+                    # dequeue time. See issue #1652.
+                    if lro_ids:
+                        long_running_tool_ids.update(lro_ids)
                     if lro_ids and adk_event.content and getattr(adk_event.content, 'parts', None):
                         for part in adk_event.content.parts:
                             func = getattr(part, 'function_call', None)
@@ -2485,12 +2688,13 @@ class ADKAgent:
                     # Capture LRO ID remapping from non-partial events.
                     # The final (persisted) event may carry different function-call
                     # IDs than the partial event we already emitted to the client.
+                    # Buffer here and flush in finally; writing mid-runner would
+                    # bump the session row's storage marker and trip OCC on ADK's
+                    # next ``append_event`` (issue #1754).
                     if has_lro_function_call and not event_partial:
                         lro_remap = self._extract_lro_id_remap(adk_event, event_translator)
                         if lro_remap:
-                            await self._store_lro_id_remap(
-                                lro_remap, backend_session_id, app_name, user_id
-                            )
+                            pending_lro_id_remap.update(lro_remap)
 
                     # Hard stop the execution if we find any long running tool
                     # AND the agent is NOT using ADK's native resumability.
@@ -2536,6 +2740,17 @@ class ADKAgent:
                                 f"LRO detected with partial=False, persistence already complete "
                                 f"(thread={input.thread_id})"
                             )
+                            # #1755: persist any buffered HITL
+                            # pending_tool_calls IDs, then signal
+                            # completion so the deferring queue flushes
+                            # deferred TCE(s) before the consumer exits.
+                            await self._finalize_hitl_buffer(
+                                event_queue,
+                                input.thread_id,
+                                app_name,
+                                user_id,
+                            )
+                            await event_queue.put(None)
                             return
 
             # Force close any streaming messages
@@ -2636,7 +2851,14 @@ class ADKAgent:
                     )
                     logger.debug("Emitted post-confirm StateSnapshotEvent for timing separation")
 
-            # Signal completion - ADK execution is done
+            # Persist HITL pending_tool_calls IDs that the deferring queue
+            # has buffered, then signal completion. The put(None) below
+            # triggers an implicit flush via _HitlDeferringQueue.put so
+            # the consumer sees the deferred TCEs before the stream ends.
+            # See issue #1755.
+            await self._finalize_hitl_buffer(
+                event_queue, input.thread_id, app_name, user_id
+            )
             logger.debug(f"Background task sending completion signal for thread {input.thread_id}")
             await event_queue.put(None)
             logger.debug(f"Background task completion signal sent for thread {input.thread_id}")
@@ -2668,6 +2890,26 @@ class ADKAgent:
                             input.thread_id,
                             close_error,
                         )
+
+            # Flush any LRO ID remap captured during the runner loop. This
+            # runs after the runner has been closed, so the
+            # ``update_session_state`` write can't trip OCC against ADK's
+            # in-memory ``invocation_context.session``. See issue #1754.
+            if pending_lro_id_remap and backend_session_id is not None:
+                try:
+                    await self._store_lro_id_remap(
+                        pending_lro_id_remap,
+                        backend_session_id,
+                        app_name,
+                        user_id,
+                    )
+                except Exception as flush_error:
+                    logger.warning(
+                        "Failed to flush LRO ID remap on runner exit "
+                        "(thread=%s): %s",
+                        input.thread_id,
+                        flush_error,
+                    )
 
             # Drop any pending per-invocation `temp:` state so a later run on
             # the same session does not inherit stale values (e.g. a rotated

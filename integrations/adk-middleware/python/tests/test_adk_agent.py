@@ -469,7 +469,7 @@ class TestADKAgent:
         captured_agent = None
         original_run_background = adk_agent._run_adk_in_background
 
-        async def mock_run_background(input, adk_agent, user_id, app_name, event_queue, client_proxy_toolsets, tool_results=None, message_batch=None):
+        async def mock_run_background(input, adk_agent, user_id, app_name, event_queue, client_proxy_toolsets, long_running_tool_ids=None, tool_results=None, message_batch=None):
             nonlocal captured_agent
             captured_agent = adk_agent
             # Just put a completion event in the queue and return
@@ -524,7 +524,7 @@ class TestADKAgent:
         captured_agent = None
         original_run_background = adk_agent._run_adk_in_background
 
-        async def mock_run_background(input, adk_agent, user_id, app_name, event_queue, client_proxy_toolsets, tool_results=None, message_batch=None):
+        async def mock_run_background(input, adk_agent, user_id, app_name, event_queue, client_proxy_toolsets, long_running_tool_ids=None, tool_results=None, message_batch=None):
             nonlocal captured_agent
             captured_agent = adk_agent
             # Just put a completion event in the queue and return
@@ -581,7 +581,7 @@ class TestADKAgent:
         captured_agent = None
         original_run_background = adk_agent._run_adk_in_background
 
-        async def mock_run_background(input, adk_agent, user_id, app_name, event_queue, client_proxy_toolsets, tool_results=None, message_batch=None):
+        async def mock_run_background(input, adk_agent, user_id, app_name, event_queue, client_proxy_toolsets, long_running_tool_ids=None, tool_results=None, message_batch=None):
             nonlocal captured_agent
             captured_agent = adk_agent
             # Just put a completion event in the queue and return
@@ -640,7 +640,7 @@ class TestADKAgent:
         captured_agent = None
         original_run_background = adk_agent._run_adk_in_background
 
-        async def mock_run_background(input, adk_agent, user_id, app_name, event_queue, client_proxy_toolsets, tool_results=None, message_batch=None):
+        async def mock_run_background(input, adk_agent, user_id, app_name, event_queue, client_proxy_toolsets, long_running_tool_ids=None, tool_results=None, message_batch=None):
             nonlocal captured_agent
             captured_agent = adk_agent
             # Just put a completion event in the queue and return
@@ -691,7 +691,7 @@ class TestADKAgent:
         # Mock the background execution to capture the agent
         captured_agent = None
 
-        async def mock_run_background(input, adk_agent, user_id, app_name, event_queue, client_proxy_toolsets, tool_results=None, message_batch=None):
+        async def mock_run_background(input, adk_agent, user_id, app_name, event_queue, client_proxy_toolsets, long_running_tool_ids=None, tool_results=None, message_batch=None):
             nonlocal captured_agent
             captured_agent = adk_agent
             await event_queue.put(None)
@@ -724,7 +724,7 @@ class TestADKAgent:
 
         captured_agent = None
 
-        async def mock_run_background(input, adk_agent, user_id, app_name, event_queue, client_proxy_toolsets, tool_results=None, message_batch=None):
+        async def mock_run_background(input, adk_agent, user_id, app_name, event_queue, client_proxy_toolsets, long_running_tool_ids=None, tool_results=None, message_batch=None):
             nonlocal captured_agent
             captured_agent = adk_agent
             await event_queue.put(None)
@@ -1076,6 +1076,120 @@ class TestADKAgent:
         assert all(isinstance(t, AGUIToolset) for t in root_agent.tools)
         assert root_agent.sub_agents[0].tools == original_child_tools
         assert all(isinstance(t, AGUIToolset) for t in root_agent.sub_agents[0].tools)
+
+    def test_shallow_copy_reparents_sub_agents(self):
+        """Copied sub-agents must point at the copied parent, not the original.
+
+        Regression for issue #1719: without re-parenting, ADK's
+        transfer_to_agent walks parent_agent up to the original tree whose
+        tools were never replaced, so the per-run copy is bypassed.
+        """
+        child = Agent(name="child", instruction="child")
+        root = Agent(name="root", instruction="root", sub_agents=[child])
+
+        assert child.parent_agent is root
+
+        copied_root = ADKAgent._shallow_copy_agent_tree(root)
+        copied_child = copied_root.sub_agents[0]
+
+        assert copied_root is not root
+        assert copied_child is not child
+        assert copied_child.parent_agent is copied_root
+        # Original tree must remain untouched.
+        assert child.parent_agent is root
+
+
+class TestSessionManagerDispatch:
+    """Regression tests for session_manager / session_service dispatch (issue #1601)."""
+
+    @pytest.fixture(autouse=True)
+    def reset_session_manager(self):
+        try:
+            SessionManager.reset_default()
+        except RuntimeError:
+            pass
+        yield
+        try:
+            SessionManager.reset_default()
+        except RuntimeError:
+            pass
+
+    @pytest.fixture
+    def mock_agent(self):
+        agent = Mock(spec=Agent)
+        agent.name = "test_agent"
+        return agent
+
+    def test_distinct_session_services_get_distinct_managers(self, mock_agent):
+        """Two ADKAgents with distinct session_services no longer share a manager (#1601)."""
+        from google.adk.sessions import InMemorySessionService
+        from ag_ui_adk.request_state_service import RequestStateSessionService
+
+        svc1 = InMemorySessionService()
+        svc2 = InMemorySessionService()
+
+        agent1 = ADKAgent(adk_agent=mock_agent, app_name="a", user_id="u", session_service=svc1)
+        agent2 = ADKAgent(adk_agent=mock_agent, app_name="a", user_id="u", session_service=svc2)
+
+        assert agent1._session_manager is not agent2._session_manager
+
+        # The wrapped service inside each manager should point to the caller's service.
+        wrapped1 = agent1._session_manager._session_service
+        wrapped2 = agent2._session_manager._session_service
+        assert isinstance(wrapped1, RequestStateSessionService)
+        assert isinstance(wrapped2, RequestStateSessionService)
+        assert wrapped1.inner is svc1
+        assert wrapped2.inner is svc2
+
+    def test_no_session_service_uses_shared_default(self, mock_agent):
+        """Multiple ADKAgents without explicit services share the process-wide default."""
+        agent1 = ADKAgent(adk_agent=mock_agent, app_name="a", user_id="u")
+        agent2 = ADKAgent(adk_agent=mock_agent, app_name="a", user_id="u")
+        assert agent1._session_manager is agent2._session_manager
+        assert agent1._session_manager is SessionManager.get_default()
+
+    def test_explicit_session_manager_is_used_as_is(self, mock_agent):
+        """A pre-built SessionManager passed in is honored."""
+        manager = SessionManager()
+        agent = ADKAgent(adk_agent=mock_agent, app_name="a", user_id="u", session_manager=manager)
+        assert agent._session_manager is manager
+
+    def test_session_manager_and_session_service_together_raises(self, mock_agent):
+        """Passing both session_manager and session_service is rejected."""
+        from google.adk.sessions import InMemorySessionService
+        manager = SessionManager()
+        with pytest.raises(ValueError, match="Cannot specify both"):
+            ADKAgent(
+                adk_agent=mock_agent,
+                app_name="a",
+                user_id="u",
+                session_manager=manager,
+                session_service=InMemorySessionService(),
+            )
+
+    def test_direct_construction_yields_distinct_instances(self):
+        """SessionManager() is no longer a singleton: each call returns a new instance."""
+        m1 = SessionManager()
+        m2 = SessionManager()
+        assert m1 is not m2
+
+    def test_get_default_returns_same_instance_on_repeated_calls(self):
+        """The shared default is sticky once built."""
+        m1 = SessionManager.get_default()
+        m2 = SessionManager.get_default()
+        assert m1 is m2
+
+    def test_reset_default_and_alias_clear_shared_default(self):
+        """reset_default() and the reset_instance alias both let a new default be built."""
+        m1 = SessionManager.get_default()
+        SessionManager.reset_default()
+        m2 = SessionManager.get_default()
+        assert m1 is not m2
+
+        m3 = SessionManager.get_default()
+        SessionManager.reset_instance()  # legacy alias
+        m4 = SessionManager.get_default()
+        assert m3 is not m4
 
 
 class TestThreadIdSessionIdMapping:

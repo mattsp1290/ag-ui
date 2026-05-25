@@ -27,6 +27,7 @@ import { A2AClient } from "@a2a-js/sdk/client";
 import { LangChainAgent } from "@ag-ui/langchain";
 import { Ag2Agent } from "@ag-ui/ag2";
 import { LangroidHttpAgent } from "@ag-ui/langroid";
+import { WatsonxAgent } from "@ag-ui/watsonx";
 import { A2UIMiddleware } from "@ag-ui/a2ui-middleware";
 
 const envVars = getEnvVars();
@@ -462,4 +463,16 @@ export const agentsIntegrations = {
         shared_state: "shared_state",
       },
     ),
+
+  watsonx: async () => {
+    const agent = new WatsonxAgent({
+      region: envVars.watsonxRegion,
+      instanceId: envVars.watsonxInstanceId,
+      agentId: envVars.watsonxAgentId,
+      apiKey: envVars.watsonxApiKey,
+    });
+    return {
+      agentic_chat: agent,
+    };
+  },
 } satisfies AgentsMap;

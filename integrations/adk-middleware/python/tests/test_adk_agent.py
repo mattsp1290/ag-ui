@@ -469,7 +469,7 @@ class TestADKAgent:
         captured_agent = None
         original_run_background = adk_agent._run_adk_in_background
 
-        async def mock_run_background(input, adk_agent, user_id, app_name, event_queue, client_proxy_toolsets, tool_results=None, message_batch=None):
+        async def mock_run_background(input, adk_agent, user_id, app_name, event_queue, client_proxy_toolsets, long_running_tool_ids=None, tool_results=None, message_batch=None):
             nonlocal captured_agent
             captured_agent = adk_agent
             # Just put a completion event in the queue and return
@@ -524,7 +524,7 @@ class TestADKAgent:
         captured_agent = None
         original_run_background = adk_agent._run_adk_in_background
 
-        async def mock_run_background(input, adk_agent, user_id, app_name, event_queue, client_proxy_toolsets, tool_results=None, message_batch=None):
+        async def mock_run_background(input, adk_agent, user_id, app_name, event_queue, client_proxy_toolsets, long_running_tool_ids=None, tool_results=None, message_batch=None):
             nonlocal captured_agent
             captured_agent = adk_agent
             # Just put a completion event in the queue and return
@@ -581,7 +581,7 @@ class TestADKAgent:
         captured_agent = None
         original_run_background = adk_agent._run_adk_in_background
 
-        async def mock_run_background(input, adk_agent, user_id, app_name, event_queue, client_proxy_toolsets, tool_results=None, message_batch=None):
+        async def mock_run_background(input, adk_agent, user_id, app_name, event_queue, client_proxy_toolsets, long_running_tool_ids=None, tool_results=None, message_batch=None):
             nonlocal captured_agent
             captured_agent = adk_agent
             # Just put a completion event in the queue and return
@@ -640,7 +640,7 @@ class TestADKAgent:
         captured_agent = None
         original_run_background = adk_agent._run_adk_in_background
 
-        async def mock_run_background(input, adk_agent, user_id, app_name, event_queue, client_proxy_toolsets, tool_results=None, message_batch=None):
+        async def mock_run_background(input, adk_agent, user_id, app_name, event_queue, client_proxy_toolsets, long_running_tool_ids=None, tool_results=None, message_batch=None):
             nonlocal captured_agent
             captured_agent = adk_agent
             # Just put a completion event in the queue and return
@@ -691,7 +691,7 @@ class TestADKAgent:
         # Mock the background execution to capture the agent
         captured_agent = None
 
-        async def mock_run_background(input, adk_agent, user_id, app_name, event_queue, client_proxy_toolsets, tool_results=None, message_batch=None):
+        async def mock_run_background(input, adk_agent, user_id, app_name, event_queue, client_proxy_toolsets, long_running_tool_ids=None, tool_results=None, message_batch=None):
             nonlocal captured_agent
             captured_agent = adk_agent
             await event_queue.put(None)
@@ -724,7 +724,7 @@ class TestADKAgent:
 
         captured_agent = None
 
-        async def mock_run_background(input, adk_agent, user_id, app_name, event_queue, client_proxy_toolsets, tool_results=None, message_batch=None):
+        async def mock_run_background(input, adk_agent, user_id, app_name, event_queue, client_proxy_toolsets, long_running_tool_ids=None, tool_results=None, message_batch=None):
             nonlocal captured_agent
             captured_agent = adk_agent
             await event_queue.put(None)
@@ -949,23 +949,42 @@ class TestADKAgent:
             assert agent_under_test.tools == []
             assert len(agent_under_test.sub_agents) == 2
 
-            # assert that the hello_agent has only the hello_tool via ClientProxyToolset
+            # ag-ui#1389: AGUIToolset placeholders are NOT replaced wholesale —
+            # they get a ClientProxyToolset delegate bound to them, preserving
+            # object identity so ADK 2.0's eager Runner cache stays valid.
+            # Test the delegated behavior: each AGUIToolset.tool_filter and
+            # the underlying delegate's tool_filter must match the declared
+            # tool_filter from agent construction.
+
+            # hello_agent: AGUIToolset with hello_tool filter, delegate also has it
             assert agent_under_test.sub_agents[0].name == "hello_agent"
             assert len(agent_under_test.sub_agents[0].tools) == 1
-            assert isinstance(agent_under_test.sub_agents[0].tools[0], ClientProxyToolset)
-            assert agent_under_test.sub_agents[0].tools[0].tool_filter == ['hello_tool']
+            hello_toolset = agent_under_test.sub_agents[0].tools[0]
+            assert isinstance(hello_toolset, AGUIToolset)
+            assert hello_toolset.tool_filter == ['hello_tool']
+            assert hello_toolset._delegate is not None
+            assert isinstance(hello_toolset._delegate, ClientProxyToolset)
+            assert hello_toolset._delegate.tool_filter == ['hello_tool']
 
-            # assert that the deep_agent has only the deep_tool via ClientProxyToolset
+            # deep_agent: AGUIToolset with deep_tool filter, delegate also has it
             assert agent_under_test.sub_agents[0].sub_agents[0].name == "deep_agent"
             assert len(agent_under_test.sub_agents[0].sub_agents[0].tools) == 1
-            assert isinstance(agent_under_test.sub_agents[0].sub_agents[0].tools[0], ClientProxyToolset)
-            assert agent_under_test.sub_agents[0].sub_agents[0].tools[0].tool_filter == ['deep_tool']
+            deep_toolset = agent_under_test.sub_agents[0].sub_agents[0].tools[0]
+            assert isinstance(deep_toolset, AGUIToolset)
+            assert deep_toolset.tool_filter == ['deep_tool']
+            assert deep_toolset._delegate is not None
+            assert isinstance(deep_toolset._delegate, ClientProxyToolset)
+            assert deep_toolset._delegate.tool_filter == ['deep_tool']
 
-            # assert that the goodbye_agent has only the goodbye_tool via ClientProxyToolset
+            # goodbye_agent: AGUIToolset with goodbye_tool filter, delegate also has it
             assert agent_under_test.sub_agents[1].name == "goodbye_agent"
             assert len(agent_under_test.sub_agents[1].tools) == 1
-            assert isinstance(agent_under_test.sub_agents[1].tools[0], ClientProxyToolset)
-            assert agent_under_test.sub_agents[1].tools[0].tool_filter == ['goodbye_tool']
+            goodbye_toolset = agent_under_test.sub_agents[1].tools[0]
+            assert isinstance(goodbye_toolset, AGUIToolset)
+            assert goodbye_toolset.tool_filter == ['goodbye_tool']
+            assert goodbye_toolset._delegate is not None
+            assert isinstance(goodbye_toolset._delegate, ClientProxyToolset)
+            assert goodbye_toolset._delegate.tool_filter == ['goodbye_tool']
 
     @pytest.mark.asyncio
     async def test_non_deepcopyable_tool_does_not_crash(self):
@@ -1019,14 +1038,27 @@ class TestADKAgent:
             submethod_mocked.assert_called_once()
             agent_under_test = submethod_mocked.call_args.kwargs['adk_agent']
 
-            # The unpicklable toolset should be preserved (shared by reference)
-            non_proxy_tools = [
-                t for t in agent_under_test.tools
-                if not isinstance(t, ClientProxyToolset)
+            # The unpicklable toolset should be preserved (shared by reference).
+            # ag-ui#1389: AGUIToolsets now also stay by reference (bind-delegation
+            # pattern) instead of being replaced, so both tools should be
+            # present in agent.tools — just the AGUIToolset now has a bound
+            # ClientProxyToolset delegate.
+            assert len(agent_under_test.tools) == 2
+
+            agui_toolsets = [
+                t for t in agent_under_test.tools if isinstance(t, AGUIToolset)
             ]
-            assert len(non_proxy_tools) == 1
-            assert non_proxy_tools[0] is unpicklable
-            assert non_proxy_tools[0].errlog is sys.stderr
+            assert len(agui_toolsets) == 1
+            assert agui_toolsets[0]._delegate is not None
+            assert isinstance(agui_toolsets[0]._delegate, ClientProxyToolset)
+
+            non_proxy_non_agui_tools = [
+                t for t in agent_under_test.tools
+                if not isinstance(t, (ClientProxyToolset, AGUIToolset))
+            ]
+            assert len(non_proxy_non_agui_tools) == 1
+            assert non_proxy_non_agui_tools[0] is unpicklable
+            assert non_proxy_non_agui_tools[0].errlog is sys.stderr
 
     @pytest.mark.asyncio
     async def test_original_agent_not_mutated_after_run(self):
@@ -1076,6 +1108,27 @@ class TestADKAgent:
         assert all(isinstance(t, AGUIToolset) for t in root_agent.tools)
         assert root_agent.sub_agents[0].tools == original_child_tools
         assert all(isinstance(t, AGUIToolset) for t in root_agent.sub_agents[0].tools)
+
+    def test_shallow_copy_reparents_sub_agents(self):
+        """Copied sub-agents must point at the copied parent, not the original.
+
+        Regression for issue #1719: without re-parenting, ADK's
+        transfer_to_agent walks parent_agent up to the original tree whose
+        tools were never replaced, so the per-run copy is bypassed.
+        """
+        child = Agent(name="child", instruction="child")
+        root = Agent(name="root", instruction="root", sub_agents=[child])
+
+        assert child.parent_agent is root
+
+        copied_root = ADKAgent._shallow_copy_agent_tree(root)
+        copied_child = copied_root.sub_agents[0]
+
+        assert copied_root is not root
+        assert copied_child is not child
+        assert copied_child.parent_agent is copied_root
+        # Original tree must remain untouched.
+        assert child.parent_agent is root
 
 
 class TestSessionManagerDispatch:

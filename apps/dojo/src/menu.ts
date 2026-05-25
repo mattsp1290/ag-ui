@@ -324,4 +324,12 @@ export const menuIntegrations = [
       "shared_state",
     ],
   },
+  {
+    id: "watsonx",
+    name: "IBM watsonx orchestrate",
+    features: [
+      "agentic_chat",
+      "v1_agentic_chat",
+    ],
+  },
 ] as const satisfies MenuIntegrationConfig[];

@@ -7,7 +7,7 @@
  * fast and hermetic and avoids needing a model provider.
  */
 
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { ToolUseBlock, ToolResultBlock, TextBlock } from "@strands-agents/sdk";
 import type { AgentStreamEvent } from "@strands-agents/sdk";
 import { EventType } from "@ag-ui/core";
@@ -87,6 +87,84 @@ describe("StrandsAgent.run — lifecycle", () => {
     expect(last.type).toBe(EventType.RUN_ERROR);
     expect(last.code).toBe("STRANDS_ERROR");
     expect(last.message).toBe("boom");
+  });
+
+  it("classifies TypeError thrown during run as ADAPTER_BUG (code defect)", async () => {
+    // STRANDS_ERROR is reserved for SDK/provider failures (Bedrock throttling,
+    // upstream 5xx). TypeError/ReferenceError indicate the adapter itself is
+    // broken — distinguishing the two lets operators tell "fix our code" from
+    // "retry against the SDK".
+    const agent = scriptedStrandsAgent([], {
+      stubOverrides: {
+        stream: async function* () {
+          throw new TypeError("cannot read property 'foo' of undefined");
+        } as unknown as import("@strands-agents/sdk").Agent["stream"],
+      },
+    });
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const events = await collect(agent);
+    spy.mockRestore();
+    const last = events[events.length - 1] as unknown as {
+      type: string;
+      code: string;
+    };
+    expect(last.type).toBe(EventType.RUN_ERROR);
+    expect(last.code).toBe("ADAPTER_BUG");
+  });
+
+  it("propagates a TypeError thrown after pendingHalt was set (M4)", async () => {
+    // pendingHalt is set when a frontend tool fires; the surrounding `for await`
+    // historically swallowed any post-halt stream error as the expected
+    // "Stream ended" sentinel. TypeError/ReferenceError must escape that
+    // sentinel handling because they indicate code defects, not the normal
+    // halt-on-frontend-tool path.
+    const stub = scriptedAgent([], {
+      stream: async function* () {
+        // Frontend tool sets pendingHalt …
+        yield {
+          type: "modelContentBlockStartEvent",
+          start: {
+            type: "toolUseStart",
+            name: "frontend_tool",
+            toolUseId: "tc1",
+          },
+        } as unknown as AgentStreamEvent;
+        yield {
+          type: "modelContentBlockDeltaEvent",
+          delta: { type: "toolUseInputDelta", input: '{"x":1}' },
+        } as unknown as AgentStreamEvent;
+        yield {
+          type: "modelContentBlockStopEvent",
+        } as unknown as AgentStreamEvent;
+        // … then an adapter bug throws.
+        throw new TypeError("cannot read property 'foo' of undefined");
+      } as unknown as import("@strands-agents/sdk").Agent["stream"],
+    });
+    const agent = new StrandsAgent({ agent: stub, name: "t" });
+    const byThread = (
+      agent as unknown as { _agentsByThread: Map<string, unknown> }
+    )._agentsByThread;
+    byThread.set("thread-1", stub);
+    byThread.set("default", stub);
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const events = await collect(
+      agent,
+      minimalRunInput({
+        tools: [
+          {
+            name: "frontend_tool",
+            description: "",
+            parameters: { type: "object", properties: {} },
+          },
+        ],
+      }),
+    );
+    spy.mockRestore();
+    const error = events.find((e) => e.type === EventType.RUN_ERROR) as
+      | { code: string }
+      | undefined;
+    expect(error).toBeTruthy();
+    expect(error!.code).toBe("ADAPTER_BUG");
   });
 });
 

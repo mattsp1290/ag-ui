@@ -114,8 +114,11 @@ export function syncProxyTools(
     if (!t.name) continue;
     const existing = toolRegistry.get(t.name);
     if (existing && !isProxyTool(existing)) {
-      // Native tool — do not overwrite.
-      log.debug(`${LOG_PREFIX} Skipping proxy for native tool: ${t.name}`);
+      // Native tool shadows client tool — warn so integrators can detect
+      // the collision (client's tool will never execute).
+      log.warn(
+        `${LOG_PREFIX} Native tool "${t.name}" shadows client-declared tool with the same name; client tool will not be registered`,
+      );
       continue;
     }
     if (existing) {

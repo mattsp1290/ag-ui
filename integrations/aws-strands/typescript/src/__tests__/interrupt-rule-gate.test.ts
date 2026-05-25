@@ -102,4 +102,72 @@ describe("StrandsAgent resume[] gate (interrupts.mdx rule 4)", () => {
       EventType.RUN_FINISHED,
     ]);
   });
+
+  it("clears stale pending interrupt IDs when a non-resume run starts", async () => {
+    // Reproduces H1: a thread with an outstanding interrupt that the client
+    // abandons (sends a fresh prompt instead of resume[]) must not leave the
+    // old interruptIds in `_pendingInterruptsByThread`. Otherwise a later
+    // replayed/raced resume[] could be accepted as valid against dead IDs.
+    const agent = new NeverRanAgent();
+    const pending = (
+      agent as unknown as {
+        _pendingInterruptsByThread: Map<string, Set<string>>;
+      }
+    )._pendingInterruptsByThread;
+    pending.set("t", new Set(["stale-1", "stale-2"]));
+
+    // Plain (non-resume) run on the same thread — the run itself should
+    // succeed AND the stale IDs should be wiped.
+    const events = await collect(
+      agent,
+      minimalRunInput({ threadId: "t", runId: "r1" }),
+    );
+    expect(events.map((e) => e.type)).toEqual([
+      EventType.RUN_STARTED,
+      EventType.RUN_FINISHED,
+    ]);
+    expect(pending.has("t")).toBe(false);
+
+    // A subsequent resume[] referencing the now-stale ID must be rejected.
+    const rejected = await collect(
+      agent,
+      minimalRunInput({
+        threadId: "t",
+        runId: "r2",
+        resume: [{ interruptId: "stale-1", status: "resolved", payload: {} }],
+      }),
+    );
+    expect(rejected.map((e) => e.type)).toEqual([
+      EventType.RUN_STARTED,
+      EventType.RUN_ERROR,
+    ]);
+    const err = rejected[1] as unknown as { code: string };
+    expect(err.code).toBe("UNKNOWN_INTERRUPT");
+  });
+
+  it("does not clear pending interrupts when the run IS a resume", async () => {
+    // Resume path manages cleanup itself (delete after building
+    // InterruptResponseContent[] in `_runSingleAgent`). The gate must NOT
+    // wipe pending IDs on the resume path or the resume itself would fail.
+    const agent = new NeverRanAgent();
+    const pending = (
+      agent as unknown as {
+        _pendingInterruptsByThread: Map<string, Set<string>>;
+      }
+    )._pendingInterruptsByThread;
+    pending.set("t", new Set(["live-1"]));
+
+    // Valid resume entry passes the gate, then NeverRanAgent's stub _runRaw
+    // returns without touching the map. Verify the gate itself does not
+    // delete the pending set.
+    await collect(
+      agent,
+      minimalRunInput({
+        threadId: "t",
+        runId: "r1",
+        resume: [{ interruptId: "live-1", status: "resolved", payload: {} }],
+      }),
+    );
+    expect(pending.get("t")?.has("live-1")).toBe(true);
+  });
 });

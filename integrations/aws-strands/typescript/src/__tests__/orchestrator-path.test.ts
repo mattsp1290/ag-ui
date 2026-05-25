@@ -189,6 +189,70 @@ describe("Orchestrator path", () => {
     expect(customs[0].value.message).toBe("passing the baton");
   });
 
+  it("tears down the underlying orchestrator stream when the consumer bails", async () => {
+    // The orchestrator interface doesn't accept a cancelSignal (unlike single-
+    // agent Agent.stream()), so the only way to stop a long-running
+    // orchestrator on client disconnect is to call `.return()` on its
+    // iterator. This test pins that teardown behavior.
+    let tornDown = false;
+    let yieldControl: (() => void) | null = null;
+    const orchestrator = {
+      id: "test-graph",
+      async *stream(_input: string) {
+        try {
+          // Wrap text in nodeStreamUpdateEvent so the orchestrator path
+          // produces a TEXT_MESSAGE_CONTENT we can wait on.
+          yield {
+            type: "nodeStreamUpdateEvent",
+            inner: {
+              source: "agent",
+              event: {
+                type: "modelContentBlockDeltaEvent",
+                delta: { type: "textDelta", text: "hi" },
+              },
+            },
+          };
+          // Park here until the test signals release; this simulates a
+          // long-running orchestrator that hasn't completed when the consumer
+          // abandons the iterator.
+          await new Promise<void>((resolve) => {
+            yieldControl = resolve;
+          });
+        } finally {
+          tornDown = true;
+        }
+      },
+    };
+
+    const agent = new StrandsAgent({
+      agent: orchestrator as never,
+      name: "t",
+    });
+    const iter = agent.run({
+      threadId: "t",
+      runId: "r",
+      state: {},
+      messages: [],
+      tools: [],
+      context: [],
+      forwardedProps: {},
+    });
+    // Consume events until we see text content (the orchestrator is now
+    // parked at the await above).
+    for (let i = 0; i < 10; i++) {
+      const step = await iter.next();
+      if (step.done) break;
+      if ((step.value as { type: string }).type === EventType.TEXT_MESSAGE_CONTENT)
+        break;
+    }
+    // Bail: emulates the SSE writer detecting client disconnect.
+    await iter.return?.();
+    // Release the parked orchestrator so its finally can run.
+    (yieldControl as (() => void) | null)?.();
+    await new Promise((r) => setTimeout(r, 20));
+    expect(tornDown).toBe(true);
+  });
+
   it("nodeCancelEvent is silently dropped (Py has no handler; TS matches)", async () => {
     // Py's SDK emits `multiagent_node_cancel` when a node is cancelled via
     // BeforeNodeCallEvent.cancel. The Py adapter has no elif branch for

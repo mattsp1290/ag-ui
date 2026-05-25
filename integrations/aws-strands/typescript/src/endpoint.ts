@@ -23,18 +23,25 @@ const SNAKE_TO_CAMEL: Record<string, string> = {
   run_id: "runId",
   parent_run_id: "parentRunId",
   forwarded_props: "forwardedProps",
+  tool_call_id: "toolCallId",
+  parent_message_id: "parentMessageId",
 };
 
+const UNSAFE_KEYS = new Set(["__proto__", "constructor", "prototype"]);
+
 function normalizeRunAgentInputKeys(raw: unknown): unknown {
-  if (raw === null || typeof raw !== "object" || Array.isArray(raw)) return raw;
+  if (raw === null || typeof raw !== "object") return raw;
+  if (Array.isArray(raw)) return raw.map(normalizeRunAgentInputKeys);
   const src = raw as Record<string, unknown>;
-  const out: Record<string, unknown> = {};
+  const out: Record<string, unknown> = Object.create(null);
   for (const [key, value] of Object.entries(src)) {
+    if (UNSAFE_KEYS.has(key)) continue;
     const target = SNAKE_TO_CAMEL[key] ?? key;
-    // Prefer an explicit camelCase value if both were supplied — the camelCase
-    // form is the canonical wire key.
     if (target in out) continue;
-    out[target] = value;
+    out[target] =
+      value !== null && typeof value === "object"
+        ? normalizeRunAgentInputKeys(value)
+        : value;
   }
   return out;
 }

@@ -344,7 +344,11 @@ async function _buildStrandsHistory(
         let parsed: unknown;
         try {
           parsed = JSON.parse(rawArgs);
-        } catch {
+        } catch (e) {
+          log.warn(
+            `${LOG_PREFIX} history tool args JSON parse failed for ${name}; falling back to {}`,
+            e,
+          );
           parsed = {};
         }
         if (
@@ -513,15 +517,18 @@ export class StrandsAgent {
 
   /** Run the Strands agent and yield AG-UI events. */
   async *run(inputData: RunAgentInput): AsyncGenerator<BaseEvent, void, void> {
+    const threadId = inputData.threadId || "default";
+    const hasResume =
+      Array.isArray(inputData.resume) && inputData.resume.length > 0;
+
     // interrupts.mdx rule 4: any resume[] entry referencing an unknown
     // interruptId MUST produce RUN_ERROR. Known IDs flow through to
     // `InterruptResponseContent[]`. Gated above `_runRaw` so subclasses
     // that override only `_runRaw` still inherit the check.
-    if (Array.isArray(inputData.resume) && inputData.resume.length > 0) {
-      const threadId = inputData.threadId || "default";
+    if (hasResume) {
       const pending = this._pendingInterruptsByThread.get(threadId);
-      const unknown = inputData.resume
-        .map((entry) => entry.interruptId)
+      const unknown = inputData
+        .resume!.map((entry) => entry.interruptId)
         .filter((id) => !pending?.has(id));
       if (unknown.length > 0) {
         yield _runStarted(inputData);
@@ -534,6 +541,12 @@ export class StrandsAgent {
         );
         return;
       }
+    } else {
+      // Non-resume run on this thread: any previously recorded interrupt
+      // IDs are stale (the client moved on instead of resuming). Drop them
+      // so a later replay/race cannot pass the resume[] gate above with a
+      // dead interruptId.
+      this._pendingInterruptsByThread.delete(threadId);
     }
     const source = this._runRaw(inputData);
     if (this.config.emitChunkEvents) {
@@ -575,6 +588,8 @@ export class StrandsAgent {
     inputData: RunAgentInput,
     threadId: string,
   ): AsyncGenerator<BaseEvent, void, void> {
+    yield _runStarted(inputData);
+
     // Get or create agent instance for this thread. When a
     // sessionManagerProvider is configured, the SessionManager handles
     // conversation persistence; otherwise state is held in-memory per thread.
@@ -594,11 +609,15 @@ export class StrandsAgent {
             this._log,
           );
         } catch (e) {
-          this._log.warn(
-            `${LOG_PREFIX} buildStrandsSeed failed for thread ${threadId}; ` +
-              "starting agent with empty history",
+          this._log.error(
+            `${LOG_PREFIX} buildStrandsSeed failed for thread ${threadId}: ${_errorMessage(e)}`,
             e,
           );
+          yield _runError(
+            "Failed to build conversation seed: " + _errorMessage(e),
+            "SEED_BUILD_ERROR",
+          );
+          return;
         }
       }
 
@@ -620,7 +639,6 @@ export class StrandsAgent {
                 `${LOG_PREFIX} sessionManagerProvider failed: ${msg}`,
                 e,
               );
-              yield _runStarted(inputData);
               yield _runError(
                 `Failed to initialize session manager: ${msg}`,
                 "SESSION_MANAGER_ERROR",
@@ -637,7 +655,6 @@ export class StrandsAgent {
               this._log.error(
                 `${LOG_PREFIX} sessionManagerProvider returned ${actual}; expected a SessionManager instance.`,
               );
-              yield _runStarted(inputData);
               yield _runError(
                 `sessionManagerProvider returned ${actual}; expected a SessionManager instance`,
                 "SESSION_MANAGER_INVALID_TYPE",
@@ -684,8 +701,6 @@ export class StrandsAgent {
         this._proxyToolNamesByThread.set(threadId, new Set());
       }
     }
-
-    yield _runStarted(inputData);
 
     try {
       // Seed the running ``MessagesSnapshotEvent`` payload from the full
@@ -797,10 +812,19 @@ export class StrandsAgent {
                 if (blocks.length > 0) {
                   userMessage = blocks;
                 } else {
-                  userMessage = flattenContentToText(msg.content) || "Hello";
-                  this._log.warn(
-                    `${LOG_PREFIX} all media content blocks failed conversion; falling back to text`,
-                  );
+                  const textFallback = flattenContentToText(msg.content);
+                  if (textFallback) {
+                    userMessage = textFallback;
+                    this._log.warn(
+                      `${LOG_PREFIX} all media content blocks failed conversion; falling back to text`,
+                    );
+                  } else {
+                    yield _runError(
+                      "All media content blocks failed conversion and no text fallback is available",
+                      "MEDIA_RESOLUTION_FAILED",
+                    );
+                    return;
+                  }
                 }
               } else {
                 userMessage = flattenContentToText(msg.content);
@@ -830,7 +854,16 @@ export class StrandsAgent {
             userMessage = builderResult;
           }
         } catch (e) {
-          this._log.warn(`${LOG_PREFIX} stateContextBuilder failed:`, e);
+          this._log.error(`${LOG_PREFIX} stateContextBuilder failed:`, e);
+          yield {
+            type: EventType.CUSTOM,
+            name: "hook_error",
+            value: {
+              hook: "stateContextBuilder",
+              tool: "__prompt__",
+              error: _errorMessage(e),
+            },
+          };
         }
       }
 
@@ -909,10 +942,19 @@ export class StrandsAgent {
                   );
                   if (typeof augmented === "string") first.text = augmented;
                 } catch (e) {
-                  this._log.warn(
+                  this._log.error(
                     `${LOG_PREFIX} stateContextBuilder failed:`,
                     e,
                   );
+                  yield {
+                    type: EventType.CUSTOM,
+                    name: "hook_error",
+                    value: {
+                      hook: "stateContextBuilder",
+                      tool: "__prompt__",
+                      error: _errorMessage(e),
+                    },
+                  };
                 }
                 break;
               }
@@ -962,6 +1004,12 @@ export class StrandsAgent {
             // final assistant message. If we've already decided to halt,
             // swallow the error — it's expected flow.
             if (pendingHalt || haltEventStream) {
+              if (
+                streamErr instanceof TypeError ||
+                streamErr instanceof ReferenceError
+              ) {
+                throw streamErr;
+              }
               haltEventStream = true;
               break;
             }
@@ -1235,7 +1283,11 @@ export class StrandsAgent {
               if (rawInput) {
                 try {
                   parsedInput = JSON.parse(rawInput);
-                } catch {
+                } catch (e) {
+                  this._log.warn(
+                    `${LOG_PREFIX} tool args JSON parse failed for ${toolName}; using raw string`,
+                    e,
+                  );
                   parsedInput = rawInput;
                 }
               }
@@ -1311,10 +1363,19 @@ export class StrandsAgent {
                       yield { type: EventType.STATE_SNAPSHOT, snapshot };
                     }
                   } catch (e) {
-                    this._log.warn(
+                    this._log.error(
                       `${LOG_PREFIX} stateFromArgs failed for ${toolName}:`,
                       e,
                     );
+                    yield {
+                      type: EventType.CUSTOM,
+                      name: "hook_error",
+                      value: {
+                        hook: "stateFromArgs",
+                        tool: toolName,
+                        error: _errorMessage(e),
+                      },
+                    };
                   }
                 }
 
@@ -1488,7 +1549,11 @@ export class StrandsAgent {
                   } catch {
                     try {
                       resultData = JSON.parse(cb.text.replace(/'/g, '"'));
-                    } catch {
+                    } catch (e) {
+                      this._log.warn(
+                        `${LOG_PREFIX} tool result JSON parse failed for ${toolName}; using raw text`,
+                        e,
+                      );
                       resultData = cb.text;
                     }
                   }
@@ -1564,10 +1629,19 @@ export class StrandsAgent {
                   yield { type: EventType.STATE_SNAPSHOT, snapshot };
                 }
               } catch (e) {
-                this._log.warn(
+                this._log.error(
                   `${LOG_PREFIX} stateFromResult failed for ${toolName}:`,
                   e,
                 );
+                yield {
+                  type: EventType.CUSTOM,
+                  name: "hook_error",
+                  value: {
+                    hook: "stateFromResult",
+                    tool: toolName,
+                    error: _errorMessage(e),
+                  },
+                };
               }
             }
 
@@ -1579,10 +1653,19 @@ export class StrandsAgent {
                   if (customEvent) yield customEvent;
                 }
               } catch (e) {
-                this._log.warn(
+                this._log.error(
                   `${LOG_PREFIX} customResultHandler failed for ${toolName}:`,
                   e,
                 );
+                yield {
+                  type: EventType.CUSTOM,
+                  name: "hook_error",
+                  value: {
+                    hook: "customResultHandler",
+                    tool: toolName,
+                    error: _errorMessage(e),
+                  },
+                };
               }
             }
 
@@ -1748,7 +1831,12 @@ export class StrandsAgent {
         runId: inputData.runId,
       };
     } catch (e) {
-      yield _runError(_errorMessage(e), "STRANDS_ERROR");
+      const code =
+        e instanceof TypeError || e instanceof ReferenceError
+          ? "ADAPTER_BUG"
+          : "STRANDS_ERROR";
+      this._log.error(`${LOG_PREFIX} _runSingleAgent failed:`, e);
+      yield _runError(_errorMessage(e), code);
     }
   }
 
@@ -1814,10 +1902,19 @@ export class StrandsAgent {
             yield { type: EventType.STATE_SNAPSHOT, snapshot };
           }
         } catch (e) {
-          this._log.warn(
+          this._log.error(
             `${LOG_PREFIX} stateFromArgs failed for ${toolName}:`,
             e,
           );
+          yield {
+            type: EventType.CUSTOM,
+            name: "hook_error",
+            value: {
+              hook: "stateFromArgs",
+              tool: toolName,
+              error: _errorMessage(e),
+            },
+          };
         }
       }
       return;
@@ -1833,10 +1930,19 @@ export class StrandsAgent {
           yield { type: EventType.STATE_SNAPSHOT, snapshot };
         }
       } catch (e) {
-        this._log.warn(
+        this._log.error(
           `${LOG_PREFIX} stateFromArgs failed for ${toolName}:`,
           e,
         );
+        yield {
+          type: EventType.CUSTOM,
+          name: "hook_error",
+          value: {
+            hook: "stateFromArgs",
+            tool: toolName,
+            error: _errorMessage(e),
+          },
+        };
       }
     }
 
@@ -1877,6 +1983,7 @@ export class StrandsAgent {
       parentMessageId: ctx.getMessageId(),
     };
 
+    let streamerFailed = false;
     if (behavior?.argsStreamer) {
       try {
         for await (const chunk of behavior.argsStreamer(callContext)) {
@@ -1888,14 +1995,19 @@ export class StrandsAgent {
           };
         }
       } catch (e) {
-        this._log.warn(
-          `${LOG_PREFIX} argsStreamer failed for ${toolName}, falling back to full args:`,
+        streamerFailed = true;
+        this._log.error(
+          `${LOG_PREFIX} argsStreamer failed for ${toolName}:`,
           e,
         );
         yield {
-          type: EventType.TOOL_CALL_ARGS,
-          toolCallId: ctx.toolUseId,
-          delta: argsStr,
+          type: EventType.CUSTOM,
+          name: "hook_error",
+          value: {
+            hook: "argsStreamer",
+            tool: toolName,
+            error: _errorMessage(e),
+          },
         };
       }
     } else {
@@ -1904,6 +2016,11 @@ export class StrandsAgent {
         toolCallId: ctx.toolUseId,
         delta: argsStr,
       };
+    }
+
+    if (streamerFailed) {
+      yield { type: EventType.TOOL_CALL_END, toolCallId: ctx.toolUseId };
+      return;
     }
 
     yield { type: EventType.TOOL_CALL_END, toolCallId: ctx.toolUseId };
@@ -1987,108 +2104,119 @@ export class StrandsAgent {
       let reasoningStarted = false;
       let reasoningMessageId: string | undefined;
 
-      for await (const rawEvent of this._orchestrator!.stream(prompt)) {
-        const event = unwrapStrandsEvent(rawEvent);
-        const kind = getEventKind(event);
+      const orchestratorStream = this._orchestrator!.stream(prompt);
+      try {
+        for await (const rawEvent of orchestratorStream) {
+          const event = unwrapStrandsEvent(rawEvent);
+          const kind = getEventKind(event);
 
-        if (kind === "beforeNodeCallEvent") {
-          const ev = event as { nodeId?: string; nodeType?: string };
-          // stepName must match the paired afterNodeCallEvent below so
-          // frontends can pair START/FINISH (events.mdx §StepFinished).
-          yield {
-            type: EventType.STEP_STARTED,
-            stepName: `${ev.nodeType ?? "agent"}:${ev.nodeId ?? "unknown"}`,
-          };
-          continue;
-        }
-        if (kind === "afterNodeCallEvent") {
-          const ev = event as { nodeId?: string; nodeType?: string };
-          if (messageStarted) {
-            yield { type: EventType.TEXT_MESSAGE_END, messageId };
-            messageStarted = false;
-            messageId = uuid();
-          }
-          if (reasoningStarted) {
+          if (kind === "beforeNodeCallEvent") {
+            const ev = event as { nodeId?: string; nodeType?: string };
+            // stepName must match the paired afterNodeCallEvent below so
+            // frontends can pair START/FINISH (events.mdx §StepFinished).
             yield {
-              type: EventType.REASONING_MESSAGE_END,
-              messageId: reasoningMessageId!,
+              type: EventType.STEP_STARTED,
+              stepName: `${ev.nodeType ?? "agent"}:${ev.nodeId ?? "unknown"}`,
             };
-            yield {
-              type: EventType.REASONING_END,
-              messageId: reasoningMessageId!,
-            };
-            reasoningStarted = false;
-            reasoningMessageId = undefined;
+            continue;
           }
-          yield {
-            type: EventType.STEP_FINISHED,
-            stepName: `${ev.nodeType ?? "agent"}:${ev.nodeId ?? "unknown"}`,
-          };
-          continue;
-        }
-        if (kind === "multiAgentHandoffEvent") {
-          const ev = event as {
-            source?: string;
-            targets?: string[];
-            message?: string;
-          };
-          yield {
-            type: EventType.CUSTOM,
-            name: "MultiAgentHandoff",
-            value: {
-              from_nodes: ev.source ? [ev.source] : [],
-              to_nodes: ev.targets ?? [],
-              message: ev.message,
-            },
-          };
-          continue;
-        }
-        if (kind === "nodeStreamUpdateEvent") {
-          // Inner event is the agent-level event emitted by the wrapped agent.
-          const ev = event as { inner?: { source?: string; event?: unknown } };
-          const inner = ev.inner?.event
-            ? unwrapStrandsEvent(ev.inner.event)
-            : undefined;
-          if (getEventKind(inner) === "modelContentBlockDeltaEvent") {
-            const delta = (
-              inner as { delta?: { type?: string; text?: string } }
-            ).delta;
-            if (delta?.type === "textDelta" && delta.text) {
-              if (!messageStarted) {
-                yield {
-                  type: EventType.TEXT_MESSAGE_START,
-                  messageId,
-                  role: "assistant",
-                };
-                messageStarted = true;
-              }
-              yield {
-                type: EventType.TEXT_MESSAGE_CONTENT,
-                messageId,
-                delta: delta.text,
-              };
-            } else if (delta?.type === "reasoningContentDelta" && delta.text) {
-              if (!reasoningStarted) {
-                reasoningMessageId = uuid();
-                yield {
-                  type: EventType.REASONING_START,
-                  messageId: reasoningMessageId,
-                };
-                yield {
-                  type: EventType.REASONING_MESSAGE_START,
-                  messageId: reasoningMessageId,
-                  role: "reasoning",
-                };
-                reasoningStarted = true;
-              }
-              yield {
-                type: EventType.REASONING_MESSAGE_CONTENT,
-                messageId: reasoningMessageId!,
-                delta: delta.text,
-              };
+          if (kind === "afterNodeCallEvent") {
+            const ev = event as { nodeId?: string; nodeType?: string };
+            if (messageStarted) {
+              yield { type: EventType.TEXT_MESSAGE_END, messageId };
+              messageStarted = false;
+              messageId = uuid();
             }
+            if (reasoningStarted) {
+              yield {
+                type: EventType.REASONING_MESSAGE_END,
+                messageId: reasoningMessageId!,
+              };
+              yield {
+                type: EventType.REASONING_END,
+                messageId: reasoningMessageId!,
+              };
+              reasoningStarted = false;
+              reasoningMessageId = undefined;
+            }
+            yield {
+              type: EventType.STEP_FINISHED,
+              stepName: `${ev.nodeType ?? "agent"}:${ev.nodeId ?? "unknown"}`,
+            };
+            continue;
           }
-          continue;
+          if (kind === "multiAgentHandoffEvent") {
+            const ev = event as {
+              source?: string;
+              targets?: string[];
+              message?: string;
+            };
+            yield {
+              type: EventType.CUSTOM,
+              name: "MultiAgentHandoff",
+              value: {
+                from_nodes: ev.source ? [ev.source] : [],
+                to_nodes: ev.targets ?? [],
+                message: ev.message,
+              },
+            };
+            continue;
+          }
+          if (kind === "nodeStreamUpdateEvent") {
+            // Inner event is the agent-level event emitted by the wrapped agent.
+            const ev = event as {
+              inner?: { source?: string; event?: unknown };
+            };
+            const inner = ev.inner?.event
+              ? unwrapStrandsEvent(ev.inner.event)
+              : undefined;
+            if (getEventKind(inner) === "modelContentBlockDeltaEvent") {
+              const delta = (
+                inner as { delta?: { type?: string; text?: string } }
+              ).delta;
+              if (delta?.type === "textDelta" && delta.text) {
+                if (!messageStarted) {
+                  yield {
+                    type: EventType.TEXT_MESSAGE_START,
+                    messageId,
+                    role: "assistant",
+                  };
+                  messageStarted = true;
+                }
+                yield {
+                  type: EventType.TEXT_MESSAGE_CONTENT,
+                  messageId,
+                  delta: delta.text,
+                };
+              } else if (delta?.type === "reasoningContentDelta" && delta.text) {
+                if (!reasoningStarted) {
+                  reasoningMessageId = uuid();
+                  yield {
+                    type: EventType.REASONING_START,
+                    messageId: reasoningMessageId,
+                  };
+                  yield {
+                    type: EventType.REASONING_MESSAGE_START,
+                    messageId: reasoningMessageId,
+                    role: "reasoning",
+                  };
+                  reasoningStarted = true;
+                }
+                yield {
+                  type: EventType.REASONING_MESSAGE_CONTENT,
+                  messageId: reasoningMessageId!,
+                  delta: delta.text,
+                };
+              }
+            }
+            continue;
+          }
+        }
+      } finally {
+        try {
+          await orchestratorStream.return(undefined as never);
+        } catch {
+          // ignore
         }
       }
 
@@ -2109,7 +2237,12 @@ export class StrandsAgent {
         runId: inputData.runId,
       };
     } catch (e) {
-      yield _runError(_errorMessage(e), "STRANDS_ERROR");
+      const code =
+        e instanceof TypeError || e instanceof ReferenceError
+          ? "ADAPTER_BUG"
+          : "STRANDS_ERROR";
+      this._log.error(`${LOG_PREFIX} _runOrchestrator failed:`, e);
+      yield _runError(_errorMessage(e), code);
     }
   }
 
@@ -2429,7 +2562,11 @@ export async function convertMessagesForStrandsSeed(
             input = tc.function.arguments
               ? JSON.parse(tc.function.arguments)
               : {};
-          } catch {
+          } catch (e) {
+            log?.warn(
+              `${LOG_PREFIX} seed tool args JSON parse failed for ${tc.function.name}; using raw string`,
+              e,
+            );
             input = tc.function.arguments ?? {};
           }
           content.push({

@@ -422,4 +422,77 @@ describe("addStrandsExpressEndpoint request validation", () => {
       await close();
     }
   });
+
+  it("normalizes nested snake_case keys (e.g. messages[].tool_call_id)", async () => {
+    // Cross-SDK clients sometimes send snake_case throughout the payload, not
+    // just at the top level. The normalizer must recurse so inner fields like
+    // tool_call_id reach the agent in canonical camelCase form.
+    const { port, agent, close } = await startApp();
+    try {
+      const res = await fetch(`http://127.0.0.1:${port}/`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "text/event-stream",
+        },
+        body: JSON.stringify({
+          thread_id: "t1",
+          run_id: "r1",
+          messages: [
+            {
+              id: "m1",
+              role: "tool",
+              content: "result",
+              tool_call_id: "tc1",
+            },
+          ],
+          state: {},
+          tools: [],
+          context: [],
+          forwardedProps: {},
+        }),
+      });
+      expect(res.status).toBe(200);
+      // Drain the SSE response so the server finishes cleanly before close().
+      await res.text();
+      expect(agent.seen).toHaveLength(1);
+      const msg = agent.seen[0]!.messages?.[0] as Record<string, unknown>;
+      expect(msg.toolCallId).toBe("tc1");
+    } finally {
+      await close();
+    }
+  });
+
+  it("does not pollute Object.prototype via __proto__ keys", async () => {
+    // The normalizer historically built its output object with `{}` (which
+    // inherits from Object.prototype). A malicious or malformed `__proto__`
+    // key in the payload could mutate Object.prototype. The normalizer now
+    // uses Object.create(null) and drops UNSAFE_KEYS entirely.
+    const { port, agent, close } = await startApp();
+    try {
+      const res = await fetch(`http://127.0.0.1:${port}/`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "text/event-stream",
+        },
+        body: JSON.stringify({
+          thread_id: "safe",
+          run_id: "r1",
+          __proto__: { polluted: true },
+          messages: [],
+          state: {},
+          tools: [],
+          context: [],
+          forwardedProps: {},
+        }),
+      });
+      // Drain so the server can shut down.
+      await res.text();
+      // Object.prototype must NOT be polluted regardless of response status.
+      expect(({} as Record<string, unknown>).polluted).toBeUndefined();
+    } finally {
+      await close();
+    }
+  });
 });

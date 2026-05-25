@@ -129,6 +129,31 @@ describe("syncProxyTools", () => {
     expect(names.has("native")).toBe(false);
   });
 
+  it("warns explicitly when a native tool shadows a client-declared tool", () => {
+    // Silent skipping leaves integrators wondering why their client tool
+    // never fires. The collision must surface at log.warn so it shows up in
+    // routine operator monitoring.
+    const reg = fakeRegistry();
+    reg.add(fakeTool("search"));
+    const warnings: string[] = [];
+    const mockLogger = {
+      debug() {},
+      warn(...args: unknown[]) {
+        warnings.push(args.map(String).join(" "));
+      },
+      error() {},
+    };
+    syncProxyTools(
+      reg as unknown as Parameters<typeof syncProxyTools>[0],
+      [aguiTool("search")],
+      new Set(),
+      mockLogger,
+    );
+    expect(warnings.some((w) => w.includes('Native tool "search" shadows'))).toBe(
+      true,
+    );
+  });
+
   it("passes an empty aguiTools array to evict every tracked proxy", () => {
     const reg = fakeRegistry();
     const first = syncProxyTools(

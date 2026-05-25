@@ -7,7 +7,7 @@
  */
 
 import { describe, it, expect } from "vitest";
-import type { InputContent } from "@ag-ui/core";
+import { EventType, type InputContent } from "@ag-ui/core";
 import { StrandsAgent } from "../agent";
 import { collect, minimalRunInput, scriptedAgent } from "./helpers";
 
@@ -96,23 +96,20 @@ describe("multimodal pass-through", () => {
         },
       },
     ];
-    await collect(
+    const events = await collect(
       agent,
       minimalRunInput({
         messages: [{ id: "u1", role: "user", content }],
       }),
     );
-    expect(calls).toHaveLength(1);
-    // Unsupported MIME: conversion yields zero blocks, replay falls back
-    // to a text-only user turn on agent.messages.
-    expect(calls[0]!.args).toBeUndefined();
-    const replayed = calls[0]!.messages as Array<{
-      role: string;
-      content: Array<{ type: string }>;
-    }>;
-    expect(replayed).toHaveLength(1);
-    expect(replayed[0]!.content).toHaveLength(1);
-    expect(replayed[0]!.content[0]!.type).toBe("textBlock");
+    // No text fallback available — emits MEDIA_RESOLUTION_FAILED error
+    // and does not invoke the agent.
+    expect(calls).toHaveLength(0);
+    const error = events.find((e) => e.type === EventType.RUN_ERROR) as
+      | { code: string; message: string }
+      | undefined;
+    expect(error).toBeTruthy();
+    expect(error!.code).toBe("MEDIA_RESOLUTION_FAILED");
   });
 
   it("preserves ContentBlock[] even when stateContextBuilder is configured", async () => {

@@ -27,7 +27,7 @@ function mountAgent(
 async function main(): Promise<void> {
   const app = express();
   app.use(cors({ origin: true, credentials: true }));
-  app.use(express.json({ limit: "50mb" }));
+  app.use(express.json({ limit: "4mb" }));
   addPing(app, "/ping");
   addCapabilities(app, "/capabilities");
 

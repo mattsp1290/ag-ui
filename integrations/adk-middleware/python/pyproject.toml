@@ -66,4 +66,8 @@ dev = [
     "pytest-asyncio>=1.0.0",
     "pytest-cov>=6.2.1",
     "pytest-xdist>=3.8.0",
+    # SQLAlchemy's async engine (used by ADK's ``DatabaseSessionService`` in
+    # several test fixtures) requires greenlet. ``google-adk[db]`` 2.0 pulls
+    # aiosqlite but not greenlet, so we declare it explicitly here.
+    "greenlet>=3.0",
 ]

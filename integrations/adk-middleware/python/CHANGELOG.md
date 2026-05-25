@@ -37,17 +37,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     `_run_adk_in_background`'s `finally` block walks the tree and calls `unbind()`
     so the next run starts with placeholders in their construction-time state.
   - **Additionally**, `AGUIToolset.__init__` now explicitly calls
-    `super().__init__()`. On both ADK 1.x and 2.0, `BaseToolset.__init__`
-    initializes the same three cache attributes (`_cached_invocation_id`,
-    `_cached_prefixed_tools`, `_use_invocation_cache`) — those attributes ship
-    in 1.x; the actual 2.0 change is that `llm_agent.py:185` eagerly reads
-    `getattr(toolset, '_use_invocation_cache')` while discovering tools.
-    Pre-#1746 `AGUIToolset` skipped `super().__init__()` because the placeholder
-    was replaced wholesale before any cache-aware code read it; once
-    `bind()` delegation preserves the instance (above), the attributes must be
-    initialized for the same caching paths 1.x already runs. Calling
-    `super().__init__()` is signature- and semantics-compatible on both majors,
-    so the change is dual-version safe.
+    `super().__init__()`. `BaseToolset.__init__` initializes the cache
+    attributes (`_use_invocation_cache`, `_cached_invocation_id`,
+    `_cached_prefixed_tools`) on both ADK 1.x and 2.0; the 2.0 change is
+    that `llm_agent.py:185` eagerly reads `_use_invocation_cache` and
+    silently drops the toolset when missing. Required now that bind()
+    delegation preserves the instance across the run.
   - **Tests**: `tests/test_adk_2_0_compat.py::TestAGUIToolsetDelegation` covers
     construction (super-init runs), unbound `get_tools()` returns `[]` (with an
     opt-in explicit-raise mode preserved for tests), bind/unbind round-trip,
@@ -82,9 +77,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - The predicate imports `google.adk.workflow.Workflow` lazily inside the
     function with a try/except guard, so ADK 1.x (which has no `workflow`
     module) returns `False` without raising.
-  - **Tests**: `tests/test_adk_2_0_compat.py::TestWorkflowRootDetection` covers
-    the LlmAgent-root-not-workflow path (must hold on both ADK majors), the
-    defensive no-root path, and (on ADK 2.0 only) Workflow-root detection.
+  - **Tests**: `tests/test_adk_2_0_compat.py::TestWorkflowRootDetection`
+    covers the predicate's three branches (LlmAgent-not-workflow, no-root,
+    Workflow-true via `Workflow(name="wf_root")`).
+    `TestWorkflowRootHitlEndToEnd` is the end-to-end regression: paused
+    HITL state, tool-result-only resume, capture `runner.run_async`'s
+    `new_message` and assert it carries the `function_response` (not the
+    #1534 placeholder). Paired negative-control pins the LlmAgent path.
+    Skips cleanly on ADK 1.x. Positive test fails on `main` with ADK 2.0
+    force-installed (Workflow gets the placeholder — #1669 reproduced) and
+    passes on this branch.
   - **Reporter**: filed [#1669](https://github.com/ag-ui-protocol/ag-ui/issues/1669)
     with the exact root cause and the proposed gating expression that this fix
     implements verbatim.

@@ -5,6 +5,17 @@ All notable changes to the AG-UI Ruby SDK will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0] - 2026-05-26
+
+### Added (0.2.0)
+
+- Reasoning events: `ReasoningStartEvent`, `ReasoningMessageStartEvent`, `ReasoningMessageContentEvent`, `ReasoningMessageEndEvent`, `ReasoningMessageChunkEvent`, `ReasoningEndEvent`, `ReasoningEncryptedValueEvent`
+- Run outcome support (`RunFinishedSuccessOutcome`, `RunFinishedInterruptOutcome`) in `RunFinishedEvent`
+- `reasoning` role added to `TEXT_MESSAGE_ROLE_VALUES`
+- Capabilities module: identity, transport, tools, output, state, multi-agent, reasoning, and multimodal input capability declarations
+- Update YARD template setup for Markdown documentation generation
+- Update Ruby SDK documentation pages (overview, types, events, capabilities)
+
 ## [0.1.0] - 2025-12-18
 
 ### Update Gemspec (0.1.5)

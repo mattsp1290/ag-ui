@@ -25,6 +25,9 @@ Core data structures that represent the building blocks of the system:
 - [Message types](/sdk/ruby/core/types#message-types) - User assistant communication and tool usage
 - [Context](/sdk/ruby/core/types#context) - Contextual information provided to agents
 - [Tool](/sdk/ruby/core/types#tool) - Defines functions that agents can call
+- [Interrupt and Resume](/sdk/ruby/core/types#interrupt) - Human-in-the-loop workflow support
+- [Multimodal Input Types](/sdk/ruby/core/types#imageinputcontent) - Image, audio, video, and document content fragments
+- [ReasoningMessage](/sdk/ruby/core/types#reasoningmessage) - Chain-of-thought reasoning messages
 - [State](/sdk/ruby/core/types#state) - Agent state management
 
 <Card
@@ -44,6 +47,7 @@ Events that power communication between agents and frontends:
 - [Lifecycle Events](/sdk/ruby/core/events#lifecycle-events) - Run and step tracking
 - [Text Message Events](/sdk/ruby/core/events#text-message-events) - Assistant message streaming
 - [Tool Call Events](/sdk/ruby/core/events#tool-call-events) - Function call lifecycle
+- [Reasoning Events](/sdk/ruby/core/events#reasoning-events) - Chain-of-thought streaming events
 - [State Management Events](/sdk/ruby/core/events#state-management-events) - Agent state updates
 - [Special Events](/sdk/ruby/core/events#special-events) - Raw and custom events
 
@@ -55,4 +59,29 @@ Events that power communication between agents and frontends:
   iconType="solid"
 >
   Complete documentation of all events in the AgUiProtocol::Core::Events namespace
+</Card>
+
+## Capabilities
+
+Agent capability declarations that define what an agent can do:
+
+- [AgentCapabilities](/sdk/ruby/core/capabilities#agentcapabilities) - Top-level capability declaration
+- [IdentityCapabilities](/sdk/ruby/core/capabilities#identitycapabilities) - Agent identity and versioning
+- [TransportCapabilities](/sdk/ruby/core/capabilities#transportcapabilities) - Protocol and encoding support
+- [ToolsCapabilities](/sdk/ruby/core/capabilities#toolscapabilities) - Tool execution features
+- [StateCapabilities](/sdk/ruby/core/capabilities#statecapabilities) - State management modes
+- [MultiAgentCapabilities](/sdk/ruby/core/capabilities#multiagentcapabilities) - Multi-agent coordination
+- [ReasoningCapabilities](/sdk/ruby/core/capabilities#reasoningcapabilities) - Reasoning and encrypted values
+- [MultimodalCapabilities](/sdk/ruby/core/capabilities#multimodalcapabilities) - Multimodal input support
+- [ExecutionCapabilities](/sdk/ruby/core/capabilities#executioncapabilities) - Timeout and retry settings
+- [HumanInTheLoopCapabilities](/sdk/ruby/core/capabilities#humanintheloopcapabilities) - Interrupt and approval support
+
+<Card
+  title="Capabilities Reference"
+  icon="cube"
+  href="/sdk/ruby/core/capabilities"
+  color="#3B82F6"
+  iconType="solid"
+>
+  Complete documentation of all capabilities in the AgUiProtocol::Core::Capabilities namespace
 </Card>

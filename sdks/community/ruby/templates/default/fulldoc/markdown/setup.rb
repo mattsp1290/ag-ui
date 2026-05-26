@@ -23,6 +23,12 @@ TARGET_PAGES = {
     title: "Overview",
     document_title: "Event Encoder",
     description: "Documentation for encoding Agent User Interaction Protocol events (Ruby SDK)"
+  },
+  "AgUiProtocol::Core::Capabilities" => {
+    path: "core/capabilities",
+    title: "Capabilities",
+    document_title: "Agent Capabilities",
+    description: "Documentation for agent capability declarations in the Agent User Interaction Protocol (Ruby SDK)"
   }
 }.freeze
 
@@ -747,6 +753,8 @@ def serialize(object)
     serialize_types_page
   when "AgUiProtocol::Encoder"
     serialize_encoder_page
+  when "AgUiProtocol::Core::Capabilities"
+    serialize_capabilities_page
   else
     ""
   end
@@ -942,6 +950,51 @@ def serialize_types_page
   out << "## State\n\n"
   out << "`State` is represented as `Any`.\n\n"
   out << "The state type is flexible and can hold any data structure needed by the agent implementation.\n"
+
+  out
+end
+
+def serialize_capabilities_page
+  capabilities_module = Registry.at("AgUiProtocol::Core::Capabilities")
+  out = +""
+  page_header(out, "AgUiProtocol::Core::Capabilities")
+  return out unless capabilities_module
+
+  module_doc = rdoc_to_md(capabilities_module.docstring).to_s.strip
+  preamble_doc, _section_docs, section_order = extract_virtual_sections(module_doc)
+  out << "#{preamble_doc}\n\n" unless preamble_doc.empty?
+
+  classes = capabilities_module.children.grep(CodeObjects::ClassObject).sort_by { |c| c.name.to_s }
+
+  rendered = Set.new
+  section_order.each do |title|
+    klass = classes.find { |c| c.name.to_s == title }
+    next unless klass
+    next if rendered.include?(klass.path)
+
+    rendered << klass.path
+    out << "## #{klass.name}\n\n"
+    out << "#{inline_code(klass.path)}\n\n"
+
+    append_doc(out, klass.docstring)
+    append_tags(out, klass)
+
+    table = render_params_table_for(klass)
+    out << table unless table.empty?
+  end
+
+  classes.each do |klass|
+    next if rendered.include?(klass.path)
+
+    out << "## #{klass.name}\n\n"
+    out << "#{inline_code(klass.path)}\n\n"
+
+    append_doc(out, klass.docstring)
+    append_tags(out, klass)
+
+    table = render_params_table_for(klass)
+    out << table unless table.empty?
+  end
 
   out
 end

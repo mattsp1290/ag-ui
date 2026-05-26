@@ -21,6 +21,13 @@ AgUiProtocol::Core::Events::EventType::ACTIVITY_SNAPSHOT
 AgUiProtocol::Core::Events::EventType::CUSTOM
 AgUiProtocol::Core::Events::EventType::MESSAGES_SNAPSHOT
 AgUiProtocol::Core::Events::EventType::RAW
+AgUiProtocol::Core::Events::EventType::REASONING_ENCRYPTED_VALUE
+AgUiProtocol::Core::Events::EventType::REASONING_END
+AgUiProtocol::Core::Events::EventType::REASONING_MESSAGE_CHUNK
+AgUiProtocol::Core::Events::EventType::REASONING_MESSAGE_CONTENT
+AgUiProtocol::Core::Events::EventType::REASONING_MESSAGE_END
+AgUiProtocol::Core::Events::EventType::REASONING_MESSAGE_START
+AgUiProtocol::Core::Events::EventType::REASONING_START
 AgUiProtocol::Core::Events::EventType::RUN_ERROR
 AgUiProtocol::Core::Events::EventType::RUN_FINISHED
 AgUiProtocol::Core::Events::EventType::RUN_STARTED
@@ -107,13 +114,49 @@ run_id: "r1", result: { "a" => 1 })
 
 **@category** [] Lifecycle Events
 
-| Property    | Type                | Description                                                         |
-| ----------- | ------------------- | ------------------------------------------------------------------- |
-| `thread_id` | `String`            | ID of the conversation thread                                       |
-| `run_id`    | `String`            | ID of the run                                                       |
-| `result`    | `Object` (optional) | Result data from the agent run , Default: `nil`.                    |
-| `timestamp` | `Time` (optional)   | Timestamp when the event was created , Default: `nil`.              |
-| `raw_event` | `Object` (optional) | Original event data if this event was transformed , Default: `nil`. |
+| Property    | Type                                                                 | Description                                                         |
+| ----------- | -------------------------------------------------------------------- | ------------------------------------------------------------------- |
+| `thread_id` | `String`                                                             | ID of the conversation thread                                       |
+| `run_id`    | `String`                                                             | ID of the run                                                       |
+| `result`    | `Object` (optional)                                                  | Result data from the agent run , Default: `nil`.                    |
+| `outcome`   | `RunFinishedSuccessOutcome , RunFinishedInterruptOutcome` (optional) | Outcome of the run , Default: `nil`.                                |
+| `timestamp` | `Time` (optional)                                                    | Timestamp when the event was created , Default: `nil`.              |
+| `raw_event` | `Object` (optional)                                                  | Original event data if this event was transformed , Default: `nil`. |
+
+### RunFinishedInterruptOutcome
+
+`AgUiProtocol::Core::Events::RunFinishedInterruptOutcome`
+
+Represents an interrupt outcome for a run.
+
+```ruby outcome = AgUiProtocol::Core::Events::RunFinishedInterruptOutcome.new(
+    interrupts: [
+      AgUiProtocol::Core::Types::Interrupt.new(id: "int_1", reason: "input_required")
+    ]
+
+) ```
+
+| Property     | Type                                          | Description                            |
+| ------------ | --------------------------------------------- | -------------------------------------- |
+| `interrupts` | `Array<AgUiProtocol::Core::Types::Interrupt>` | List of interrupts                     |
+| `type`       | `String` (optional)                           | Outcome type , Default: `"interrupt"`. |
+
+### RunFinishedSuccessOutcome
+
+`AgUiProtocol::Core::Events::RunFinishedSuccessOutcome`
+
+Represents a successful outcome for a run.
+
+```ruby outcome = AgUiProtocol::Core::Events::RunFinishedSuccessOutcome.new
+```
+
+| Property          | Type     | Description                                       |
+| ----------------- | -------- | ------------------------------------------------- |
+| `subtype`         | `String` | Subtype ("tool-call" or "message")                |
+| `entity_id`       | `String` | ID of the entity being encrypted                  |
+| `encrypted_value` | `String` | The encrypted value                               |
+| `timestamp`       | `Time`   | Timestamp when the event was created              |
+| `raw_event`       | `Object` | Original event data if this event was transformed |
 
 ### RunStartedEvent
 

@@ -7,13 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.4] - 2026-05-26
+
 ### Added
 
 - **DEPS**: `google-adk` upper bound lifted from `<2.0.0` to `<3.0.0`. The middleware
   is now compatible with both ADK 1.x and ADK 2.x (GA 2026-05-19). See the two
   paired fixes below for the source changes that enable 2.0 support without
-  regressing 1.x. CI should ideally run the suite under both ADK 1.33 and ADK 2.0
-  to keep the dual-pin invariant honest.
+  regressing 1.x. Verified against `google-adk==1.33.0`, `google-adk==2.0.0`, and
+  `google-adk[a2a]==2.1.0` (the `[a2a]` extra only pulls `a2a-sdk` and does not
+  intersect any middleware code path). CI should ideally run the suite under both
+  ADK 1.33 and the latest 2.x to keep the dual-pin invariant honest.
 
 ### Fixed
 

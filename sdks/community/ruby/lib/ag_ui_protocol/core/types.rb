@@ -25,7 +25,7 @@ module AgUiProtocol
       #
       # ```
       # @category Message Types
-      Role = ["developer", "system", "assistant", "user", "tool", "activity"].freeze
+      Role = ["developer", "system", "assistant", "user", "tool", "activity", "reasoning"].freeze
 
       # Base model for protocol entities.
       #
@@ -119,14 +119,19 @@ module AgUiProtocol
         sig { returns(FunctionCall) }
         attr_reader :function
 
+        sig { returns(T.nilable(String)) }
+        attr_reader :encrypted_value
+
         # @param id [String] Unique identifier for the tool call
         # @param function [FunctionCall, Hash] Function name and arguments
         # @param type [String] Type of the tool call
-        sig { params(id: String, function: T.untyped, type: String).void }
-        def initialize(id:, function:, type: 'function')
+        # @param encrypted_value [String] Encrypted tool call value for zero-data-retention mode
+        sig { params(id: String, function: T.untyped, type: String, encrypted_value: T.nilable(String)).void }
+        def initialize(id:, function:, type: 'function', encrypted_value: nil)
           @id = id
           @type = type
           @function = function.is_a?(FunctionCall) ? function : FunctionCall.new(**function)
+          @encrypted_value = encrypted_value
         end
 
         sig { returns(T::Hash[Symbol, T.untyped]) }
@@ -134,7 +139,8 @@ module AgUiProtocol
           {
             id: @id,
             type: @type,
-            function: @function
+            function: @function,
+            encrypted_value: @encrypted_value
           }
         end
       end
@@ -147,22 +153,35 @@ module AgUiProtocol
         sig { returns(String) }
         attr_reader :role
 
-        sig { returns(T.nilable(T.any(String, T::Array[T.any(TextInputContent, BinaryInputContent)]))) }
+        sig { returns(T.nilable(T.any(String, T::Array[T.any(TextInputContent, BinaryInputContent, ImageInputContent, AudioInputContent, VideoInputContent, DocumentInputContent)]))) }
         attr_reader :content
 
         sig { returns(T.nilable(String)) }
         attr_reader :name
 
+        sig { returns(T.nilable(String)) }
+        attr_reader :encrypted_value
+
         # @param id [String] Unique identifier for the message
         # @param role [String] Role of the message sender
         # @param content [Object] Text content of the message
         # @param name [String] Optional name of the sender
-        sig { params(id: String, role: String, content: T.nilable(T.any(String, T::Array[T.any(TextInputContent, BinaryInputContent)])), name: T.nilable(String)).void }
-        def initialize(id:, role:, content: nil, name: nil)
+        # @param encrypted_value [String] Encrypted content for zero-data-retention mode
+        sig do
+          params(
+            id: String,
+            role: String,
+            content: T.nilable(T.any(String, T::Array[T.any(TextInputContent, BinaryInputContent, ImageInputContent, AudioInputContent, VideoInputContent, DocumentInputContent)])),
+            name: T.nilable(String),
+            encrypted_value: T.nilable(String)
+          ).void
+        end
+        def initialize(id:, role:, content: nil, name: nil, encrypted_value: nil)
           @id = id
           @role = role
           @content = content
           @name = name
+          @encrypted_value = encrypted_value
         end
 
         sig { returns(T::Hash[Symbol, T.untyped]) }
@@ -171,7 +190,8 @@ module AgUiProtocol
             id: @id,
             role: @role,
             content: @content,
-            name: @name
+            name: @name,
+            encrypted_value: @encrypted_value
           }
         end
       end
@@ -390,21 +410,31 @@ module AgUiProtocol
         sig { returns(String) }
         attr_reader :role
 
-        sig { returns(T.any(String, T::Array[T.any(TextInputContent, BinaryInputContent)])) }
+        sig { returns(T.any(String, T::Array[T.any(TextInputContent, BinaryInputContent, ImageInputContent, AudioInputContent, VideoInputContent, DocumentInputContent)])) }
         attr_reader :content
 
         sig { returns(T.nilable(String)) }
         attr_reader :name
 
         # @param id [String] Unique identifier for the message
-        # @param content [String, Array<TextInputContent | BinaryInputContent>] Either a plain text string or an ordered list of multimodal fragments
+        # @param content [String, Array<TextInputContent | BinaryInputContent | ImageInputContent | AudioInputContent | VideoInputContent | DocumentInputContent>] Either a plain text string or an ordered list of multimodal fragments
         # @param name [String] Optional name of the sender
-        sig { params(id: String, content: T.any(String, T::Array[T.any(TextInputContent, BinaryInputContent)]), name: T.nilable(String)).void }
+        sig do
+          params(
+            id: String,
+            content: T.any(String, T::Array[T.any(TextInputContent, BinaryInputContent, ImageInputContent, AudioInputContent, VideoInputContent, DocumentInputContent)]),
+            name: T.nilable(String)
+          ).void
+        end
         def initialize(id:, content:, name: nil)
           super(id: id, role: "user", content: normalize_user_content(content), name: name)
         end
 
-        sig { params(content: T.any(String, T::Array[T.any(TextInputContent, BinaryInputContent)])).returns(T.any(String, T::Array[T.any(TextInputContent, BinaryInputContent)])) }
+        sig do
+          params(
+            content: T.any(String, T::Array[T.any(TextInputContent, BinaryInputContent, ImageInputContent, AudioInputContent, VideoInputContent, DocumentInputContent)])
+          ).returns(T.any(String, T::Array[T.any(TextInputContent, BinaryInputContent, ImageInputContent, AudioInputContent, VideoInputContent, DocumentInputContent)]))
+        end
         def normalize_user_content(content)
           if content.is_a?(Array)
             content.map do |c|
@@ -422,6 +452,14 @@ module AgUiProtocol
                     data: c[:data] || c["data"],
                     filename: c[:filename] || c["filename"]
                   )
+                when "image"
+                  ImageInputContent.new(source: c[:source] || c["source"], metadata: c[:metadata] || c["metadata"])
+                when "audio"
+                  AudioInputContent.new(source: c[:source] || c["source"], metadata: c[:metadata] || c["metadata"])
+                when "video"
+                  VideoInputContent.new(source: c[:source] || c["source"], metadata: c[:metadata] || c["metadata"])
+                when "document"
+                  DocumentInputContent.new(source: c[:source] || c["source"], metadata: c[:metadata] || c["metadata"])
                 else
                   c
                 end
@@ -473,15 +511,20 @@ module AgUiProtocol
         sig { returns(T.nilable(String)) }
         attr_reader :error
 
+        sig { returns(T.nilable(String)) }
+        attr_reader :encrypted_value
+
         # @param id [String] Unique identifier for the message.
         # @param content [String] Tool result content.
         # @param tool_call_id [String] ID of the tool call this message responds to.
         # @param error [String] Error payload if the tool call failed.
-        sig { params(id: String, content: String, tool_call_id: String, error: T.nilable(String)).void }
-        def initialize(id:, content:, tool_call_id:, error: nil)
+        # @param encrypted_value [String] Encrypted tool message value for zero-data-retention mode
+        sig { params(id: String, content: String, tool_call_id: String, error: T.nilable(String), encrypted_value: T.nilable(String)).void }
+        def initialize(id:, content:, tool_call_id:, error: nil, encrypted_value: nil)
           super(id: id, role: "tool", content: content)
           @tool_call_id = tool_call_id
           @error = error
+          @encrypted_value = encrypted_value
         end
 
         sig { returns(T::Hash[Symbol, T.untyped]) }
@@ -491,7 +534,8 @@ module AgUiProtocol
             role: @role,
             content: @content,
             tool_call_id: @tool_call_id,
-            error: @error
+            error: @error,
+            encrypted_value: @encrypted_value
           }
         end
       end
@@ -615,6 +659,466 @@ module AgUiProtocol
         end
       end
 
+      # Represents a data source for multimodal input content using base64-encoded data.
+      #
+      # ```ruby
+      #
+      # source = AgUiProtocol::Core::Types::InputContentDataSource.new(
+      #   value: "base64encoded...",
+      #   mime_type: "image/png"
+      # )
+      #
+      # ```
+      class InputContentDataSource < Model
+        sig { returns(String) }
+        attr_reader :type
+
+        sig { returns(String) }
+        attr_reader :value
+
+        sig { returns(String) }
+        attr_reader :mime_type
+
+        # @param value [String] Base64 encoded content
+        # @param mime_type [String] MIME type of the content
+        # @param type [String] Identifies the source type
+        sig { params(value: String, mime_type: String, type: String).void }
+        def initialize(value:, mime_type:, type: "data")
+          @type = type
+          @value = value
+          @mime_type = mime_type
+        end
+
+        sig { returns(T::Hash[Symbol, T.untyped]) }
+        def to_h
+          {
+            type: @type,
+            value: @value,
+            mime_type: @mime_type
+          }
+        end
+      end
+
+      # Represents a URL source for multimodal input content.
+      #
+      # ```ruby
+      #
+      # source = AgUiProtocol::Core::Types::InputContentUrlSource.new(
+      #   value: "https://example.com/image.png",
+      #   mime_type: "image/png"
+      # )
+      #
+      # ```
+      class InputContentUrlSource < Model
+        sig { returns(String) }
+        attr_reader :type
+
+        sig { returns(String) }
+        attr_reader :value
+
+        sig { returns(T.nilable(String)) }
+        attr_reader :mime_type
+
+        # @param value [String] URL string
+        # @param mime_type [String] Optional MIME type
+        # @param type [String] Identifies the source type
+        sig { params(value: String, mime_type: T.nilable(String), type: String).void }
+        def initialize(value:, mime_type: nil, type: "url")
+          @type = type
+          @value = value
+          @mime_type = mime_type
+        end
+
+        sig { returns(T::Hash[Symbol, T.untyped]) }
+        def to_h
+          {
+            type: @type,
+            value: @value,
+            mime_type: @mime_type
+          }
+        end
+      end
+
+      # Represents an image content fragment inside a multimodal user message.
+      #
+      # ```ruby
+      #
+      # content = AgUiProtocol::Core::Types::ImageInputContent.new(
+      #   source: { type: "url", value: "https://example.com/cat.png", mime_type: "image/png" }
+      # )
+      #
+      # ```
+      class ImageInputContent < Model
+        sig { returns(String) }
+        attr_reader :type
+
+        sig { returns(T.any(InputContentDataSource, InputContentUrlSource)) }
+        attr_reader :source
+
+        sig { returns(T.untyped) }
+        attr_reader :metadata
+
+        # @param source [InputContentDataSource, InputContentUrlSource, Hash] Content source
+        # @param metadata [Object] Optional metadata
+        # @param type [String] Identifies the fragment type
+        sig { params(source: T.untyped, metadata: T.untyped, type: String).void }
+        def initialize(source:, metadata: nil, type: "image")
+          @type = type
+          @source = source.is_a?(Hash) ? build_source(source) : source
+          @metadata = metadata
+        end
+
+        sig { returns(T::Hash[Symbol, T.untyped]) }
+        def to_h
+          {
+            type: @type,
+            source: @source,
+            metadata: @metadata
+          }
+        end
+
+        private
+
+        def build_source(hash)
+          src_type = hash[:type] || hash["type"]
+          case src_type
+          when "data"
+            InputContentDataSource.new(
+              value: hash[:value] || hash["value"],
+              mime_type: hash[:mime_type] || hash["mime_type"]
+            )
+          when "url"
+            InputContentUrlSource.new(
+              value: hash[:value] || hash["value"],
+              mime_type: hash[:mime_type] || hash["mime_type"]
+            )
+          else
+            hash
+          end
+        end
+      end
+
+      # Represents an audio content fragment inside a multimodal user message.
+      #
+      # ```ruby
+      #
+      # content = AgUiProtocol::Core::Types::AudioInputContent.new(
+      #   source: { type: "url", value: "https://example.com/audio.mp3", mime_type: "audio/mp3" }
+      # )
+      #
+      # ```
+      class AudioInputContent < Model
+        sig { returns(String) }
+        attr_reader :type
+
+        sig { returns(T.any(InputContentDataSource, InputContentUrlSource)) }
+        attr_reader :source
+
+        sig { returns(T.untyped) }
+        attr_reader :metadata
+
+        # @param source [InputContentDataSource, InputContentUrlSource, Hash] Content source
+        # @param metadata [Object] Optional metadata
+        # @param type [String] Identifies the fragment type
+        sig { params(source: T.untyped, metadata: T.untyped, type: String).void }
+        def initialize(source:, metadata: nil, type: "audio")
+          @type = type
+          @source = source.is_a?(Hash) ? build_source(source) : source
+          @metadata = metadata
+        end
+
+        sig { returns(T::Hash[Symbol, T.untyped]) }
+        def to_h
+          {
+            type: @type,
+            source: @source,
+            metadata: @metadata
+          }
+        end
+
+        private
+
+        def build_source(hash)
+          src_type = hash[:type] || hash["type"]
+          case src_type
+          when "data"
+            InputContentDataSource.new(
+              value: hash[:value] || hash["value"],
+              mime_type: hash[:mime_type] || hash["mime_type"]
+            )
+          when "url"
+            InputContentUrlSource.new(
+              value: hash[:value] || hash["value"],
+              mime_type: hash[:mime_type] || hash["mime_type"]
+            )
+          else
+            hash
+          end
+        end
+      end
+
+      # Represents a video content fragment inside a multimodal user message.
+      #
+      # ```ruby
+      #
+      # content = AgUiProtocol::Core::Types::VideoInputContent.new(
+      #   source: { type: "url", value: "https://example.com/video.mp4", mime_type: "video/mp4" }
+      # )
+      #
+      # ```
+      class VideoInputContent < Model
+        sig { returns(String) }
+        attr_reader :type
+
+        sig { returns(T.any(InputContentDataSource, InputContentUrlSource)) }
+        attr_reader :source
+
+        sig { returns(T.untyped) }
+        attr_reader :metadata
+
+        # @param source [InputContentDataSource, InputContentUrlSource, Hash] Content source
+        # @param metadata [Object] Optional metadata
+        # @param type [String] Identifies the fragment type
+        sig { params(source: T.untyped, metadata: T.untyped, type: String).void }
+        def initialize(source:, metadata: nil, type: "video")
+          @type = type
+          @source = source.is_a?(Hash) ? build_source(source) : source
+          @metadata = metadata
+        end
+
+        sig { returns(T::Hash[Symbol, T.untyped]) }
+        def to_h
+          {
+            type: @type,
+            source: @source,
+            metadata: @metadata
+          }
+        end
+
+        private
+
+        def build_source(hash)
+          src_type = hash[:type] || hash["type"]
+          case src_type
+          when "data"
+            InputContentDataSource.new(
+              value: hash[:value] || hash["value"],
+              mime_type: hash[:mime_type] || hash["mime_type"]
+            )
+          when "url"
+            InputContentUrlSource.new(
+              value: hash[:value] || hash["value"],
+              mime_type: hash[:mime_type] || hash["mime_type"]
+            )
+          else
+            hash
+          end
+        end
+      end
+
+      # Represents a document content fragment inside a multimodal user message.
+      #
+      # ```ruby
+      #
+      # content = AgUiProtocol::Core::Types::DocumentInputContent.new(
+      #   source: { type: "url", value: "https://example.com/doc.pdf", mime_type: "application/pdf" }
+      # )
+      #
+      # ```
+      class DocumentInputContent < Model
+        sig { returns(String) }
+        attr_reader :type
+
+        sig { returns(T.any(InputContentDataSource, InputContentUrlSource)) }
+        attr_reader :source
+
+        sig { returns(T.untyped) }
+        attr_reader :metadata
+
+        # @param source [InputContentDataSource, InputContentUrlSource, Hash] Content source
+        # @param metadata [Object] Optional metadata
+        # @param type [String] Identifies the fragment type
+        sig { params(source: T.untyped, metadata: T.untyped, type: String).void }
+        def initialize(source:, metadata: nil, type: "document")
+          @type = type
+          @source = source.is_a?(Hash) ? build_source(source) : source
+          @metadata = metadata
+        end
+
+        sig { returns(T::Hash[Symbol, T.untyped]) }
+        def to_h
+          {
+            type: @type,
+            source: @source,
+            metadata: @metadata
+          }
+        end
+
+        private
+
+        def build_source(hash)
+          src_type = hash[:type] || hash["type"]
+          case src_type
+          when "data"
+            InputContentDataSource.new(
+              value: hash[:value] || hash["value"],
+              mime_type: hash[:mime_type] || hash["mime_type"]
+            )
+          when "url"
+            InputContentUrlSource.new(
+              value: hash[:value] || hash["value"],
+              mime_type: hash[:mime_type] || hash["mime_type"]
+            )
+          else
+            hash
+          end
+        end
+      end
+
+      # Represents a reasoning message from an agent with chain-of-thought content.
+      #
+      # ```ruby
+      #
+      # msg = AgUiProtocol::Core::Types::ReasoningMessage.new(
+      #   id: "reason_1",
+      #   content: "Let me think through this step by step...",
+      #   encrypted_value: nil
+      # )
+      #
+      # ```
+      class ReasoningMessage < BaseMessage
+
+        sig { returns(String) }
+        attr_reader :content
+
+        # @param id [String] Unique identifier for the message
+        # @param content [String] Reasoning content (plaintext when not encrypted)
+        # @param encrypted_value [String] Encrypted reasoning content when in zero-data-retention mode
+        sig { params(id: String, content: String, encrypted_value: T.nilable(String)).void }
+        def initialize(id:, content:, encrypted_value: nil)
+          super(id: id, role: "reasoning", content: content, encrypted_value: encrypted_value)
+        end
+      end
+
+      # Represents an interrupt that occurred during agent execution for human-in-the-loop workflows.
+      #
+      # ```ruby
+      #
+      # interrupt = AgUiProtocol::Core::Types::Interrupt.new(
+      #   id: "int_1",
+      #   reason: "input_required",
+      #   message: "Please provide additional information"
+      # )
+      #
+      # ```
+      class Interrupt < Model
+        sig { returns(String) }
+        attr_reader :id
+
+        sig { returns(String) }
+        attr_reader :reason
+
+        sig { returns(T.nilable(String)) }
+        attr_reader :message
+
+        sig { returns(T.nilable(String)) }
+        attr_reader :tool_call_id
+
+        sig { returns(T.untyped) }
+        attr_reader :response_schema
+
+        sig { returns(T.nilable(String)) }
+        attr_reader :expires_at
+
+        sig { returns(T.untyped) }
+        attr_reader :metadata
+
+        # @param id [String] Unique identifier
+        # @param reason [String] Reason for the interrupt
+        # @param message [String] Human-readable message
+        # @param tool_call_id [String] Associated tool call if applicable
+        # @param response_schema [Object] JSON schema for response
+        # @param expires_at [String] ISO timestamp when interrupt expires
+        # @param metadata [Object] Arbitrary metadata
+        sig do
+          params(
+            id: String,
+            reason: String,
+            message: T.nilable(String),
+            tool_call_id: T.nilable(String),
+            response_schema: T.untyped,
+            expires_at: T.nilable(String),
+            metadata: T.untyped
+          ).void
+        end
+        def initialize(id:, reason:, message: nil, tool_call_id: nil, response_schema: nil, expires_at: nil, metadata: nil)
+          @id = id
+          @reason = reason
+          @message = message
+          @tool_call_id = tool_call_id
+          @response_schema = response_schema
+          @expires_at = expires_at
+          @metadata = metadata
+        end
+
+        sig { returns(T::Hash[Symbol, T.untyped]) }
+        def to_h
+          {
+            id: @id,
+            reason: @reason,
+            message: @message,
+            tool_call_id: @tool_call_id,
+            response_schema: @response_schema,
+            expires_at: @expires_at,
+            metadata: @metadata
+          }
+        end
+      end
+
+      # Valid values for resume status in interrupt resolution.
+      ResumeStatus = T.type_alias { T.any(String, T.nilable(String)) }
+
+      # Represents an entry for resuming an interrupted run.
+      #
+      # ```ruby
+      #
+      # entry = AgUiProtocol::Core::Types::ResumeEntry.new(
+      #   interrupt_id: "int_1",
+      #   status: "resolved",
+      #   payload: { "answer" => "42" }
+      # )
+      #
+      # ```
+      class ResumeEntry < Model
+        sig { returns(String) }
+        attr_reader :interrupt_id
+
+        sig { returns(ResumeStatus) }
+        attr_reader :status
+
+        sig { returns(T.untyped) }
+        attr_reader :payload
+
+        # @param interrupt_id [String] ID of the interrupt being resolved
+        # @param status [String] Resolution status ("resolved" or "cancelled")
+        # @param payload [Object] Response payload for the interrupt
+        sig { params(interrupt_id: String, status: String, payload: T.untyped).void }
+        def initialize(interrupt_id:, status:, payload:)
+          @interrupt_id = interrupt_id
+          @status = status
+          @payload = payload
+        end
+
+        sig { returns(T::Hash[Symbol, T.untyped]) }
+        def to_h
+          {
+            interrupt_id: @interrupt_id,
+            status: @status,
+            payload: @payload
+          }
+        end
+      end
+
       # Input parameters for running an agent. In the HTTP API, this is the body of the `POST` request.
       #
       # ```ruby
@@ -656,6 +1160,9 @@ module AgUiProtocol
         sig { returns(T.untyped) }
         attr_reader :forwarded_props
 
+        sig { returns(T.nilable(T::Array[ResumeEntry])) }
+        attr_reader :resume
+
         # @param thread_id [String] ID of the conversation thread
         # @param run_id [String] ID of the current run
         # @param state [Object] Current state of the agent
@@ -664,6 +1171,7 @@ module AgUiProtocol
         # @param context [Array<Context>] List of context objects provided to the agent
         # @param forwarded_props [Object] Additional properties forwarded to the agent
         # @param parent_run_id [String] Lineage pointer for branching/time travel
+        # @param resume [Array<ResumeEntry>] Entries for resuming interrupted runs
         # @raise [ArgumentError] if messages is not an Array of BaseMessage
         sig do
           params(
@@ -674,10 +1182,11 @@ module AgUiProtocol
             tools: T::Array[Tool],
             context: T::Array[Context],
             forwarded_props: T.untyped,
-            parent_run_id: T.nilable(String)
+            parent_run_id: T.nilable(String),
+            resume: T.nilable(T::Array[ResumeEntry])
           ).void.checked(:always)
         end
-        def initialize(thread_id:, run_id:, state:, messages:, tools:, context:, forwarded_props:, parent_run_id: nil)
+        def initialize(thread_id:, run_id:, state:, messages:, tools:, context:, forwarded_props:, parent_run_id: nil, resume: nil)
           unless messages.is_a?(Array) && messages.all? { |m| m.is_a?(BaseMessage) }
             raise ArgumentError, "messages must be an Array of BaseMessage"
           end
@@ -696,6 +1205,7 @@ module AgUiProtocol
           @tools = tools
           @context = context
           @forwarded_props = forwarded_props
+          @resume = resume
         end
 
         sig { returns(T::Hash[Symbol, T.untyped]) }
@@ -708,7 +1218,8 @@ module AgUiProtocol
             messages: @messages,
             tools: @tools,
             context: @context,
-            forwarded_props: @forwarded_props
+            forwarded_props: @forwarded_props,
+            resume: @resume
           }
         end
       end

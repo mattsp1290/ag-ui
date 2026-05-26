@@ -348,28 +348,34 @@ jobs:
               # redirect-then-cat pattern is atomic from the script's POV: if
               # the redirect itself fails, npm doesn't run.
               PUBLISH_LOG=$(mktemp)
+              echo "Publishing tarball ${TARBALL_NAME}... (output buffered until command completes)"
               if (cd "$PKG_PATH" && npx --yes npm@11.15.0 publish "$TARBALL_NAME" --tag "$TAG" --access public --provenance) >"$PUBLISH_LOG" 2>&1; then
                 cat "$PUBLISH_LOG"
                 # Verify publish actually landed on the registry. Catches the
                 # silent-OIDC-fallback failure mode (npm returns 0 but the
                 # version never propagated) and transient registry/CDN issues.
-                # 3 attempts × 5s = up to 15s lag tolerance for CDN propagation.
+                # 6 attempts × 10s = up to 60s of CDN propagation tolerance. npm CDN can lag 30-60s
+                # during peak hours; 15s was too aggressive and produced false-positive failures.
                 PUBLISH_VERIFIED=0
-                for attempt in 1 2 3; do
-                  if npm view "${PROJECT}@${PKG_VERSION}" version >/dev/null 2>&1; then
+                VIEW_STDERR=$(mktemp)
+                for ATTEMPT in 1 2 3 4 5 6; do
+                  if npm view "${PROJECT}@${PKG_VERSION}" version --registry=https://registry.npmjs.org/ >/dev/null 2>"$VIEW_STDERR"; then
                     PUBLISH_VERIFIED=1
                     break
                   fi
-                  if [ "$attempt" -lt 3 ]; then
-                    sleep 5
+                  if [ "$ATTEMPT" -lt 6 ]; then
+                    sleep 10
                   fi
                 done
                 if [ "$PUBLISH_VERIFIED" -eq 1 ]; then
                   echo "::notice::PUBLISHED: ${PROJECT}@${PKG_VERSION}"
                 else
-                  echo "::error::Publish returned 0 but ${PROJECT}@${PKG_VERSION} not visible on registry after 3 attempts"
+                  echo "::error::Publish returned 0 but ${PROJECT}@${PKG_VERSION} not visible on registry after 6 attempts (60s)"
+                  echo "::error::Last npm view stderr:"
+                  cat "$VIEW_STDERR"
                   TS_FAILED="${TS_FAILED} ${PROJECT}"
                 fi
+                rm -f "$VIEW_STDERR"
               else
                 cat "$PUBLISH_LOG"
                 if grep -qiE "EPUBLISHCONFLICT|cannot publish over|previously published" "$PUBLISH_LOG"; then

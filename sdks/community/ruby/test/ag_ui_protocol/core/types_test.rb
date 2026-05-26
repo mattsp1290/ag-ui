@@ -44,6 +44,18 @@ class TypesTest < Minitest::Test
           AgUiProtocol::Core::Types::ToolCall.new(id: "tc1")
         end
       end
+
+      should "support encrypted_value" do
+        obj = AgUiProtocol::Core::Types::ToolCall.new(id: "tc1", function: { name: "f", arguments: "{}" }, encrypted_value: "enc")
+        payload = JSON.parse(obj.to_json)
+        assert_equal "enc", payload["encryptedValue"]
+      end
+
+      should "omit encrypted_value when nil" do
+        obj = AgUiProtocol::Core::Types::ToolCall.new(id: "tc1", function: { name: "f", arguments: "{}" })
+        payload = JSON.parse(obj.to_json)
+        refute payload.key?("encryptedValue")
+      end
     end
 
     context "BaseMessage" do
@@ -57,6 +69,18 @@ class TypesTest < Minitest::Test
         assert_raises(ArgumentError) do
           AgUiProtocol::Core::Types::BaseMessage.new(id: "m1")
         end
+      end
+
+      should "support encrypted_value" do
+        obj = AgUiProtocol::Core::Types::BaseMessage.new(id: "m1", role: "assistant", content: "hi", encrypted_value: "enc")
+        payload = JSON.parse(obj.to_json)
+        assert_equal "enc", payload["encryptedValue"]
+      end
+
+      should "omit encrypted_value when nil" do
+        obj = AgUiProtocol::Core::Types::BaseMessage.new(id: "m1", role: "assistant", content: "hi")
+        payload = JSON.parse(obj.to_json)
+        refute payload.key?("encryptedValue")
       end
     end
 
@@ -171,6 +195,36 @@ class TypesTest < Minitest::Test
         assert_kind_of AgUiProtocol::Core::Types::BinaryInputContent, msg.content[1]
       end
 
+      should "normalize multimodal content types" do
+        msg = AgUiProtocol::Core::Types::UserMessage.new(
+          id: "u1",
+          content: [
+            { type: "text", text: "describe this" },
+            { type: "image", source: { type: "url", value: "https://example.com/a.png", mime_type: "image/png" } },
+            { type: "audio", source: { type: "url", value: "https://example.com/a.mp3", mime_type: "audio/mp3" } },
+            { type: "video", source: { type: "url", value: "https://example.com/a.mp4", mime_type: "video/mp4" } },
+            { type: "document", source: { type: "url", value: "https://example.com/a.pdf", mime_type: "application/pdf" } }
+          ]
+        )
+
+        assert_kind_of AgUiProtocol::Core::Types::ImageInputContent, msg.content[1]
+        assert_kind_of AgUiProtocol::Core::Types::AudioInputContent, msg.content[2]
+        assert_kind_of AgUiProtocol::Core::Types::VideoInputContent, msg.content[3]
+        assert_kind_of AgUiProtocol::Core::Types::DocumentInputContent, msg.content[4]
+      end
+
+      should "normalize multimodal content with data source" do
+        msg = AgUiProtocol::Core::Types::UserMessage.new(
+          id: "u1",
+          content: [
+            { type: "image", source: { type: "data", value: "base64data", mime_type: "image/png" } }
+          ]
+        )
+
+        assert_kind_of AgUiProtocol::Core::Types::ImageInputContent, msg.content[0]
+        assert_kind_of AgUiProtocol::Core::Types::InputContentDataSource, msg.content[0].source
+      end
+
       should "serialize content with camelCase keys" do
         msg = AgUiProtocol::Core::Types::UserMessage.new(
           id: "u1",
@@ -202,6 +256,18 @@ class TypesTest < Minitest::Test
         assert_raises(ArgumentError) do
           AgUiProtocol::Core::Types::ToolMessage.new(id: "tm1", content: "ok")
         end
+      end
+
+      should "support encrypted_value" do
+        msg = AgUiProtocol::Core::Types::ToolMessage.new(id: "tm1", content: "ok", tool_call_id: "tc1", encrypted_value: "enc")
+        payload = JSON.parse(msg.to_json)
+        assert_equal "enc", payload["encryptedValue"]
+      end
+
+      should "omit encrypted_value when nil" do
+        msg = AgUiProtocol::Core::Types::ToolMessage.new(id: "tm1", content: "ok", tool_call_id: "tc1")
+        payload = JSON.parse(msg.to_json)
+        refute payload.key?("encryptedValue")
       end
     end
 
@@ -247,6 +313,134 @@ class TypesTest < Minitest::Test
       end
     end
 
+    context "Interrupt" do
+      should "serialize to JSON" do
+        obj = AgUiProtocol::Core::Types::Interrupt.new(id: "int1", reason: "input_required")
+        payload = JSON.parse(obj.to_json)
+        assert_equal "int1", payload["id"]
+        assert_equal "input_required", payload["reason"]
+      end
+
+      should "raise when id is missing" do
+        assert_raises(ArgumentError) do
+          AgUiProtocol::Core::Types::Interrupt.new(reason: "input_required")
+        end
+      end
+
+      should "include optional fields in to_h" do
+        obj = AgUiProtocol::Core::Types::Interrupt.new(
+          id: "int1", reason: "input_required",
+          message: "Please provide input", tool_call_id: "tc1",
+          response_schema: { "type" => "object" }, expires_at: "2026-01-01T00:00:00Z",
+          metadata: { "key" => "val" }
+        )
+        hash = obj.to_h
+        assert_equal "Please provide input", hash[:message]
+        assert_equal "tc1", hash[:tool_call_id]
+        assert_equal "object", hash[:response_schema]["type"]
+        assert_equal "2026-01-01T00:00:00Z", hash[:expires_at]
+        assert_equal "val", hash[:metadata]["key"]
+      end
+    end
+
+    context "ResumeEntry" do
+      should "serialize to JSON" do
+        obj = AgUiProtocol::Core::Types::ResumeEntry.new(interrupt_id: "int1", status: "resolved", payload: { "ok" => true })
+        payload = JSON.parse(obj.to_json)
+        assert_equal "int1", payload["interruptId"]
+        assert_equal "resolved", payload["status"]
+      end
+
+      should "raise when interrupt_id is missing" do
+        assert_raises(ArgumentError) do
+          AgUiProtocol::Core::Types::ResumeEntry.new(status: "resolved", payload: {})
+        end
+      end
+    end
+
+    context "InputContentDataSource" do
+      should "serialize to JSON" do
+        obj = AgUiProtocol::Core::Types::InputContentDataSource.new(value: "base64data", mime_type: "image/png")
+        payload = JSON.parse(obj.to_json)
+        assert_equal "data", payload["type"]
+        assert_equal "base64data", payload["value"]
+        assert_equal "image/png", payload["mimeType"]
+      end
+    end
+
+    context "InputContentUrlSource" do
+      should "serialize to JSON" do
+        obj = AgUiProtocol::Core::Types::InputContentUrlSource.new(value: "https://example.com/a.png", mime_type: "image/png")
+        payload = JSON.parse(obj.to_json)
+        assert_equal "url", payload["type"]
+        assert_equal "https://example.com/a.png", payload["value"]
+        assert_equal "image/png", payload["mimeType"]
+      end
+    end
+
+    context "ImageInputContent" do
+      should "serialize to JSON" do
+        source = AgUiProtocol::Core::Types::InputContentUrlSource.new(value: "https://example.com/a.png", mime_type: "image/png")
+        obj = AgUiProtocol::Core::Types::ImageInputContent.new(source: source)
+        payload = JSON.parse(obj.to_json)
+        assert_equal "image", payload["type"]
+        assert_equal "url", payload["source"]["type"]
+      end
+
+      should "accept hash source" do
+        obj = AgUiProtocol::Core::Types::ImageInputContent.new(source: { type: "url", value: "https://example.com/a.png", mime_type: "image/png" })
+        assert_kind_of AgUiProtocol::Core::Types::InputContentUrlSource, obj.source
+      end
+    end
+
+    context "AudioInputContent" do
+      should "serialize to JSON" do
+        obj = AgUiProtocol::Core::Types::AudioInputContent.new(source: { type: "url", value: "https://example.com/a.mp3", mime_type: "audio/mp3" })
+        payload = JSON.parse(obj.to_json)
+        assert_equal "audio", payload["type"]
+        assert_equal "url", payload["source"]["type"]
+      end
+    end
+
+    context "VideoInputContent" do
+      should "serialize to JSON" do
+        obj = AgUiProtocol::Core::Types::VideoInputContent.new(source: { type: "url", value: "https://example.com/a.mp4", mime_type: "video/mp4" })
+        payload = JSON.parse(obj.to_json)
+        assert_equal "video", payload["type"]
+        assert_equal "url", payload["source"]["type"]
+      end
+    end
+
+    context "DocumentInputContent" do
+      should "serialize to JSON" do
+        obj = AgUiProtocol::Core::Types::DocumentInputContent.new(source: { type: "url", value: "https://example.com/a.pdf", mime_type: "application/pdf" })
+        payload = JSON.parse(obj.to_json)
+        assert_equal "document", payload["type"]
+        assert_equal "url", payload["source"]["type"]
+      end
+    end
+
+    context "ReasoningMessage" do
+      should "serialize to JSON" do
+        obj = AgUiProtocol::Core::Types::ReasoningMessage.new(id: "r1", content: "step 1")
+        payload = JSON.parse(obj.to_json)
+        assert_equal "reasoning", payload["role"]
+        assert_equal "step 1", payload["content"]
+      end
+
+      should "support encrypted_value" do
+        obj = AgUiProtocol::Core::Types::ReasoningMessage.new(id: "r1", content: "step 1", encrypted_value: "enc")
+        payload = JSON.parse(obj.to_json)
+        assert_equal "enc", payload["encryptedValue"]
+      end
+
+      should "raise when id is missing" do
+        assert_raises(ArgumentError) do
+          AgUiProtocol::Core::Types::ReasoningMessage.new(content: "step 1")
+        end
+      end
+    end
+
     context "RunAgentInput" do
       should "serialize to JSON" do
         obj = AgUiProtocol::Core::Types::RunAgentInput.new(
@@ -266,6 +460,28 @@ class TypesTest < Minitest::Test
         assert_raises(ArgumentError) do
           AgUiProtocol::Core::Types::RunAgentInput.new(thread_id: "t1", run_id: "r1", state: {}, messages: [], tools: [], context: [])
         end
+      end
+
+      should "support resume field" do
+        resume = [
+          AgUiProtocol::Core::Types::ResumeEntry.new(interrupt_id: "int1", status: "resolved", payload: {})
+        ]
+        obj = AgUiProtocol::Core::Types::RunAgentInput.new(
+          thread_id: "t1", run_id: "r1", state: {},
+          messages: [], tools: [], context: [], forwarded_props: {},
+          resume: resume
+        )
+        payload = JSON.parse(obj.to_json)
+        assert_equal "int1", payload["resume"][0]["interruptId"]
+      end
+
+      should "omit resume when nil" do
+        obj = AgUiProtocol::Core::Types::RunAgentInput.new(
+          thread_id: "t1", run_id: "r1", state: {},
+          messages: [], tools: [], context: [], forwarded_props: {}
+        )
+        payload = JSON.parse(obj.to_json)
+        refute payload.key?("resume")
       end
     end
 

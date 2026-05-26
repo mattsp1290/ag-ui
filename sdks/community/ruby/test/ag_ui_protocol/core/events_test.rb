@@ -376,6 +376,34 @@ class EventsTest < Minitest::Test
           AgUiProtocol::Core::Events::RunFinishedEvent.new(run_id: "r1")
         end
       end
+
+      should "support success outcome" do
+        outcome = AgUiProtocol::Core::Events::RunFinishedSuccessOutcome.new
+        event = AgUiProtocol::Core::Events::RunFinishedEvent.new(
+          thread_id: "t1", run_id: "r1", outcome: outcome
+        )
+        assert_event_payload(
+          event,
+          { "type" => "RUN_FINISHED", "threadId" => "t1", "runId" => "r1", "outcome" => { "type" => "success" } }
+        )
+      end
+
+      should "support interrupt outcome" do
+        interrupt = AgUiProtocol::Core::Types::Interrupt.new(id: "int1", reason: "input_required")
+        outcome = AgUiProtocol::Core::Events::RunFinishedInterruptOutcome.new(interrupts: [interrupt])
+        event = AgUiProtocol::Core::Events::RunFinishedEvent.new(
+          thread_id: "t1", run_id: "r1", outcome: outcome
+        )
+        payload = JSON.parse(event.to_json)
+        assert_equal "interrupt", payload["outcome"]["type"]
+        assert_equal "int1", payload["outcome"]["interrupts"][0]["id"]
+      end
+
+      should "omit outcome when nil" do
+        event = AgUiProtocol::Core::Events::RunFinishedEvent.new(thread_id: "t1", run_id: "r1")
+        payload = JSON.parse(event.to_json)
+        refute payload.key?("outcome")
+      end
     end
 
     context "RunErrorEvent" do
@@ -414,6 +442,158 @@ class EventsTest < Minitest::Test
         assert_raises(ArgumentError) do
           AgUiProtocol::Core::Events::StepFinishedEvent.new
         end
+      end
+    end
+
+    context "ReasoningStartEvent" do
+      should "serialize with type" do
+        event = AgUiProtocol::Core::Events::ReasoningStartEvent.new(message_id: "r1")
+        assert_event_payload(event, { "type" => "REASONING_START", "messageId" => "r1" })
+      end
+
+      should "raise when message_id is missing" do
+        assert_raises(ArgumentError) do
+          AgUiProtocol::Core::Events::ReasoningStartEvent.new
+        end
+      end
+    end
+
+    context "ReasoningMessageStartEvent" do
+      should "serialize with type" do
+        event = AgUiProtocol::Core::Events::ReasoningMessageStartEvent.new(message_id: "rm1")
+        assert_event_payload(
+          event,
+          { "type" => "REASONING_MESSAGE_START", "messageId" => "rm1", "role" => "reasoning" }
+        )
+      end
+
+      should "raise when message_id is missing" do
+        assert_raises(ArgumentError) do
+          AgUiProtocol::Core::Events::ReasoningMessageStartEvent.new
+        end
+      end
+    end
+
+    context "ReasoningMessageContentEvent" do
+      should "serialize with type" do
+        event = AgUiProtocol::Core::Events::ReasoningMessageContentEvent.new(message_id: "rm1", delta: "step 1")
+        assert_event_payload(
+          event,
+          { "type" => "REASONING_MESSAGE_CONTENT", "messageId" => "rm1", "delta" => "step 1" }
+        )
+      end
+
+      should "raise when delta is missing" do
+        assert_raises(ArgumentError) do
+          AgUiProtocol::Core::Events::ReasoningMessageContentEvent.new(message_id: "rm1")
+        end
+      end
+    end
+
+    context "ReasoningMessageEndEvent" do
+      should "serialize with type" do
+        event = AgUiProtocol::Core::Events::ReasoningMessageEndEvent.new(message_id: "rm1")
+        assert_event_payload(event, { "type" => "REASONING_MESSAGE_END", "messageId" => "rm1" })
+      end
+
+      should "raise when message_id is missing" do
+        assert_raises(ArgumentError) do
+          AgUiProtocol::Core::Events::ReasoningMessageEndEvent.new
+        end
+      end
+    end
+
+    context "ReasoningMessageChunkEvent" do
+      should "serialize with type" do
+        event = AgUiProtocol::Core::Events::ReasoningMessageChunkEvent.new(message_id: "rm1", delta: "step 1")
+        assert_event_payload(
+          event,
+          { "type" => "REASONING_MESSAGE_CHUNK", "messageId" => "rm1", "delta" => "step 1" }
+        )
+      end
+
+      should "work with nil fields" do
+        event = AgUiProtocol::Core::Events::ReasoningMessageChunkEvent.new
+        assert_event_payload(event, { "type" => "REASONING_MESSAGE_CHUNK" })
+      end
+    end
+
+    context "ReasoningEndEvent" do
+      should "serialize with type" do
+        event = AgUiProtocol::Core::Events::ReasoningEndEvent.new(message_id: "r1")
+        assert_event_payload(event, { "type" => "REASONING_END", "messageId" => "r1" })
+      end
+
+      should "raise when message_id is missing" do
+        assert_raises(ArgumentError) do
+          AgUiProtocol::Core::Events::ReasoningEndEvent.new
+        end
+      end
+    end
+
+    context "ReasoningEncryptedValueEvent" do
+      should "serialize with type" do
+        event = AgUiProtocol::Core::Events::ReasoningEncryptedValueEvent.new(
+          subtype: "tool-call", entity_id: "tc1", encrypted_value: "enc"
+        )
+        assert_event_payload(
+          event,
+          { "type" => "REASONING_ENCRYPTED_VALUE", "subtype" => "tool-call", "entityId" => "tc1", "encryptedValue" => "enc" }
+        )
+      end
+
+      should "raise when subtype is missing" do
+        assert_raises(ArgumentError) do
+          AgUiProtocol::Core::Events::ReasoningEncryptedValueEvent.new(entity_id: "tc1", encrypted_value: "enc")
+        end
+      end
+    end
+
+    context "RunFinishedSuccessOutcome" do
+      should "serialize with type" do
+        outcome = AgUiProtocol::Core::Events::RunFinishedSuccessOutcome.new
+        payload = JSON.parse(outcome.to_json)
+        assert_equal "success", payload["type"]
+      end
+    end
+
+    context "RunFinishedInterruptOutcome" do
+      should "serialize with type" do
+        interrupt = AgUiProtocol::Core::Types::Interrupt.new(id: "int1", reason: "input_required")
+        outcome = AgUiProtocol::Core::Events::RunFinishedInterruptOutcome.new(interrupts: [interrupt])
+        payload = JSON.parse(outcome.to_json)
+        assert_equal "interrupt", payload["type"]
+        assert_equal "int1", payload["interrupts"][0]["id"]
+      end
+
+      should "raise when interrupts is missing" do
+        assert_raises(ArgumentError) do
+          AgUiProtocol::Core::Events::RunFinishedInterruptOutcome.new
+        end
+      end
+    end
+
+    context "EventType" do
+      should "include reasoning constants" do
+        assert_equal "REASONING_START", AgUiProtocol::Core::Events::EventType::REASONING_START
+        assert_equal "REASONING_MESSAGE_START", AgUiProtocol::Core::Events::EventType::REASONING_MESSAGE_START
+        assert_equal "REASONING_MESSAGE_CONTENT", AgUiProtocol::Core::Events::EventType::REASONING_MESSAGE_CONTENT
+        assert_equal "REASONING_MESSAGE_END", AgUiProtocol::Core::Events::EventType::REASONING_MESSAGE_END
+        assert_equal "REASONING_MESSAGE_CHUNK", AgUiProtocol::Core::Events::EventType::REASONING_MESSAGE_CHUNK
+        assert_equal "REASONING_END", AgUiProtocol::Core::Events::EventType::REASONING_END
+        assert_equal "REASONING_ENCRYPTED_VALUE", AgUiProtocol::Core::Events::EventType::REASONING_ENCRYPTED_VALUE
+      end
+    end
+
+    context "TEXT_MESSAGE_ROLE_VALUES" do
+      should "include reasoning" do
+        assert_includes AgUiProtocol::Core::Events::TEXT_MESSAGE_ROLE_VALUES, "reasoning"
+      end
+    end
+
+    context "ReasoningEncryptedValueSubtype" do
+      should "be defined" do
+        refute_nil AgUiProtocol::Core::Events::ReasoningEncryptedValueSubtype
       end
     end
   end

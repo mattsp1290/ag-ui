@@ -3,6 +3,9 @@
   "author": "AG-UI Contributors",
   "version": "0.1.0",
   "description": "AWS Strands Agents integration for the AG-UI protocol",
+  "publishConfig": {
+    "access": "public"
+  },
   "main": "./dist/index.js",
   "module": "./dist/index.mjs",
   "types": "./dist/index.d.ts",

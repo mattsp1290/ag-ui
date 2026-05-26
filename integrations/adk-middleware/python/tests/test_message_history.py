@@ -278,6 +278,23 @@ class TestAdkEventsToMessages:
             "https://storage.googleapis.com/bucket/report.docx"
         )
 
+    def test_user_message_file_data_without_uri_is_skipped(self):
+        """file_data parts with no file_uri are filtered out; content stays a string."""
+        event = create_mock_adk_event_with_file(
+            event_id="user-no-uri",
+            text="text only please",
+            file_uri=None,
+            mime_type="image/png",
+        )
+
+        messages = adk_events_to_messages([event])
+
+        assert len(messages) == 1
+        msg = messages[0]
+        assert isinstance(msg, UserMessage)
+        # No valid media parts → content collapses back to a plain string
+        assert msg.content == "text only please"
+
     def test_user_message_without_image_stays_string(self):
         """User event with text only → content remains a plain string (backward compat)."""
         event = create_mock_adk_event(

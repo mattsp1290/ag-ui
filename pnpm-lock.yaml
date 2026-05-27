@@ -8,6 +8,7 @@ overrides:
   langium: 3.2.0
   '@copilotkit/runtime>@langchain/core': 0.3.80
   '@langchain/openai>@langchain/core': 0.3.80
+  '@ag-ui/a2ui-middleware': link:./middlewares/a2ui-middleware
   zod: 3.25.76
   '@strands-agents/sdk>zod': ^4.4.3
   '@ag-ui/aws-strands>zod': ^4.4.3
@@ -96,7 +97,7 @@ importers:
         specifier: workspace:*
         version: link:../../middlewares/a2a-middleware
       '@ag-ui/a2ui-middleware':
-        specifier: workspace:*
+        specifier: link:../../middlewares/a2ui-middleware
         version: link:../../middlewares/a2ui-middleware
       '@ag-ui/adk':
         specifier: workspace:*
@@ -1544,12 +1545,6 @@ packages:
 
   '@a2ui/web_core@0.9.0':
     resolution: {integrity: sha512-TsMWuEeuVDsScGIGPy/fWIZu+EOBRfhx6KwjKh3VwY1AwysRenQM8zDr8VrSk14Wck/aBgVxk2zWVrMCK2/s6A==}
-
-  '@ag-ui/a2ui-middleware@0.0.3':
-    resolution: {integrity: sha512-l2vCX9xyiJ76HmwyY0eMBpez7SyG18mLJUnId1M9u8diugc/hchEYvnEbkCDJFLFBIL0muWw6ZaUkhYZONGe8A==}
-    peerDependencies:
-      '@ag-ui/client': '>=0.0.40'
-      rxjs: 7.8.1
 
   '@ag-ui/client@0.0.46':
     resolution: {integrity: sha512-9Bl6GN6N3NWa3Ewqgl8E3nJzo88prIB2LS50bTNgw35h5BxC1UY21c0SImqQWZ+VV5kbhs6AUrriypKEBB7F5A==}
@@ -12490,12 +12485,6 @@ snapshots:
       zod: 3.25.76
       zod-to-json-schema: 3.25.2(zod@3.25.76)
 
-  '@ag-ui/a2ui-middleware@0.0.3(@ag-ui/client@0.0.52)(rxjs@7.8.1)':
-    dependencies:
-      '@ag-ui/client': 0.0.52
-      clarinet: 0.12.6
-      rxjs: 7.8.1
-
   '@ag-ui/client@0.0.46':
     dependencies:
       '@ag-ui/core': 0.0.46
@@ -14839,7 +14828,7 @@ snapshots:
 
   '@copilotkit/runtime@1.55.1(c3c32557d1ac98731bd405b9a6dd8f69)':
     dependencies:
-      '@ag-ui/a2ui-middleware': 0.0.3(@ag-ui/client@0.0.52)(rxjs@7.8.1)
+      '@ag-ui/a2ui-middleware': link:middlewares/a2ui-middleware
       '@ag-ui/client': 0.0.52
       '@ag-ui/core': 0.0.52
       '@ag-ui/encoder': 0.0.52

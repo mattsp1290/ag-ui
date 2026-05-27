@@ -962,5 +962,6 @@ export {
   extractCompleteItemsWithStatus,
   extractCompleteObject,
   extractCompleteA2UIOperations,
+  extractDataArrayItems,
   extractStringField,
 } from "./json-extract";

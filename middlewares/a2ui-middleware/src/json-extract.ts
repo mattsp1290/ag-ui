@@ -170,6 +170,53 @@ export function extractCompleteItemsWithStatus(
 }
 
 /**
+ * Incrementally extract complete items from the array at `data.<itemsKey>`
+ * inside partially-streamed render_a2ui args.
+ *
+ * The render_a2ui args look like:
+ *   `{"surfaceId":"s","components":[...],"data":{"items":[{...},{...}` (still streaming)
+ *
+ * We scope the search to the `data` object region first (so a `"items"` token
+ * that appears inside a component's `path` string — e.g. `"path":"/items"` —
+ * is never mistaken for the data array), then reuse the array-item extractor
+ * to return every fully-closed item parsed so far.
+ *
+ * Returns `{ items, arrayClosed }` or null when the data array hasn't started
+ * or no complete item exists yet.
+ */
+export function extractDataArrayItems(
+  partial: string,
+  itemsKey: string,
+): { items: unknown[]; arrayClosed: boolean } | null {
+  // Locate the start of the `data` object value.
+  const dataKeyPattern = `"data"`;
+  const dataIdx = partial.indexOf(dataKeyPattern);
+  if (dataIdx === -1) return null;
+
+  const afterData = partial.indexOf(":", dataIdx + dataKeyPattern.length);
+  if (afterData === -1) return null;
+
+  let dataBraceStart = -1;
+  for (let i = afterData + 1; i < partial.length; i++) {
+    const ch = partial[i];
+    if (ch === "{") {
+      dataBraceStart = i;
+      break;
+    }
+    if (ch !== " " && ch !== "\n" && ch !== "\r" && ch !== "\t") {
+      // `data` value isn't an object (e.g. null/array) — nothing to scope.
+      return null;
+    }
+  }
+  if (dataBraceStart === -1) return null;
+
+  // Scope extraction to the data object substring so the items-array search
+  // can't match an earlier `"<itemsKey>"` token elsewhere in the args.
+  const dataSubstr = partial.substring(dataBraceStart);
+  return extractCompleteItemsWithStatus(dataSubstr, itemsKey);
+}
+
+/**
  * Extract a simple string field value from partial JSON.
  * Looks for `"key": "value"` and returns the value, or null if incomplete.
  */

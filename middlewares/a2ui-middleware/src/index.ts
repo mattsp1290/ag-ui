@@ -24,7 +24,7 @@ import {
   A2UIUserAction,
 } from "./types";
 import { RENDER_A2UI_TOOL, RENDER_A2UI_TOOL_NAME, RENDER_A2UI_TOOL_GUIDELINES, LOG_A2UI_EVENT_TOOL_NAME } from "./tools";
-import { getOperationSurfaceId, tryParseA2UIOperations, A2UI_OPERATIONS_KEY, extractCompleteItemsWithStatus, extractCompleteObject, extractStringField } from "./schema";
+import { getOperationSurfaceId, tryParseA2UIOperations, A2UI_OPERATIONS_KEY, extractCompleteItemsWithStatus, extractCompleteObject, extractDataArrayItems, extractStringField } from "./schema";
 
 // Re-exports
 export * from "./types";
@@ -61,6 +61,33 @@ function groupBySurface(ops: Array<Record<string, unknown>>): Map<string, Array<
     groups.get(sid)!.push(op);
   }
   return groups;
+}
+
+/**
+ * Derive the repeated-data array key from a component set.
+ *
+ * A2UI "list" surfaces repeat one template component over an array in the data
+ * model via structural children: `children: { componentId, path: "/items" }`.
+ * The data key is that path with its leading slash stripped (e.g. "items").
+ *
+ * Returns the first such key found, or null when no structural repeat exists
+ * (e.g. a form or static composition), in which case the caller falls back to
+ * a sensible default and/or the final whole-object data emit.
+ */
+function deriveRepeatedDataKey(components: Array<Record<string, unknown>>): string | null {
+  for (const comp of components) {
+    const children = (comp as any)?.children;
+    if (
+      children &&
+      typeof children === "object" &&
+      !Array.isArray(children) &&
+      typeof children.path === "string" &&
+      children.path.length > 0
+    ) {
+      return children.path.replace(/^\//, "");
+    }
+  }
+  return null;
 }
 
 /**
@@ -258,13 +285,32 @@ export class A2UIMiddleware extends Middleware {
       let heldRunFinished: EventWithState | null = null;
 
       // Streaming tracker for dynamic render_a2ui tool calls.
-      // Schema is extracted from streaming args when updateComponents completes.
+      //
+      // Progressive emission strategy ("components atomic, data incremental"):
+      //  1. createSurface is emitted as soon as the surfaceId parses, so the
+      //     frontend can paint an empty container / skeleton immediately.
+      //  2. updateComponents is emitted ONCE, only after the components array
+      //     is fully closed and every component carries a `component` type.
+      //     The renderer (@a2ui/web_core) throws when asked to build a
+      //     type-less component or resolve a child id that isn't present yet,
+      //     so partial component trees are never emitted.
+      //  3. updateDataModel is emitted INCREMENTALLY: as each item in the
+      //     repeated data array (e.g. `data.items`) closes, a new snapshot
+      //     carries the items-so-far. Because the repeated card reuses one
+      //     already-emitted template component, growing the data array adds no
+      //     new component references — so cards paint one-by-one with no throw.
+      //
+      // Each emitted snapshot is cumulative (createSurface + updateComponents +
+      // updateDataModel-so-far) with replace:true, so any single snapshot is
+      // self-sufficient even if the frontend coalesces renders.
       const streamingToolCalls = new Map<string, {
         schema: { surfaceId: string; catalogId: string; components: Array<Record<string, unknown>> } | null;
         args: string;
-        emittedCount: number;
-        schemaEmitted: boolean;  // whether schema has been sent to the renderer
-        dataEmitted: boolean;    // whether data model has been sent
+        surfaceEmitted: boolean;   // createSurface sent
+        componentsEmitted: boolean; // updateComponents sent (atomic)
+        dataItemsKey: string;      // repeated-array key derived from components
+        dataItemsCount: number;    // number of data items emitted so far
+        dataComplete: boolean;     // full (closed) data model emitted
       }>();
 
       // Outer tool call context. Any non-A2UI tool call (e.g. ``generate_a2ui``
@@ -296,8 +342,9 @@ export class A2UIMiddleware extends Middleware {
             // tool's TOOL_CALL_RESULT still works as a fallback.
             if (a2uiToolNames.has(startEvent.toolCallName)) {
               streamingToolCalls.set(startEvent.toolCallId, {
-                schema: null, args: "", emittedCount: 0,
-                schemaEmitted: false, dataEmitted: false,
+                schema: null, args: "",
+                surfaceEmitted: false, componentsEmitted: false,
+                dataItemsKey: "items", dataItemsCount: 0, dataComplete: false,
               });
             } else if (!nonOuterToolNames.has(startEvent.toolCallName)) {
               // Any other tool call becomes the active outer-call context.
@@ -321,49 +368,89 @@ export class A2UIMiddleware extends Middleware {
               const deltaHasClosingBrace = argsEvent.delta.includes("}");
               const deltaHasClosingBracket = argsEvent.delta.includes("]");
               const deltaHasStructuralChar = deltaHasClosingBrace || deltaHasClosingBracket;
+              // surfaceId completes as a string value (closing quote), not a
+              // brace/bracket — so also probe when the delta closes a string.
+              const deltaHasQuote = argsEvent.delta.includes('"');
 
-              // For dynamic (render_a2ui): extract schema from the structured args.
-              // We wait for the components array to be fully closed before setting
-              // the schema, because partial components (e.g., only the root Column
-              // without its children) cause the Lit processor to fail validation.
-              if (deltaHasStructuralChar) {
-                const result = extractCompleteItemsWithStatus(streaming.args, "components");
+              if (deltaHasStructuralChar || deltaHasQuote) {
                 const surfaceId = extractStringField(streaming.args, "surfaceId");
-                const rawCatalogId = extractStringField(streaming.args, "catalogId") ?? "basic";
-                const catalogId = rawCatalogId === "basic"
-                  ? "https://a2ui.org/specification/v0_9/basic_catalog.json"
-                  : rawCatalogId;
 
-                if (result && result.items.length > 0 && surfaceId) {
-                  // Progressive component streaming: emit activity snapshots
-                  // as components arrive, not just when the full array closes.
-                  const newComponents = result.items.length > streaming.emittedCount;
+                // Nothing actionable until we know which surface we're building.
+                if (surfaceId) {
+                  // Catalog ownership: the host/factory decides the catalog, not
+                  // the subagent. Prefer the configured defaultCatalogId; only
+                  // fall back to a streamed catalogId (legacy) or the basic
+                  // catalog when no catalog was configured. This keeps the
+                  // streamed createSurface from referencing a catalog the
+                  // frontend never registered (e.g. "basic" when the app uses a
+                  // custom catalog) — which throws "Catalog not found".
+                  const streamedCatalogId = extractStringField(streaming.args, "catalogId");
+                  const catalogId =
+                    this.config.defaultCatalogId ??
+                    (streamedCatalogId && streamedCatalogId !== "basic"
+                      ? streamedCatalogId
+                      : "https://a2ui.org/specification/v0_9/basic_catalog.json");
 
-                  if (newComponents) {
-                    if (!streaming.schema) {
-                      // First emission — create the schema object
-                      streaming.schema = { surfaceId, catalogId, components: result.items as any[] };
-                    } else {
-                      // Update components in existing schema
-                      streaming.schema.components = result.items as any[];
+                  // (2) Components — emit ONCE, only when the array is fully
+                  // closed and every component has a `component` type. Partial
+                  // or type-less components would throw in @a2ui/web_core.
+                  if (!streaming.componentsEmitted) {
+                    const result = extractCompleteItemsWithStatus(streaming.args, "components");
+                    if (
+                      result &&
+                      result.arrayClosed &&
+                      result.items.length > 0 &&
+                      result.items.every(
+                        (c) => c && typeof c === "object" && typeof (c as any).component === "string",
+                      )
+                    ) {
+                      const components = result.items as Array<Record<string, unknown>>;
+                      streaming.schema = { surfaceId, catalogId, components };
+                      streaming.dataItemsKey = deriveRepeatedDataKey(components) ?? "items";
+                    }
+                  }
+
+                  // (3) Data — incrementally surface complete items from the
+                  // repeated data array (e.g. data.items) once components exist.
+                  let dataItems: unknown[] | null = null;
+                  let dataItemsAdvanced = false;
+                  if (streaming.schema && !streaming.dataComplete) {
+                    const itemsResult = extractDataArrayItems(streaming.args, streaming.dataItemsKey);
+                    if (itemsResult && itemsResult.items.length > streaming.dataItemsCount) {
+                      dataItems = itemsResult.items;
+                      dataItemsAdvanced = true;
+                    }
+                  }
+
+                  // Decide whether this delta advanced any emittable state.
+                  //
+                  // We deliberately do NOT emit createSurface on its own: an
+                  // empty surface makes the renderer try to resolve the root
+                  // component immediately, which throws "Component not found:
+                  // root" until updateComponents arrives (a visible error
+                  // flash). So the first snapshot always carries components.
+                  // The loading skeleton during this window is provided by the
+                  // render_a2ui tool-call progress indicator, not an empty surface.
+                  const componentsAdvanced = !!streaming.schema && !streaming.componentsEmitted;
+
+                  if (componentsAdvanced || dataItemsAdvanced) {
+                    const ops: Array<Record<string, unknown>> = [];
+                    // Always include createSurface — the frontend filters it out
+                    // if the surface already exists, so snapshots stay self-sufficient.
+                    ops.push({ version: "v0.9", createSurface: { surfaceId, catalogId } });
+                    streaming.surfaceEmitted = true;
+
+                    if (streaming.schema) {
+                      ops.push({ version: "v0.9", updateComponents: { surfaceId, components: streaming.schema.components } });
+                      streaming.componentsEmitted = true;
                     }
 
-                    streaming.schemaEmitted = true;
-                    streaming.emittedCount = result.items.length;
-
-                    // Always include createSurface in every replace:true snapshot.
-                    // If React batches renders and only processes a later snapshot,
-                    // the surface must still be created. The frontend filters out
-                    // duplicate createSurface when the surface already exists.
-                    const ops: Array<Record<string, unknown>> = [];
-                    ops.push({ version: "v0.9", createSurface: { surfaceId, catalogId } });
-                    ops.push({ version: "v0.9", updateComponents: { surfaceId, components: result.items } });
-
-                    // Try to include data model if "data" object is available
-                    const data = extractCompleteObject(streaming.args, "data");
-                    if (data) {
-                      streaming.dataEmitted = true;
-                      ops.push({ version: "v0.9", updateDataModel: { surfaceId, path: "/", value: data } });
+                    if (dataItems && dataItems.length > 0) {
+                      streaming.dataItemsCount = dataItems.length;
+                      ops.push({
+                        version: "v0.9",
+                        updateDataModel: { surfaceId, path: "/", value: { [streaming.dataItemsKey]: dataItems } },
+                      });
                     }
 
                     const content: Record<string, unknown> = { [A2UI_OPERATIONS_KEY]: ops };
@@ -376,31 +463,30 @@ export class A2UIMiddleware extends Middleware {
                     };
                     subscriber.next(snapshotEvent);
                   }
-                }
-              }
 
-              // Handle late-arriving data: if components were already emitted but
-              // data wasn't ready yet (streams after components), emit a new snapshot
-              // with the data once it becomes extractable.
-              if (deltaHasStructuralChar && streaming.schemaEmitted && !streaming.dataEmitted && streaming.schema) {
-                const data = extractCompleteObject(streaming.args, "data");
-                if (data) {
-                  streaming.dataEmitted = true;
-                  const { surfaceId, catalogId } = streaming.schema;
-                  const ops: Array<Record<string, unknown>> = [
-                    { version: "v0.9", createSurface: { surfaceId, catalogId } },
-                    { version: "v0.9", updateComponents: { surfaceId, components: streaming.schema.components } },
-                    { version: "v0.9", updateDataModel: { surfaceId, path: "/", value: data } },
-                  ];
-                  const content: Record<string, unknown> = { [A2UI_OPERATIONS_KEY]: ops };
-                  const snapshotEvent: ActivitySnapshotEvent = {
-                    type: EventType.ACTIVITY_SNAPSHOT,
-                    messageId: `a2ui-surface-${surfaceId}-${currentOuterCallId ?? argsEvent.toolCallId}`,
-                    activityType: A2UIActivityType,
-                    content,
-                    replace: true,
-                  };
-                  subscriber.next(snapshotEvent);
+                  // Final authoritative data emit once the whole data object
+                  // closes. Covers non-array data keys (e.g. form objects) and
+                  // guarantees the data model exactly matches the model's intent.
+                  if (streaming.componentsEmitted && !streaming.dataComplete && deltaHasStructuralChar) {
+                    const data = extractCompleteObject(streaming.args, "data");
+                    if (data) {
+                      streaming.dataComplete = true;
+                      const ops: Array<Record<string, unknown>> = [
+                        { version: "v0.9", createSurface: { surfaceId, catalogId } },
+                        { version: "v0.9", updateComponents: { surfaceId, components: streaming.schema!.components } },
+                        { version: "v0.9", updateDataModel: { surfaceId, path: "/", value: data } },
+                      ];
+                      const content: Record<string, unknown> = { [A2UI_OPERATIONS_KEY]: ops };
+                      const snapshotEvent: ActivitySnapshotEvent = {
+                        type: EventType.ACTIVITY_SNAPSHOT,
+                        messageId: `a2ui-surface-${surfaceId}-${currentOuterCallId ?? argsEvent.toolCallId}`,
+                        activityType: A2UIActivityType,
+                        content,
+                        replace: true,
+                      };
+                      subscriber.next(snapshotEvent);
+                    }
+                  }
                 }
               }
             }
@@ -424,10 +510,11 @@ export class A2UIMiddleware extends Middleware {
               const resultEvent = event as ToolCallResultEvent;
               const isStreaming = streamingToolCalls.has(resultEvent.toolCallId);
 
-              // Fallback: if a streaming tool call never emitted its schema (e.g. args
-              // didn't parse), fall through to auto-detection on the final result.
+              // Fallback: if a streaming tool call never emitted its components
+              // (e.g. args didn't parse), fall through to auto-detection on the
+              // final result.
               const streamingEntry = streamingToolCalls.get(resultEvent.toolCallId);
-              const streamingHandled = isStreaming && streamingEntry?.schemaEmitted;
+              const streamingHandled = isStreaming && streamingEntry?.componentsEmitted;
 
               // Also check if ANY streaming entry already handled a surface.
               // This covers the case where render_a2ui (inner tool) streamed the
@@ -436,7 +523,7 @@ export class A2UIMiddleware extends Middleware {
               let anyStreamingHandled = streamingHandled;
               if (!anyStreamingHandled) {
                 for (const entry of streamingToolCalls.values()) {
-                  if (entry.schemaEmitted) {
+                  if (entry.componentsEmitted) {
                     anyStreamingHandled = true;
                     break;
                   }

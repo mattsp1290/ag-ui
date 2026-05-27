@@ -120,6 +120,72 @@ class TestAGUIToolsetReplacement:
         assert root_agent.tools[0] is agui
         assert isinstance(root_agent.tools[0], AGUIToolset)
 
+    @pytest.mark.asyncio
+    async def test_swapped_in_toolset_resolves_nonempty_via_get_tools_with_prefix(self) -> None:
+        """#1389 regression guard (replaces the removed object-identity test).
+
+        The actual #1389 failure was an *empty* tool list: in ADK 2.x a toolset
+        that is not a well-formed ``BaseToolset`` (no ``super().__init__()`` ->
+        missing ``_use_invocation_cache``) is silently dropped to ``[]`` by
+        ``llm_agent._convert_tool_union_to_tools``'s ``try/except``. Assert the
+        per-run ``ClientProxyToolset`` the middleware swaps in resolves
+        *non-empty* tools through ``get_tools_with_prefix`` (the ADK path that
+        reads ``_use_invocation_cache``), and that the agent's
+        ``canonical_tools`` still exposes the frontend tool -- so we cannot
+        silently regress to the empty-tool-list symptom.
+        """
+        agui = AGUIToolset()  # no filter -> every frontend tool passes through
+        root_agent = Agent(
+            name="probe_agent",
+            model="gemini-2.5-flash",
+            instruction="probe",
+            tools=[agui],
+        )
+
+        captured: dict = {}
+
+        async def _noop(self, **kwargs):
+            captured.update(kwargs)
+            return None
+
+        with patch.object(ADKAgent, "_run_adk_in_background", _noop):
+            adk_agent = ADKAgent(
+                adk_agent=root_agent,
+                app_name="probe_app",
+                user_id="probe_user",
+                use_in_memory_services=True,
+            )
+            run_input = RunAgentInput(
+                thread_id="probe_thread",
+                run_id="probe_run",
+                messages=[UserMessage(id="m1", role="user", content="hi")],
+                context=[],
+                state={},
+                tools=[Tool(
+                    name="frontend_tool",
+                    description="a frontend tool",
+                    parameters={"type": "object", "properties": {}},
+                )],
+                forwarded_props={},
+            )
+            exec_state = await adk_agent._start_background_execution(run_input)
+            await asyncio.gather(exec_state.task, return_exceptions=True)
+
+        swapped_in = captured["adk_agent"].tools[0]
+        assert isinstance(swapped_in, ClientProxyToolset)
+
+        # The #1389 failure mode was *empty* tools through this exact path
+        # (get_tools_with_prefix reads _use_invocation_cache on ADK 2.x). A
+        # well-formed toolset resolves the frontend tool rather than [].
+        resolved = await swapped_in.get_tools_with_prefix()
+        assert resolved, "swapped-in ClientProxyToolset resolved no tools (#1389 regression)"
+        assert [t.name for t in resolved] == ["frontend_tool"]
+
+        # End-to-end: the agent's real resolution entrypoint (which would drop a
+        # malformed toolset to [] via try/except) still exposes the tool.
+        canonical = await captured["adk_agent"].canonical_tools()
+        assert "frontend_tool" in [t.name for t in canonical]
+
 
 # ---------------------------------------------------------------------------
 # ag-ui#1669 — Workflow root HITL rehydrate gate

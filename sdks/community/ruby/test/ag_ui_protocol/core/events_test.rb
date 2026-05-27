@@ -14,6 +14,38 @@ class EventsTest < Minitest::Test
           AgUiProtocol::Core::Events::BaseEvent.new
         end
       end
+
+      should "serialize Time timestamp as epoch milliseconds (Integer)" do
+        t = Time.utc(2026, 5, 26, 12, 0, 0)
+        event = AgUiProtocol::Core::Events::BaseEvent.new(
+          type: AgUiProtocol::Core::Events::EventType::RAW, timestamp: t
+        )
+        payload = JSON.parse(event.to_json)
+        assert_kind_of Integer, payload["timestamp"]
+        assert_equal 1779796800000, payload["timestamp"]
+      end
+
+      should "serialize non-UTC Time as the equivalent epoch milliseconds" do
+        t = Time.new(2026, 5, 26, 5, 0, 0, "-07:00") # equivalent to 12:00 UTC
+        event = AgUiProtocol::Core::Events::BaseEvent.new(
+          type: AgUiProtocol::Core::Events::EventType::RAW, timestamp: t
+        )
+        payload = JSON.parse(event.to_json)
+        assert_equal 1779796800000, payload["timestamp"]
+      end
+
+      should "serialize timestamp on a concrete event subclass (RunStartedEvent)" do
+        input = AgUiProtocol::Core::Types::RunAgentInput.new(
+          thread_id: "t1", run_id: "r1", state: {},
+          messages: [], tools: [], context: [], forwarded_props: {}
+        )
+        event = AgUiProtocol::Core::Events::RunStartedEvent.new(
+          thread_id: "t1", run_id: "r1", input: input,
+          timestamp: Time.utc(2026, 5, 26, 12, 0, 0)
+        )
+        payload = JSON.parse(event.to_json)
+        assert_equal 1779796800000, payload["timestamp"]
+      end
     end
 
     context "TextMessageStartEvent" do

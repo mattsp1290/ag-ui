@@ -62,4 +62,19 @@ class UtilTest < Minitest::Test
       assert_equal({ "user_key" => "raw" }, result[1])
     end
   end
+
+  context "AgUiProtocol::Util.normalize_value (Time)" do
+    should "convert Time to epoch milliseconds (Integer)" do
+      t = Time.utc(2026, 5, 26, 12, 0, 0)
+      result = AgUiProtocol::Util.normalize_value(t)
+      assert_kind_of Integer, result
+      # 2026-05-26T12:00:00Z == 1779796800 seconds since epoch == 1779796800000 ms
+      assert_equal 1779796800000, result
+    end
+
+    should "preserve sub-second precision when converting Time to epoch milliseconds" do
+      t = Time.utc(2026, 5, 26, 12, 0, 0, 500_000)
+      assert_equal 1779796800500, AgUiProtocol::Util.normalize_value(t)
+    end
+  end
 end

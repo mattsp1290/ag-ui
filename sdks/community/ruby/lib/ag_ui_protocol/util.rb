@@ -44,6 +44,11 @@ module AgUiProtocol
       when Opaque
         # Preserve the wrapper so downstream stages can recognize and skip it.
         value
+      when Time
+        # AG-UI protocol wire format for BaseEvent.timestamp is epoch
+        # milliseconds (matches Python SDK `Optional[int]` and TypeScript
+        # `z.number().optional()`).
+        (value.to_f * 1000).to_i
       when AgUiProtocol::Core::Types::Model
         value.to_h
       else

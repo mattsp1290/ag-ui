@@ -182,11 +182,22 @@ jobs:
             jq -r '.packages[] | "- **\(.name)**: \(.oldVersion) → \(.newVersion)"' /tmp/bump-result.json
           } >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Mint devops-bot token
+        id: app-token
+        if: inputs.dry_run != true && steps.bump.outputs.changed_count != '0'
+        uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2.2.2
+        with:
+          app-id: "3877599"
+          private-key: ${{ secrets.DEVOPS_BOT_PRIVATE_KEY }}
+
       - name: Configure git credentials for push
         if: inputs.dry_run != true && steps.bump.outputs.changed_count != '0'
-        run: git config --local url."https://x-access-token:$GITHUB_TOKEN@github.com/".insteadOf "https://github.com/"
+        run: |
+          git config user.name "ag-ui-devops-bot[bot]"
+          git config user.email "3877599+ag-ui-devops-bot[bot]@users.noreply.github.com"
+          git config --local url."https://x-access-token:${GH_APP_TOKEN}@github.com/".insteadOf "https://github.com/"
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_APP_TOKEN: ${{ steps.app-token.outputs.token }}
 
       - name: Commit and push version bumps
         if: inputs.dry_run != true && steps.bump.outputs.changed_count != '0'
@@ -282,7 +293,7 @@ jobs:
           INPUT_SCOPE: ${{ inputs.scope }}
           INPUT_BUMP: ${{ inputs.bump }}
         with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
+          github-token: ${{ steps.app-token.outputs.token }}
           script: |
             const fs = require("fs");
             const { owner, repo } = context.repo;

@@ -24,11 +24,11 @@ content = AgUiProtocol::Core::Types::AudioInputContent.new(
 
 ```
 
-| Property   | Type                                                    | Description                                        |
-| ---------- | ------------------------------------------------------- | -------------------------------------------------- |
-| `source`   | `InputContentDataSource , InputContentUrlSource , Hash` | Content source                                     |
-| `metadata` | `Object` (optional)                                     | Optional metadata , Default: `nil`.                |
-| `type`     | `String` (optional)                                     | Identifies the fragment type , Default: `"audio"`. |
+| Property   | Type                                                  | Description                                       |
+| ---------- | ----------------------------------------------------- | ------------------------------------------------- |
+| `source`   | `InputContentDataSource, InputContentUrlSource, Hash` | Content source                                    |
+| `metadata` | `Object` (optional)                                   | Optional metadata. Default: `nil`.                |
+| `type`     | `String` (optional)                                   | Identifies the fragment type. Default: `"audio"`. |
 
 ## Context
 
@@ -63,11 +63,11 @@ content = AgUiProtocol::Core::Types::DocumentInputContent.new(
 
 ```
 
-| Property   | Type                                                    | Description                                           |
-| ---------- | ------------------------------------------------------- | ----------------------------------------------------- |
-| `source`   | `InputContentDataSource , InputContentUrlSource , Hash` | Content source                                        |
-| `metadata` | `Object` (optional)                                     | Optional metadata , Default: `nil`.                   |
-| `type`     | `String` (optional)                                     | Identifies the fragment type , Default: `"document"`. |
+| Property   | Type                                                  | Description                                          |
+| ---------- | ----------------------------------------------------- | ---------------------------------------------------- |
+| `source`   | `InputContentDataSource, InputContentUrlSource, Hash` | Content source                                       |
+| `metadata` | `Object` (optional)                                   | Optional metadata. Default: `nil`.                   |
+| `type`     | `String` (optional)                                   | Identifies the fragment type. Default: `"document"`. |
 
 ## ImageInputContent
 
@@ -84,11 +84,11 @@ content = AgUiProtocol::Core::Types::ImageInputContent.new(
 
 ```
 
-| Property   | Type                                                    | Description                                        |
-| ---------- | ------------------------------------------------------- | -------------------------------------------------- |
-| `source`   | `InputContentDataSource , InputContentUrlSource , Hash` | Content source                                     |
-| `metadata` | `Object` (optional)                                     | Optional metadata , Default: `nil`.                |
-| `type`     | `String` (optional)                                     | Identifies the fragment type , Default: `"image"`. |
+| Property   | Type                                                  | Description                                       |
+| ---------- | ----------------------------------------------------- | ------------------------------------------------- |
+| `source`   | `InputContentDataSource, InputContentUrlSource, Hash` | Content source                                    |
+| `metadata` | `Object` (optional)                                   | Optional metadata. Default: `nil`.                |
+| `type`     | `String` (optional)                                   | Identifies the fragment type. Default: `"image"`. |
 
 ## InputContentDataSource
 
@@ -107,11 +107,11 @@ source = AgUiProtocol::Core::Types::InputContentDataSource.new(
 
 ```
 
-| Property    | Type                | Description                                     |
-| ----------- | ------------------- | ----------------------------------------------- |
-| `value`     | `String`            | Base64 encoded content                          |
-| `mime_type` | `String`            | MIME type of the content                        |
-| `type`      | `String` (optional) | Identifies the source type , Default: `"data"`. |
+| Property    | Type                | Description                                    |
+| ----------- | ------------------- | ---------------------------------------------- |
+| `value`     | `String`            | Base64 encoded content                         |
+| `mime_type` | `String`            | MIME type of the content                       |
+| `type`      | `String` (optional) | Identifies the source type. Default: `"data"`. |
 
 ## InputContentUrlSource
 
@@ -129,11 +129,11 @@ source = AgUiProtocol::Core::Types::InputContentUrlSource.new(
 
 ```
 
-| Property    | Type                | Description                                    |
-| ----------- | ------------------- | ---------------------------------------------- |
-| `value`     | `String`            | URL string                                     |
-| `mime_type` | `String` (optional) | Optional MIME type , Default: `nil`.           |
-| `type`      | `String` (optional) | Identifies the source type , Default: `"url"`. |
+| Property    | Type                | Description                                   |
+| ----------- | ------------------- | --------------------------------------------- |
+| `value`     | `String`            | URL string                                    |
+| `mime_type` | `String` (optional) | Optional MIME type. Default: `nil`.           |
+| `type`      | `String` (optional) | Identifies the source type. Default: `"url"`. |
 
 ## Interrupt
 
@@ -153,15 +153,15 @@ interrupt = AgUiProtocol::Core::Types::Interrupt.new(
 
 ```
 
-| Property          | Type                | Description                                            |
-| ----------------- | ------------------- | ------------------------------------------------------ |
-| `id`              | `String`            | Unique identifier                                      |
-| `reason`          | `String`            | Reason for the interrupt                               |
-| `message`         | `String` (optional) | Human-readable message , Default: `nil`.               |
-| `tool_call_id`    | `String` (optional) | Associated tool call if applicable , Default: `nil`.   |
-| `response_schema` | `Object` (optional) | JSON schema for response , Default: `nil`.             |
-| `expires_at`      | `String` (optional) | ISO timestamp when interrupt expires , Default: `nil`. |
-| `metadata`        | `Object` (optional) | Arbitrary metadata , Default: `nil`.                   |
+| Property          | Type                | Description                                           |
+| ----------------- | ------------------- | ----------------------------------------------------- |
+| `id`              | `String`            | Unique identifier                                     |
+| `reason`          | `String`            | Reason for the interrupt                              |
+| `message`         | `String` (optional) | Human-readable message. Default: `nil`.               |
+| `tool_call_id`    | `String` (optional) | Associated tool call if applicable. Default: `nil`.   |
+| `response_schema` | `Object` (optional) | JSON schema for response. Default: `nil`.             |
+| `expires_at`      | `String` (optional) | ISO timestamp when interrupt expires. Default: `nil`. |
+| `metadata`        | `Object` (optional) | Arbitrary metadata. Default: `nil`.                   |
 
 ## ReasoningMessage
 
@@ -180,11 +180,11 @@ msg = AgUiProtocol::Core::Types::ReasoningMessage.new(
 
 ```
 
-| Property          | Type                | Description                                                                    |
-| ----------------- | ------------------- | ------------------------------------------------------------------------------ |
-| `id`              | `String`            | Unique identifier for the message                                              |
-| `content`         | `String`            | Reasoning content (plaintext when not encrypted)                               |
-| `encrypted_value` | `String` (optional) | Encrypted reasoning content when in zero-data-retention mode , Default: `nil`. |
+| Property          | Type                | Description                                                                   |
+| ----------------- | ------------------- | ----------------------------------------------------------------------------- |
+| `id`              | `String`            | Unique identifier for the message                                             |
+| `content`         | `String`            | Reasoning content (plaintext when not encrypted)                              |
+| `encrypted_value` | `String` (optional) | Encrypted reasoning content when in zero-data-retention mode. Default: `nil`. |
 
 ## ResumeEntry
 
@@ -203,17 +203,24 @@ entry = AgUiProtocol::Core::Types::ResumeEntry.new(
 
 ```
 
-| Property       | Type     | Description                                   |
-| -------------- | -------- | --------------------------------------------- |
-| `interrupt_id` | `String` | ID of the interrupt being resolved            |
-| `status`       | `String` | Resolution status ("resolved" or "cancelled") |
-| `payload`      | `Object` | Response payload for the interrupt            |
+| Property       | Type                | Description                                                                                   |
+| -------------- | ------------------- | --------------------------------------------------------------------------------------------- |
+| `interrupt_id` | `String`            | ID of the interrupt being resolved                                                            |
+| `status`       | `String` (optional) | Resolution status (free-form; protocol values are "resolved" or "cancelled"). Default: `nil`. |
+| `payload`      | `Object` (optional) | Response payload for the interrupt. Default: `nil`.                                           |
 
-## ResumeStatus
+## Role
 
-`AgUiProtocol::Core::Types::ResumeStatus`
+`AgUiProtocol::Core::Types::Role`
 
-Valid values for resume status in interrupt resolution.
+Represents the possible roles a message sender can have.
+
+```ruby
+
+AgUiProtocol::Core::Types::Role # => ["developer", "system", "assistant",
+"user", "tool", "activity", "reasoning"]
+
+```
 
 ## RunAgentInput
 
@@ -238,17 +245,17 @@ input = AgUiProtocol::Core::Types::RunAgentInput.new(
 
 ```
 
-| Property          | Type                            | Description                                                 |
-| ----------------- | ------------------------------- | ----------------------------------------------------------- |
-| `thread_id`       | `String`                        | ID of the conversation thread                               |
-| `run_id`          | `String`                        | ID of the current run                                       |
-| `state`           | `Object`                        | Current state of the agent                                  |
-| `messages`        | `Array<BaseMessage>`            | List of messages in the conversation                        |
-| `tools`           | `Array<Tool>`                   | List of tools available to the agent                        |
-| `context`         | `Array<Context>`                | List of context objects provided to the agent               |
-| `forwarded_props` | `Object`                        | Additional properties forwarded to the agent                |
-| `parent_run_id`   | `String` (optional)             | Lineage pointer for branching/time travel , Default: `nil`. |
-| `resume`          | `Array<ResumeEntry>` (optional) | Entries for resuming interrupted runs , Default: `nil`.     |
+| Property          | Type                                  | Description                                                |
+| ----------------- | ------------------------------------- | ---------------------------------------------------------- |
+| `thread_id`       | `String`                              | ID of the conversation thread                              |
+| `run_id`          | `String`                              | ID of the current run                                      |
+| `state`           | `Object`                              | Current state of the agent                                 |
+| `messages`        | `Array<BaseMessage, ActivityMessage>` | List of messages in the conversation                       |
+| `tools`           | `Array<Tool>`                         | List of tools available to the agent                       |
+| `context`         | `Array<Context>`                      | List of context objects provided to the agent              |
+| `forwarded_props` | `Object`                              | Additional properties forwarded to the agent               |
+| `parent_run_id`   | `String` (optional)                   | Lineage pointer for branching/time travel. Default: `nil`. |
+| `resume`          | `Array<ResumeEntry>` (optional)       | Entries for resuming interrupted runs. Default: `nil`.     |
 
 ## Tool
 
@@ -289,12 +296,12 @@ tool_call = AgUiProtocol::Core::Types::ToolCall.new(
 
 ```
 
-| Property          | Type                  | Description                                                              |
-| ----------------- | --------------------- | ------------------------------------------------------------------------ |
-| `id`              | `String`              | Unique identifier for the tool call                                      |
-| `function`        | `FunctionCall , Hash` | Function name and arguments                                              |
-| `type`            | `String` (optional)   | Type of the tool call , Default: `'function'`.                           |
-| `encrypted_value` | `String` (optional)   | Encrypted tool call value for zero-data-retention mode , Default: `nil`. |
+| Property          | Type                 | Description                                                             |
+| ----------------- | -------------------- | ----------------------------------------------------------------------- |
+| `id`              | `String`             | Unique identifier for the tool call                                     |
+| `function`        | `FunctionCall, Hash` | Function name and arguments                                             |
+| `type`            | `String` (optional)  | Type of the tool call. Default: `'function'`.                           |
+| `encrypted_value` | `String` (optional)  | Encrypted tool call value for zero-data-retention mode. Default: `nil`. |
 
 ### FunctionCall
 
@@ -311,8 +318,6 @@ fn = AgUiProtocol::Core::Types::FunctionCall.new(
 )
 
 ```
-
-**@category** [] ToolCall
 
 | Property    | Type     | Description             |
 | ----------- | -------- | ----------------------- |
@@ -334,11 +339,11 @@ content = AgUiProtocol::Core::Types::VideoInputContent.new(
 
 ```
 
-| Property   | Type                                                    | Description                                        |
-| ---------- | ------------------------------------------------------- | -------------------------------------------------- |
-| `source`   | `InputContentDataSource , InputContentUrlSource , Hash` | Content source                                     |
-| `metadata` | `Object` (optional)                                     | Optional metadata , Default: `nil`.                |
-| `type`     | `String` (optional)                                     | Identifies the fragment type , Default: `"video"`. |
+| Property   | Type                                                  | Description                                       |
+| ---------- | ----------------------------------------------------- | ------------------------------------------------- |
+| `source`   | `InputContentDataSource, InputContentUrlSource, Hash` | Content source                                    |
+| `metadata` | `Object` (optional)                                   | Optional metadata. Default: `nil`.                |
+| `type`     | `String` (optional)                                   | Identifies the fragment type. Default: `"video"`. |
 
 ## Message Types
 
@@ -351,6 +356,11 @@ messages in the system.
 
 Represents structured activity progress emitted between chat messages.
 
+ActivityMessage intentionally does NOT inherit from BaseMessage because its
+`content` is a structured Hash rather than text/multimodal, which is
+incompatible with BaseMessage#content's type. It still appears alongside other
+messages in the stream but is modeled as its own shape.
+
 ```ruby
 
 msg = AgUiProtocol::Core::Types::ActivityMessage.new(
@@ -361,8 +371,6 @@ msg = AgUiProtocol::Core::Types::ActivityMessage.new(
 )
 
 ```
-
-**@category** [] Message Types
 
 | Property        | Type     | Description                                         |
 | --------------- | -------- | --------------------------------------------------- |
@@ -392,14 +400,13 @@ msg = AgUiProtocol::Core::Types::AssistantMessage.new(
 
 ```
 
-**@category** [] Message Types
-
-| Property     | Type                                | Description                                       |
-| ------------ | ----------------------------------- | ------------------------------------------------- |
-| `id`         | `String`                            | Unique identifier for the message                 |
-| `content`    | `Object` (optional)                 | Text content of the message , Default: `nil`.     |
-| `tool_calls` | `Array<ToolCall , Hash>` (optional) | Tool calls made in this message , Default: `nil`. |
-| `name`       | `String` (optional)                 | Name of the sender , Default: `nil`.              |
+| Property          | Type                               | Description                                                                                   |
+| ----------------- | ---------------------------------- | --------------------------------------------------------------------------------------------- |
+| `id`              | `String`                           | Unique identifier for the message                                                             |
+| `content`         | `Object` (optional)                | Text content of the message. Default: `nil`.                                                  |
+| `tool_calls`      | `Array<ToolCall, Hash>` (optional) | Tool calls made in this message; Hashes are normalized to ToolCall instances. Default: `nil`. |
+| `name`            | `String` (optional)                | Name of the sender. Default: `nil`.                                                           |
+| `encrypted_value` | `String` (optional)                | Encrypted content for zero-data-retention mode. Default: `nil`.                               |
 
 ### BinaryInputContent
 
@@ -420,16 +427,14 @@ content = AgUiProtocol::Core::Types::BinaryInputContent.new(
 > <strong>Validation:</strong> At least one of `id`, `url`, or `data` must be
 provided.
 
-**@category** [] Message Types
-
-| Property    | Type                | Description                                                     |
-| ----------- | ------------------- | --------------------------------------------------------------- |
-| `type`      | `String` (optional) | Identifies the fragment type , Default: `"binary"`.             |
-| `mime_type` | `String`            | MIME type, for example `"image/png"`                            |
-| `id`        | `String` (optional) | Reference to previously uploaded content , Default: `nil`.      |
-| `url`       | `String` (optional) | Remote URL where the content can be retrieved , Default: `nil`. |
-| `data`      | `String` (optional) | Base64 encoded content , Default: `nil`.                        |
-| `filename`  | `String` (optional) | Optional filename hint , Default: `nil`.                        |
+| Property    | Type                | Description                                                    |
+| ----------- | ------------------- | -------------------------------------------------------------- |
+| `type`      | `String` (optional) | Identifies the fragment type. Default: `"binary"`.             |
+| `mime_type` | `String`            | MIME type, for example `"image/png"`                           |
+| `id`        | `String` (optional) | Reference to previously uploaded content. Default: `nil`.      |
+| `url`       | `String` (optional) | Remote URL where the content can be retrieved. Default: `nil`. |
+| `data`      | `String` (optional) | Base64 encoded content. Default: `nil`.                        |
+| `filename`  | `String` (optional) | Optional filename hint. Default: `nil`.                        |
 
 ### DeveloperMessage
 
@@ -447,28 +452,11 @@ msg = AgUiProtocol::Core::Types::DeveloperMessage.new(
 
 ```
 
-**@category** [] Message Types
-
-| Property  | Type                | Description                                   |
-| --------- | ------------------- | --------------------------------------------- |
-| `id`      | `String`            | Unique identifier for the message             |
-| `content` | `Object`            | Text content of the message (required)        |
-| `name`    | `String` (optional) | Optional name of the sender , Default: `nil`. |
-
-### Role
-
-`AgUiProtocol::Core::Types::Role`
-
-Represents the possible roles a message sender can have.
-
-```ruby
-
-AgUiProtocol::Core::Types::Role # => ["developer", "system", "assistant",
-"user", "tool", "activity"]
-
-```
-
-**@category** [] Message Types
+| Property  | Type                | Description                                  |
+| --------- | ------------------- | -------------------------------------------- |
+| `id`      | `String`            | Unique identifier for the message            |
+| `content` | `Object`            | Text content of the message (required)       |
+| `name`    | `String` (optional) | Optional name of the sender. Default: `nil`. |
 
 ### SystemMessage
 
@@ -486,13 +474,11 @@ msg = AgUiProtocol::Core::Types::SystemMessage.new(
 
 ```
 
-**@category** [] Message Types
-
-| Property  | Type                | Description                                   |
-| --------- | ------------------- | --------------------------------------------- |
-| `id`      | `String`            | Unique identifier for the message             |
-| `content` | `Object`            | Text content of the message (required)        |
-| `name`    | `String` (optional) | Optional name of the sender , Default: `nil`. |
+| Property  | Type                | Description                                  |
+| --------- | ------------------- | -------------------------------------------- |
+| `id`      | `String`            | Unique identifier for the message            |
+| `content` | `Object`            | Text content of the message (required)       |
+| `name`    | `String` (optional) | Optional name of the sender. Default: `nil`. |
 
 ### TextInputContent
 
@@ -506,12 +492,10 @@ content = AgUiProtocol::Core::Types::TextInputContent.new(text: "hello")
 
 ```
 
-**@category** [] Message Types
-
-| Property | Type                | Description                                       |
-| -------- | ------------------- | ------------------------------------------------- |
-| `text`   | `String`            | Text content                                      |
-| `type`   | `String` (optional) | Identifies the fragment type , Default: `"text"`. |
+| Property | Type                | Description                                      |
+| -------- | ------------------- | ------------------------------------------------ |
+| `text`   | `String`            | Text content                                     |
+| `type`   | `String` (optional) | Identifies the fragment type. Default: `"text"`. |
 
 ### ToolMessage
 
@@ -530,15 +514,13 @@ msg = AgUiProtocol::Core::Types::ToolMessage.new(
 
 ```
 
-**@category** [] Message Types
-
-| Property          | Type                | Description                                                                 |
-| ----------------- | ------------------- | --------------------------------------------------------------------------- |
-| `id`              | `String`            | Unique identifier for the message.                                          |
-| `content`         | `String`            | Tool result content.                                                        |
-| `tool_call_id`    | `String`            | ID of the tool call this message responds to.                               |
-| `error`           | `String` (optional) | Error payload if the tool call failed. , Default: `nil`.                    |
-| `encrypted_value` | `String` (optional) | Encrypted tool message value for zero-data-retention mode , Default: `nil`. |
+| Property          | Type                | Description                                                                |
+| ----------------- | ------------------- | -------------------------------------------------------------------------- |
+| `id`              | `String`            | Unique identifier for the message.                                         |
+| `content`         | `String`            | Tool result content.                                                       |
+| `tool_call_id`    | `String`            | ID of the tool call this message responds to.                              |
+| `error`           | `String` (optional) | Error payload if the tool call failed. Default: `nil`.                     |
+| `encrypted_value` | `String` (optional) | Encrypted tool message value for zero-data-retention mode. Default: `nil`. |
 
 ### UserMessage
 
@@ -559,13 +541,12 @@ msg = AgUiProtocol::Core::Types::UserMessage.new(
 
 ```
 
-**@category** [] Message Types
-
-| Property  | Type                                                                                                                                       | Description                                                           |
-| --------- | ------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------- |
-| `id`      | `String`                                                                                                                                   | Unique identifier for the message                                     |
-| `content` | `String , Array<TextInputContent , BinaryInputContent , ImageInputContent , AudioInputContent , VideoInputContent , DocumentInputContent>` | Either a plain text string or an ordered list of multimodal fragments |
-| `name`    | `String` (optional)                                                                                                                        | Optional name of the sender , Default: `nil`.                         |
+| Property          | Type                                                                                                                                       | Description                                                                                                                                                                                                                                                                                                                                                                           |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `id`              | `String`                                                                                                                                   | Unique identifier for the message                                                                                                                                                                                                                                                                                                                                                     |
+| `content`         | `String, Array<TextInputContent, BinaryInputContent, ImageInputContent, AudioInputContent, VideoInputContent, DocumentInputContent, Hash>` | Accepted shapes: a String for plain text, or an Array whose elements are either *InputContent Models (TextInputContent, BinaryInputContent, ImageInputContent, AudioInputContent, VideoInputContent, DocumentInputContent) OR Hashes with a `type:` key (`text`, `binary`, `image`, `audio`, `video`, `document`); Hash entries are normalized internally to the corresponding Model. |
+| `name`            | `String` (optional)                                                                                                                        | Optional name of the sender. Default: `nil`.                                                                                                                                                                                                                                                                                                                                          |
+| `encrypted_value` | `String` (optional)                                                                                                                        | Encrypted content for zero-data-retention mode. Default: `nil`.                                                                                                                                                                                                                                                                                                                       |
 
 ## State
 

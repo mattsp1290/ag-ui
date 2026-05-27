@@ -218,6 +218,16 @@ class EventsTest < Minitest::Test
           AgUiProtocol::Core::Events::StateSnapshotEvent.new
         end
       end
+
+      should "preserve user-supplied keys verbatim in snapshot" do
+        event = AgUiProtocol::Core::Events::StateSnapshotEvent.new(
+          snapshot: { "user_state" => { "agent_id" => "x", "feature_flag" => true } }
+        )
+        payload = JSON.parse(event.to_json)
+        assert_equal "x", payload["snapshot"]["user_state"]["agent_id"]
+        assert_equal true, payload["snapshot"]["user_state"]["feature_flag"]
+        refute payload["snapshot"].key?("userState")
+      end
     end
 
     context "StateDeltaEvent" do
@@ -233,6 +243,22 @@ class EventsTest < Minitest::Test
         assert_raises(ArgumentError) do
           AgUiProtocol::Core::Events::StateDeltaEvent.new
         end
+      end
+
+      should "preserve user-supplied keys verbatim inside JSON Patch op values" do
+        # RFC 6902 JSON Patch ops may carry arbitrary user payloads in `value`;
+        # nested keys must NOT be camelized on the wire.
+        event = AgUiProtocol::Core::Events::StateDeltaEvent.new(
+          delta: [
+            { "op" => "replace", "path" => "/user_state", "value" => { "agent_id" => "x", "feature_flag" => true } }
+          ]
+        )
+        payload = JSON.parse(event.to_json)
+        op = payload["delta"][0]
+        assert_equal "replace", op["op"]
+        assert_equal "/user_state", op["path"]
+        assert_equal "x", op["value"]["agent_id"]
+        assert_equal true, op["value"]["feature_flag"]
       end
     end
 
@@ -323,6 +349,17 @@ class EventsTest < Minitest::Test
           AgUiProtocol::Core::Events::RawEvent.new
         end
       end
+
+      should "preserve user-supplied keys verbatim in event payload" do
+        event = AgUiProtocol::Core::Events::RawEvent.new(
+          event: { "upstream_id" => "abc", "raw_data" => { "deep_key" => 1 } },
+          source: "openai"
+        )
+        payload = JSON.parse(event.to_json)
+        assert_equal "abc", payload["event"]["upstream_id"]
+        assert_equal 1, payload["event"]["raw_data"]["deep_key"]
+        refute payload["event"].key?("upstreamId")
+      end
     end
 
     context "CustomEvent" do
@@ -335,6 +372,17 @@ class EventsTest < Minitest::Test
         assert_raises(ArgumentError) do
           AgUiProtocol::Core::Events::CustomEvent.new(name: "custom")
         end
+      end
+
+      should "preserve user-supplied keys verbatim in value payload" do
+        event = AgUiProtocol::Core::Events::CustomEvent.new(
+          name: "my_event",
+          value: { "user_data" => { "agent_id" => "x", "feature_flag" => true } }
+        )
+        payload = JSON.parse(event.to_json)
+        assert_equal "x", payload["value"]["user_data"]["agent_id"]
+        assert_equal true, payload["value"]["user_data"]["feature_flag"]
+        refute payload["value"].key?("userData")
       end
     end
 

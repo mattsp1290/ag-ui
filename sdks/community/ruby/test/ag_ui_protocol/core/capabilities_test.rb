@@ -48,6 +48,17 @@ class CapabilitiesTest < Minitest::Test
         payload = JSON.parse(obj.to_json)
         assert_equal({}, payload)
       end
+
+      should "preserve user-supplied metadata keys verbatim (no camelCase rewriting)" do
+        obj = AgUiProtocol::Core::Capabilities::IdentityCapabilities.new(
+          metadata: { "agent_id" => "x", "feature_flag" => true, "nested_thing" => { "user_key" => "raw" } }
+        )
+        payload = JSON.parse(obj.to_json)
+        # metadata is an opaque user-defined Hash; inner keys must NOT be camelized.
+        assert_equal "x", payload["metadata"]["agent_id"]
+        assert_equal true, payload["metadata"]["feature_flag"]
+        assert_equal "raw", payload["metadata"]["nested_thing"]["user_key"]
+      end
     end
 
     context "TransportCapabilities" do
@@ -311,6 +322,16 @@ class CapabilitiesTest < Minitest::Test
         )
         payload = JSON.parse(obj.to_json)
         assert_equal true, payload["custom"]["featureX"]["enabled"]
+      end
+
+      should "preserve user-supplied custom keys verbatim (no camelCase rewriting)" do
+        obj = AgUiProtocol::Core::Capabilities::AgentCapabilities.new(
+          custom: { "agent_id" => "x", "feature_flag" => { "deep_key" => 1 } }
+        )
+        payload = JSON.parse(obj.to_json)
+        # `custom` is the explicit escape hatch; inner keys must NOT be camelized.
+        assert_equal "x", payload["custom"]["agent_id"]
+        assert_equal 1, payload["custom"]["feature_flag"]["deep_key"]
       end
 
       should "include output capabilities" do

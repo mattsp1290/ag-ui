@@ -373,6 +373,20 @@ class TypesTest < Minitest::Test
         assert_equal "progress", payload["activityType"]
         assert_equal 10, payload["content"]["pct"]
       end
+
+      should "preserve user-supplied keys verbatim in content" do
+        msg = AgUiProtocol::Core::Types::ActivityMessage.new(
+          id: "am1",
+          activity_type: "progress",
+          content: { "step_name" => "indexing", "items_done" => 7 }
+        )
+        payload = JSON.parse(msg.to_json)
+        # `content` is arbitrary user-defined activity payload; keys preserved verbatim.
+        assert_equal "indexing", payload["content"]["step_name"]
+        assert_equal 7, payload["content"]["items_done"]
+        refute payload["content"].key?("stepName")
+        refute payload["content"].key?("itemsDone")
+      end
     end
 
     context "Context" do
@@ -401,6 +415,31 @@ class TypesTest < Minitest::Test
           AgUiProtocol::Core::Types::Tool.new(name: "t", description: "d")
         end
       end
+
+      should "preserve user-supplied JSON Schema keys verbatim in parameters" do
+        # JSON Schema fields like `properties` contain user-named keys that MUST
+        # NOT be camelized on the wire.
+        obj = AgUiProtocol::Core::Types::Tool.new(
+          name: "search",
+          description: "Web search",
+          parameters: {
+            "type" => "object",
+            "properties" => {
+              "search_query" => { "type" => "string" },
+              "max_results" => { "type" => "integer" }
+            },
+            "required" => ["search_query"]
+          }
+        )
+        payload = JSON.parse(obj.to_json)
+        assert_equal "object", payload["parameters"]["type"]
+        # Inner schema keys are preserved exactly.
+        assert payload["parameters"]["properties"].key?("search_query")
+        assert payload["parameters"]["properties"].key?("max_results")
+        refute payload["parameters"]["properties"].key?("searchQuery")
+        assert_equal "string", payload["parameters"]["properties"]["search_query"]["type"]
+        assert_equal ["search_query"], payload["parameters"]["required"]
+      end
     end
 
     context "Interrupt" do
@@ -417,6 +456,28 @@ class TypesTest < Minitest::Test
         end
       end
 
+      should "preserve user-supplied keys verbatim in response_schema and metadata" do
+        obj = AgUiProtocol::Core::Types::Interrupt.new(
+          id: "int1",
+          reason: "input_required",
+          response_schema: {
+            "type" => "object",
+            "properties" => {
+              "user_answer" => { "type" => "string" }
+            }
+          },
+          metadata: { "trace_id" => "abc", "client_flag" => true }
+        )
+        payload = JSON.parse(obj.to_json)
+        # response_schema is JSON Schema; inner keys must be preserved.
+        assert payload["responseSchema"]["properties"].key?("user_answer")
+        refute payload["responseSchema"]["properties"].key?("userAnswer")
+        # metadata is arbitrary user data; inner keys must be preserved.
+        assert_equal "abc", payload["metadata"]["trace_id"]
+        assert_equal true, payload["metadata"]["client_flag"]
+        refute payload["metadata"].key?("traceId")
+      end
+
       should "include optional fields in to_h" do
         obj = AgUiProtocol::Core::Types::Interrupt.new(
           id: "int1", reason: "input_required",
@@ -427,9 +488,14 @@ class TypesTest < Minitest::Test
         hash = obj.to_h
         assert_equal "Please provide input", hash[:message]
         assert_equal "tc1", hash[:tool_call_id]
-        assert_equal "object", hash[:response_schema]["type"]
         assert_equal "2026-01-01T00:00:00Z", hash[:expires_at]
-        assert_equal "val", hash[:metadata]["key"]
+        # response_schema and metadata are user-supplied opaque payloads; to_h
+        # wraps them in Util::Opaque so the serializer preserves their keys
+        # verbatim (no camelCase rewriting, no nil compaction).
+        assert_kind_of AgUiProtocol::Util::Opaque, hash[:response_schema]
+        assert_equal({ "type" => "object" }, hash[:response_schema].value)
+        assert_kind_of AgUiProtocol::Util::Opaque, hash[:metadata]
+        assert_equal({ "key" => "val" }, hash[:metadata].value)
       end
     end
 
@@ -453,6 +519,19 @@ class TypesTest < Minitest::Test
         assert_equal "int1", payload["interruptId"]
         refute payload.key?("status")
         refute payload.key?("payload")
+      end
+
+      should "preserve user-supplied keys verbatim in payload" do
+        obj = AgUiProtocol::Core::Types::ResumeEntry.new(
+          interrupt_id: "int1",
+          status: "resolved",
+          payload: { "user_answer" => "42", "extra_info" => { "deep_key" => true } }
+        )
+        wire = JSON.parse(obj.to_json)
+        assert_equal "42", wire["payload"]["user_answer"]
+        assert_equal true, wire["payload"]["extra_info"]["deep_key"]
+        refute wire["payload"].key?("userAnswer")
+        refute wire["payload"].key?("extraInfo")
       end
     end
 
@@ -590,6 +669,25 @@ class TypesTest < Minitest::Test
             resume: [{ interrupt_id: "int1", status: "resolved", payload: {} }]
           )
         end
+      end
+
+      should "preserve user-supplied keys verbatim in state and forwarded_props" do
+        obj = AgUiProtocol::Core::Types::RunAgentInput.new(
+          thread_id: "t1",
+          run_id: "r1",
+          state: { "user_state_key" => { "deep_key" => 1 } },
+          messages: [],
+          tools: [],
+          context: [],
+          forwarded_props: { "client_token" => "abc", "feature_flag" => true }
+        )
+        payload = JSON.parse(obj.to_json)
+        # state and forwardedProps are opaque user payloads — keys preserved verbatim.
+        assert_equal 1, payload["state"]["user_state_key"]["deep_key"]
+        refute payload["state"].key?("userStateKey")
+        assert_equal "abc", payload["forwardedProps"]["client_token"]
+        assert_equal true, payload["forwardedProps"]["feature_flag"]
+        refute payload["forwardedProps"].key?("clientToken")
       end
     end
 

@@ -111,7 +111,8 @@ module AgUiProtocol
             version: @version,
             provider: @provider,
             documentation_url: @documentation_url,
-            metadata: @metadata
+            # `metadata` is arbitrary integration-specific identity info — preserve keys verbatim.
+            metadata: @metadata.nil? ? nil : AgUiProtocol::Util::Opaque.new(@metadata)
           }
         end
       end
@@ -721,7 +722,9 @@ module AgUiProtocol
             multimodal: @multimodal,
             execution: @execution,
             human_in_the_loop: @human_in_the_loop,
-            custom: @custom
+            # `custom` is the explicit escape hatch for integration-specific
+            # capabilities — preserve keys verbatim.
+            custom: @custom.nil? ? nil : AgUiProtocol::Util::Opaque.new(@custom)
           }
         end
       end

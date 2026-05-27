@@ -577,7 +577,8 @@ module AgUiProtocol
             id: @id,
             role: @role,
             activity_type: @activity_type,
-            content: @content
+            # `content` is an arbitrary user-supplied payload — preserve keys verbatim on the wire.
+            content: @content.nil? ? nil : AgUiProtocol::Util::Opaque.new(@content)
           }
         end
       end
@@ -649,7 +650,8 @@ module AgUiProtocol
           {
             name: @name,
             description: @description,
-            parameters: @parameters
+            # `parameters` is a JSON Schema document supplied by the user — preserve keys verbatim.
+            parameters: @parameters.nil? ? nil : AgUiProtocol::Util::Opaque.new(@parameters)
           }
         end
       end
@@ -1047,9 +1049,11 @@ module AgUiProtocol
             reason: @reason,
             message: @message,
             tool_call_id: @tool_call_id,
-            response_schema: @response_schema,
+            # `response_schema` is a JSON Schema document supplied by the user — preserve keys verbatim.
+            response_schema: @response_schema.nil? ? nil : AgUiProtocol::Util::Opaque.new(@response_schema),
             expires_at: @expires_at,
-            metadata: @metadata
+            # `metadata` is arbitrary user-defined key/value data — preserve keys verbatim.
+            metadata: @metadata.nil? ? nil : AgUiProtocol::Util::Opaque.new(@metadata)
           }
         end
       end
@@ -1091,7 +1095,8 @@ module AgUiProtocol
           {
             interrupt_id: @interrupt_id,
             status: @status,
-            payload: @payload
+            # `payload` is the user's resume response — preserve keys verbatim.
+            payload: @payload.nil? ? nil : AgUiProtocol::Util::Opaque.new(@payload)
           }
         end
       end
@@ -1194,11 +1199,13 @@ module AgUiProtocol
             thread_id: @thread_id,
             run_id: @run_id,
             parent_run_id: @parent_run_id,
-            state: @state,
+            # `state` is the agent's user-defined state object — preserve keys verbatim.
+            state: @state.nil? ? nil : AgUiProtocol::Util::Opaque.new(@state),
             messages: @messages,
             tools: @tools,
             context: @context,
-            forwarded_props: @forwarded_props,
+            # `forwarded_props` is arbitrary user-defined key/value data — preserve keys verbatim.
+            forwarded_props: @forwarded_props.nil? ? nil : AgUiProtocol::Util::Opaque.new(@forwarded_props),
             resume: @resume
           }
         end

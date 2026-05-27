@@ -629,7 +629,8 @@ module AgUiProtocol
 
         sig { returns(T::Hash[Symbol, T.untyped]) }
         def to_h
-          super.merge(snapshot: @snapshot)
+          # `snapshot` is the agent's user-defined state object — preserve keys verbatim.
+          super.merge(snapshot: @snapshot.nil? ? nil : AgUiProtocol::Util::Opaque.new(@snapshot))
         end
       end
 
@@ -655,7 +656,10 @@ module AgUiProtocol
 
         sig { returns(T::Hash[Symbol, T.untyped]) }
         def to_h
-          super.merge(delta: @delta)
+          # `delta` is an array of JSON Patch ops; each op's `value` may carry
+          # arbitrary user-defined keys (RFC 6902). Preserve the array
+          # contents verbatim on the wire.
+          super.merge(delta: @delta.nil? ? nil : AgUiProtocol::Util::Opaque.new(@delta))
         end
       end
 
@@ -813,7 +817,8 @@ module AgUiProtocol
 
         sig { returns(T::Hash[Symbol, T.untyped]) }
         def to_h
-          super.merge(event: @event, source: @source)
+          # `event` is the raw upstream event payload — preserve keys verbatim.
+          super.merge(event: @event.nil? ? nil : AgUiProtocol::Util::Opaque.new(@event), source: @source)
         end
       end
 
@@ -844,7 +849,8 @@ module AgUiProtocol
 
         sig { returns(T::Hash[Symbol, T.untyped]) }
         def to_h
-          super.merge(name: @name, value: @value)
+          # `value` is an application-specific payload — preserve keys verbatim.
+          super.merge(name: @name, value: @value.nil? ? nil : AgUiProtocol::Util::Opaque.new(@value))
         end
       end
 

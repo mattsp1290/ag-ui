@@ -616,5 +616,32 @@ describe("convertAGUIMessagesToMastra", () => {
       expect((result[1] as any).id).toBe("assistant-id");
       expect((result[2] as any).id).toBe("tool-id");
     });
+
+    it("omits id key entirely when message.id is undefined for all roles (issue #1659)", () => {
+      // Mastra's inputToMastraDBMessage uses `"id" in message` at runtime.
+      // For `{ id: undefined, ... }`, that check returns true, defeating the
+      // intended fix. The id key must be absent, not present-with-undefined.
+      const messages: Message[] = [
+        { id: undefined as any, role: "user", content: "hello" },
+        {
+          id: undefined as any,
+          role: "assistant",
+          content: "hi",
+          toolCalls: [],
+        },
+        {
+          id: undefined as any,
+          role: "tool",
+          content: "result",
+          toolCallId: "tc-1",
+        },
+      ];
+
+      const result = convertAGUIMessagesToMastra(messages);
+
+      expect("id" in result[0]).toBe(false);
+      expect("id" in result[1]).toBe(false);
+      expect("id" in result[2]).toBe(false);
+    });
   });
 });

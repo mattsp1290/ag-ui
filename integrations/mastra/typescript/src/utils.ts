@@ -120,14 +120,14 @@ export function convertAGUIMessagesToMastra(messages: Message[]): CoreMessageWit
         });
       }
       result.push({
-        id: message.id,
+        ...(message.id !== undefined ? { id: message.id } : {}),
         role: "assistant",
         content: parts,
       });
     } else if (message.role === "user") {
       const userContent = toMastraContent(message.content);
       result.push({
-        id: message.id,
+        ...(message.id !== undefined ? { id: message.id } : {}),
         role: "user",
         content: userContent,
       });
@@ -144,7 +144,7 @@ export function convertAGUIMessagesToMastra(messages: Message[]): CoreMessageWit
         }
       }
       result.push({
-        id: message.id,
+        ...(message.id !== undefined ? { id: message.id } : {}),
         role: "tool",
         content: [
           {

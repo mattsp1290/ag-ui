@@ -21,10 +21,9 @@ module AgUiProtocol
       # ```ruby
       #
       # AgUiProtocol::Core::Types::Role
-      # # => ["developer", "system", "assistant", "user", "tool", "activity"]
+      # # => ["developer", "system", "assistant", "user", "tool", "activity", "reasoning"]
       #
       # ```
-      # @category Message Types
       Role = ["developer", "system", "assistant", "user", "tool", "activity", "reasoning"].freeze
 
       # Base model for protocol entities.
@@ -41,7 +40,7 @@ module AgUiProtocol
         # @return [Hash<Symbol, Object>, raise NotImplementedError]
         sig { returns(T::Hash[Symbol, T.untyped]) }
         def to_h
-          raise NotImplementedError, 'Implement this method by concrect class'
+          raise NotImplementedError, "Implement this method in a concrete subclass"
         end
 
         # Returns a JSON-ready representation.
@@ -130,7 +129,11 @@ module AgUiProtocol
         def initialize(id:, function:, type: 'function', encrypted_value: nil)
           @id = id
           @type = type
-          @function = function.is_a?(FunctionCall) ? function : FunctionCall.new(**function)
+          @function = if function.is_a?(FunctionCall)
+                       function
+                     else
+                       FunctionCall.new(**function.transform_keys(&:to_sym))
+                     end
           @encrypted_value = encrypted_value
         end
 
@@ -267,13 +270,23 @@ module AgUiProtocol
 
         # @param id [String] Unique identifier for the message
         # @param content [Object] Text content of the message
-        # @param tool_calls [Array<ToolCall, Hash>] Tool calls made in this message
+        # @param tool_calls [Array<ToolCall, Hash>] Tool calls made in this message; Hashes are normalized to ToolCall instances.
         # @param name [String] Name of the sender
-        sig { params(id: String, content: T.untyped, tool_calls: T.nilable(T::Array[ToolCall]), name: T.nilable(String)).void }
-        def initialize(id:, content: nil, tool_calls: nil, name: nil)
-          super(id: id, role: "assistant", content: content, name: name)
+        # @param encrypted_value [String] Encrypted content for zero-data-retention mode
+        sig do
+          params(
+            id: String,
+            content: T.untyped,
+            tool_calls: T.nilable(T::Array[T.any(ToolCall, T::Hash[T.any(Symbol, String), T.untyped])]),
+            name: T.nilable(String),
+            encrypted_value: T.nilable(String)
+          ).void
+        end
+        def initialize(id:, content: nil, tool_calls: nil, name: nil, encrypted_value: nil)
+          super(id: id, role: "assistant", content: content, name: name, encrypted_value: encrypted_value)
           @tool_calls = tool_calls&.map do |tc|
-            tc.is_a?(ToolCall) ? tc : ToolCall.new(**tc)
+            next tc if tc.is_a?(ToolCall)
+            ToolCall.new(**tc.transform_keys(&:to_sym))
           end
         end
 
@@ -364,8 +377,8 @@ module AgUiProtocol
           ).void
         end
         def initialize(mime_type:, type: "binary", id: nil, url: nil, data: nil, filename: nil)
-          if [id, url, data].all?(&:nil?)
-            raise ArgumentError, "BinaryInputContent requires id, url, or data to be provided."
+          if [id, url, data].none? { |v| v.is_a?(String) && !v.empty? }
+            raise ArgumentError, "BinaryInputContent requires at least one of id, url, or data to be a non-empty string"
           end
 
           @type = type
@@ -404,35 +417,37 @@ module AgUiProtocol
       # ```
       # @category Message Types
       class UserMessage < BaseMessage
-        sig { returns(String) }
-        attr_reader :id
-
-        sig { returns(String) }
-        attr_reader :role
-
-        sig { returns(T.any(String, T::Array[T.any(TextInputContent, BinaryInputContent, ImageInputContent, AudioInputContent, VideoInputContent, DocumentInputContent)])) }
-        attr_reader :content
-
-        sig { returns(T.nilable(String)) }
-        attr_reader :name
-
         # @param id [String] Unique identifier for the message
-        # @param content [String, Array<TextInputContent | BinaryInputContent | ImageInputContent | AudioInputContent | VideoInputContent | DocumentInputContent>] Either a plain text string or an ordered list of multimodal fragments
+        # @param content [String, Array<TextInputContent | BinaryInputContent | ImageInputContent | AudioInputContent | VideoInputContent | DocumentInputContent | Hash>] Accepted shapes: a String for plain text, or an Array whose elements are either *InputContent Models (TextInputContent, BinaryInputContent, ImageInputContent, AudioInputContent, VideoInputContent, DocumentInputContent) OR Hashes with a `type:` key (`text`, `binary`, `image`, `audio`, `video`, `document`); Hash entries are normalized internally to the corresponding Model.
         # @param name [String] Optional name of the sender
+        # @param encrypted_value [String] Encrypted content for zero-data-retention mode
         sig do
           params(
             id: String,
-            content: T.any(String, T::Array[T.any(TextInputContent, BinaryInputContent, ImageInputContent, AudioInputContent, VideoInputContent, DocumentInputContent)]),
-            name: T.nilable(String)
+            content: T.any(
+              String,
+              T::Array[T.any(
+                TextInputContent, BinaryInputContent, ImageInputContent, AudioInputContent, VideoInputContent, DocumentInputContent,
+                T::Hash[T.any(Symbol, String), T.untyped]
+              )]
+            ),
+            name: T.nilable(String),
+            encrypted_value: T.nilable(String)
           ).void
         end
-        def initialize(id:, content:, name: nil)
-          super(id: id, role: "user", content: normalize_user_content(content), name: name)
+        def initialize(id:, content:, name: nil, encrypted_value: nil)
+          super(id: id, role: "user", content: normalize_user_content(content), name: name, encrypted_value: encrypted_value)
         end
 
         sig do
           params(
-            content: T.any(String, T::Array[T.any(TextInputContent, BinaryInputContent, ImageInputContent, AudioInputContent, VideoInputContent, DocumentInputContent)])
+            content: T.any(
+              String,
+              T::Array[T.any(
+                TextInputContent, BinaryInputContent, ImageInputContent, AudioInputContent, VideoInputContent, DocumentInputContent,
+                T::Hash[T.any(Symbol, String), T.untyped]
+              )]
+            )
           ).returns(T.any(String, T::Array[T.any(TextInputContent, BinaryInputContent, ImageInputContent, AudioInputContent, VideoInputContent, DocumentInputContent)]))
         end
         def normalize_user_content(content)
@@ -441,7 +456,8 @@ module AgUiProtocol
               if c.is_a?(Model)
                 c
               elsif c.is_a?(Hash)
-                case c[:type] || c["type"]
+                src_type = c[:type] || c["type"]
+                case src_type
                 when "text"
                   TextInputContent.new(text: c[:text] || c["text"])
                 when "binary"
@@ -450,7 +466,7 @@ module AgUiProtocol
                     id: c[:id] || c["id"],
                     url: c[:url] || c["url"],
                     data: c[:data] || c["data"],
-                    filename: c[:filename] || c["filename"]
+                    filename: c[:filename] || c["filename"] || c[:fileName] || c["fileName"]
                   )
                 when "image"
                   ImageInputContent.new(source: c[:source] || c["source"], metadata: c[:metadata] || c["metadata"])
@@ -461,10 +477,10 @@ module AgUiProtocol
                 when "document"
                   DocumentInputContent.new(source: c[:source] || c["source"], metadata: c[:metadata] || c["metadata"])
                 else
-                  c
+                  raise ArgumentError, "Unknown content type: #{src_type.inspect}"
                 end
               else
-                c
+                raise ArgumentError, "Unknown content type: #{c.class}"
               end
             end
           else
@@ -472,15 +488,6 @@ module AgUiProtocol
           end
         end
 
-        sig { returns(T::Hash[Symbol, T.untyped]) }
-        def to_h
-          {
-            id: @id,
-            role: @role,
-            content: @content,
-            name: @name
-          }
-        end
       end
 
       # Tool result message.
@@ -497,22 +504,10 @@ module AgUiProtocol
       # @category Message Types
       class ToolMessage < BaseMessage
         sig { returns(String) }
-        attr_reader :id
-
-        sig { returns(String) }
-        attr_reader :role
-
-        sig { returns(String) }
-        attr_reader :content
-
-        sig { returns(String) }
         attr_reader :tool_call_id
 
         sig { returns(T.nilable(String)) }
         attr_reader :error
-
-        sig { returns(T.nilable(String)) }
-        attr_reader :encrypted_value
 
         # @param id [String] Unique identifier for the message.
         # @param content [String] Tool result content.
@@ -521,26 +516,26 @@ module AgUiProtocol
         # @param encrypted_value [String] Encrypted tool message value for zero-data-retention mode
         sig { params(id: String, content: String, tool_call_id: String, error: T.nilable(String), encrypted_value: T.nilable(String)).void }
         def initialize(id:, content:, tool_call_id:, error: nil, encrypted_value: nil)
-          super(id: id, role: "tool", content: content)
+          super(id: id, role: "tool", content: content, encrypted_value: encrypted_value)
           @tool_call_id = tool_call_id
           @error = error
-          @encrypted_value = encrypted_value
         end
 
         sig { returns(T::Hash[Symbol, T.untyped]) }
         def to_h
-          {
-            id: @id,
-            role: @role,
-            content: @content,
+          super.merge(
             tool_call_id: @tool_call_id,
-            error: @error,
-            encrypted_value: @encrypted_value
-          }
+            error: @error
+          )
         end
       end
 
       # Represents structured activity progress emitted between chat messages.
+      #
+      # ActivityMessage intentionally does NOT inherit from BaseMessage because its
+      # `content` is a structured Hash rather than text/multimodal, which is
+      # incompatible with BaseMessage#content's type. It still appears alongside
+      # other messages in the stream but is modeled as its own shape.
       #
       # ```ruby
       #
@@ -552,7 +547,7 @@ module AgUiProtocol
       #
       # ```
       # @category Message Types
-      class ActivityMessage < BaseMessage
+      class ActivityMessage < Model
         sig { returns(String) }
         attr_reader :id
 
@@ -571,7 +566,7 @@ module AgUiProtocol
         sig { params(id: String, activity_type: String, content: T::Hash[T.any(Symbol, String), T.untyped]).void }
         def initialize(id:, activity_type:, content:)
           @id = id
-          @role = 'activity'
+          @role = "activity"
           @activity_type = activity_type
           @content = content
         end
@@ -781,19 +776,15 @@ module AgUiProtocol
 
         def build_source(hash)
           src_type = hash[:type] || hash["type"]
+          value = hash[:value] || hash["value"]
+          mime_type = hash[:mime_type] || hash["mime_type"] || hash[:mimeType] || hash["mimeType"]
           case src_type
           when "data"
-            InputContentDataSource.new(
-              value: hash[:value] || hash["value"],
-              mime_type: hash[:mime_type] || hash["mime_type"]
-            )
+            InputContentDataSource.new(value: value, mime_type: mime_type)
           when "url"
-            InputContentUrlSource.new(
-              value: hash[:value] || hash["value"],
-              mime_type: hash[:mime_type] || hash["mime_type"]
-            )
+            InputContentUrlSource.new(value: value, mime_type: mime_type)
           else
-            hash
+            raise ArgumentError, "Unknown source type: #{src_type.inspect}"
           end
         end
       end
@@ -840,19 +831,15 @@ module AgUiProtocol
 
         def build_source(hash)
           src_type = hash[:type] || hash["type"]
+          value = hash[:value] || hash["value"]
+          mime_type = hash[:mime_type] || hash["mime_type"] || hash[:mimeType] || hash["mimeType"]
           case src_type
           when "data"
-            InputContentDataSource.new(
-              value: hash[:value] || hash["value"],
-              mime_type: hash[:mime_type] || hash["mime_type"]
-            )
+            InputContentDataSource.new(value: value, mime_type: mime_type)
           when "url"
-            InputContentUrlSource.new(
-              value: hash[:value] || hash["value"],
-              mime_type: hash[:mime_type] || hash["mime_type"]
-            )
+            InputContentUrlSource.new(value: value, mime_type: mime_type)
           else
-            hash
+            raise ArgumentError, "Unknown source type: #{src_type.inspect}"
           end
         end
       end
@@ -899,19 +886,15 @@ module AgUiProtocol
 
         def build_source(hash)
           src_type = hash[:type] || hash["type"]
+          value = hash[:value] || hash["value"]
+          mime_type = hash[:mime_type] || hash["mime_type"] || hash[:mimeType] || hash["mimeType"]
           case src_type
           when "data"
-            InputContentDataSource.new(
-              value: hash[:value] || hash["value"],
-              mime_type: hash[:mime_type] || hash["mime_type"]
-            )
+            InputContentDataSource.new(value: value, mime_type: mime_type)
           when "url"
-            InputContentUrlSource.new(
-              value: hash[:value] || hash["value"],
-              mime_type: hash[:mime_type] || hash["mime_type"]
-            )
+            InputContentUrlSource.new(value: value, mime_type: mime_type)
           else
-            hash
+            raise ArgumentError, "Unknown source type: #{src_type.inspect}"
           end
         end
       end
@@ -958,19 +941,15 @@ module AgUiProtocol
 
         def build_source(hash)
           src_type = hash[:type] || hash["type"]
+          value = hash[:value] || hash["value"]
+          mime_type = hash[:mime_type] || hash["mime_type"] || hash[:mimeType] || hash["mimeType"]
           case src_type
           when "data"
-            InputContentDataSource.new(
-              value: hash[:value] || hash["value"],
-              mime_type: hash[:mime_type] || hash["mime_type"]
-            )
+            InputContentDataSource.new(value: value, mime_type: mime_type)
           when "url"
-            InputContentUrlSource.new(
-              value: hash[:value] || hash["value"],
-              mime_type: hash[:mime_type] || hash["mime_type"]
-            )
+            InputContentUrlSource.new(value: value, mime_type: mime_type)
           else
-            hash
+            raise ArgumentError, "Unknown source type: #{src_type.inspect}"
           end
         end
       end
@@ -1075,9 +1054,6 @@ module AgUiProtocol
         end
       end
 
-      # Valid values for resume status in interrupt resolution.
-      ResumeStatus = T.type_alias { T.any(String, T.nilable(String)) }
-
       # Represents an entry for resuming an interrupted run.
       #
       # ```ruby
@@ -1093,17 +1069,18 @@ module AgUiProtocol
         sig { returns(String) }
         attr_reader :interrupt_id
 
-        sig { returns(ResumeStatus) }
+        # Free-form string; protocol values are "resolved" or "cancelled" but not enforced by this SDK.
+        sig { returns(T.nilable(String)) }
         attr_reader :status
 
         sig { returns(T.untyped) }
         attr_reader :payload
 
         # @param interrupt_id [String] ID of the interrupt being resolved
-        # @param status [String] Resolution status ("resolved" or "cancelled")
+        # @param status [String] Resolution status (free-form; protocol values are "resolved" or "cancelled")
         # @param payload [Object] Response payload for the interrupt
-        sig { params(interrupt_id: String, status: String, payload: T.untyped).void }
-        def initialize(interrupt_id:, status:, payload:)
+        sig { params(interrupt_id: String, status: T.nilable(String), payload: T.untyped).void }
+        def initialize(interrupt_id:, status: nil, payload: nil)
           @interrupt_id = interrupt_id
           @status = status
           @payload = payload
@@ -1148,7 +1125,7 @@ module AgUiProtocol
         sig { returns(T.untyped) }
         attr_reader :state
 
-        sig { returns(T::Array[BaseMessage]) }
+        sig { returns(T::Array[T.any(BaseMessage, ActivityMessage)]) }
         attr_reader :messages
 
         sig { returns(T::Array[Tool]) }
@@ -1166,19 +1143,19 @@ module AgUiProtocol
         # @param thread_id [String] ID of the conversation thread
         # @param run_id [String] ID of the current run
         # @param state [Object] Current state of the agent
-        # @param messages [Array<BaseMessage>] List of messages in the conversation
+        # @param messages [Array<BaseMessage, ActivityMessage>] List of messages in the conversation
         # @param tools [Array<Tool>] List of tools available to the agent
         # @param context [Array<Context>] List of context objects provided to the agent
         # @param forwarded_props [Object] Additional properties forwarded to the agent
         # @param parent_run_id [String] Lineage pointer for branching/time travel
         # @param resume [Array<ResumeEntry>] Entries for resuming interrupted runs
-        # @raise [ArgumentError] if messages is not an Array of BaseMessage
+        # @raise [ArgumentError] if messages is not an Array of BaseMessage or ActivityMessage
         sig do
           params(
             thread_id: String,
             run_id: String,
             state: T.untyped,
-            messages: T::Array[BaseMessage],
+            messages: T::Array[T.any(BaseMessage, ActivityMessage)],
             tools: T::Array[Tool],
             context: T::Array[Context],
             forwarded_props: T.untyped,
@@ -1187,14 +1164,17 @@ module AgUiProtocol
           ).void.checked(:always)
         end
         def initialize(thread_id:, run_id:, state:, messages:, tools:, context:, forwarded_props:, parent_run_id: nil, resume: nil)
-          unless messages.is_a?(Array) && messages.all? { |m| m.is_a?(BaseMessage) }
-            raise ArgumentError, "messages must be an Array of BaseMessage"
+          unless messages.is_a?(Array) && messages.all? { |m| m.is_a?(BaseMessage) || m.is_a?(ActivityMessage) }
+            raise ArgumentError, "messages must be an Array of BaseMessage or ActivityMessage"
           end
           unless tools.is_a?(Array) && tools.all? { |m| m.is_a?(Tool) }
             raise ArgumentError, "tools must be an Array of Tool"
           end
           unless context.is_a?(Array) && context.all? { |m| m.is_a?(Context) }
             raise ArgumentError, "context must be an Array of Context"
+          end
+          unless resume.nil? || (resume.is_a?(Array) && resume.all? { |r| r.is_a?(ResumeEntry) })
+            raise ArgumentError, "resume must be an Array of ResumeEntry"
           end
 
           @thread_id = thread_id

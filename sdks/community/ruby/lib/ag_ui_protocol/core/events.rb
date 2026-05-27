@@ -22,6 +22,16 @@ module AgUiProtocol
     #
     # These events represent the lifecycle of tool calls made by agents.
     #
+    # ## Thinking Events
+    #
+    # These events represent the lifecycle of an agent's thinking steps, conveying
+    # intermediate reasoning to the frontend without contributing to the final message.
+    #
+    # ## Reasoning Events
+    #
+    # These events convey structured reasoning blocks emitted by an agent, including
+    # streaming reasoning messages and encrypted reasoning values.
+    #
     # ## State Management Events
     #
     # These events are used to manage agent state.
@@ -30,7 +40,7 @@ module AgUiProtocol
       # Valid values for the role attribute of a text message.
       TEXT_MESSAGE_ROLE_VALUES = ["developer", "system", "assistant", "user", "reasoning"].freeze
 
-      # The `EventType` module defines all possible event types in the system
+      # The `EventType` module defines all possible event types in the system.
       module EventType
         TEXT_MESSAGE_START = "TEXT_MESSAGE_START"
         TEXT_MESSAGE_CONTENT = "TEXT_MESSAGE_CONTENT"
@@ -67,8 +77,10 @@ module AgUiProtocol
         REASONING_ENCRYPTED_VALUE = "REASONING_ENCRYPTED_VALUE"
       end
 
-      # All events inherit from the `BaseEvent` class, which provides common properties
-      # shared across all event types.
+      # All event classes inherit from `BaseEvent`, which provides common properties
+      # shared across all event types. Value types in this module
+      # (RunFinishedSuccessOutcome, RunFinishedInterruptOutcome) inherit directly from
+      # `Model` — they are payload types referenced by events, not events themselves.
       # ```ruby
       #
       # event = AgUiProtocol::Core::Events::BaseEvent.new(
@@ -129,13 +141,16 @@ module AgUiProtocol
         attr_reader :role
 
         # @param message_id [String] Unique identifier for the message
+        # @param role [String] Must be one of TEXT_MESSAGE_ROLE_VALUES; defaults to "assistant"
         # @param timestamp [Time] Timestamp when the event was created
         # @param raw_event [Object] Original event data if this event was transformed
-        sig { params(message_id: String, timestamp: T.nilable(Time), raw_event: T.untyped).void }
-        def initialize(message_id:, timestamp: nil, raw_event: nil)
+        sig { params(message_id: String, role: String, timestamp: T.nilable(Time), raw_event: T.untyped).void }
+        def initialize(message_id:, role: "assistant", timestamp: nil, raw_event: nil)
+          raise ArgumentError, "role must be one of #{TEXT_MESSAGE_ROLE_VALUES.join(", ")}, got #{role}" unless TEXT_MESSAGE_ROLE_VALUES.include?(role)
+
           super(type: EventType::TEXT_MESSAGE_START, timestamp: timestamp, raw_event: raw_event)
           @message_id = message_id
-          @role = 'assistant'
+          @role = role
         end
 
         sig { returns(T::Hash[Symbol, T.untyped]) }
@@ -242,18 +257,18 @@ module AgUiProtocol
         # @param delta [String] Text content chunk
         # @param timestamp [Time] Timestamp when the event was created
         # @param raw_event [Object] Original event data if this event was transformed
-        sig do 
+        sig do
           params(
             message_id: T.nilable(String),
             role: T.nilable(String),
             delta: T.nilable(String),
             timestamp: T.nilable(Time),
             raw_event: T.untyped,
-          ).void 
+          ).void
         end
         def initialize(message_id: nil, role: nil, delta: nil, timestamp: nil, raw_event: nil)
           raise ArgumentError, "role must be one of #{TEXT_MESSAGE_ROLE_VALUES.join(", ")}, got #{role}" if !role.nil? && !TEXT_MESSAGE_ROLE_VALUES.include?(role)
-          
+
           super(type: EventType::TEXT_MESSAGE_CHUNK, timestamp: timestamp, raw_event: raw_event)
           @message_id = message_id
           @role = role
@@ -530,8 +545,8 @@ module AgUiProtocol
           ).void
         end
         def initialize(message_id:, tool_call_id:, content:, role: nil, timestamp: nil, raw_event: nil)
-          raise ArgumentError, "role must be tool, got #{role}" if !role.nil? && role != "tool"
-          
+          raise ArgumentError, "role must be \"tool\", got #{role.inspect}" if !role.nil? && role != "tool"
+
           super(type: EventType::TOOL_CALL_RESULT, timestamp: timestamp, raw_event: raw_event)
           @message_id = message_id
           @tool_call_id = tool_call_id
@@ -647,7 +662,9 @@ module AgUiProtocol
       # Provides a snapshot of all messages in a conversation.
       #
       # ```ruby
-      # event = AgUiProtocol::Core::Events::MessagesSnapshotEvent.new(messages: [{ "id" => "m1", "content" => "hi" }])
+      # event = AgUiProtocol::Core::Events::MessagesSnapshotEvent.new(
+      #   messages: [AgUiProtocol::Core::Types::UserMessage.new(id: "m1", content: "hi")]
+      # )
       # ```
       #
       # @category State Management Events
@@ -655,13 +672,13 @@ module AgUiProtocol
         sig { returns(T::Array[T.untyped]) }
         attr_reader :messages
 
-        # @param messages [Array<AgUiProtocol::Core::Types::BaseMessage>] Array of message objects
+        # @param messages [Array<AgUiProtocol::Core::Types::BaseMessage, AgUiProtocol::Core::Types::ActivityMessage>] Array of message objects. Accepts both BaseMessage subclasses and ActivityMessage for parity with RunAgentInput.
         # @param timestamp [Time] Timestamp when the event was created
         # @param raw_event [Object] Original event data if this event was transformed
-        sig { params(messages: T::Array[AgUiProtocol::Core::Types::BaseMessage], timestamp: T.nilable(Time), raw_event: T.untyped).void }
+        sig { params(messages: T::Array[T.any(AgUiProtocol::Core::Types::BaseMessage, AgUiProtocol::Core::Types::ActivityMessage)], timestamp: T.nilable(Time), raw_event: T.untyped).void }
         def initialize(messages:, timestamp: nil, raw_event: nil)
-          unless messages.is_a?(Array) && messages.all? { |m| m.is_a?(AgUiProtocol::Core::Types::BaseMessage) }
-            raise ArgumentError, "messages must be an Array of BaseMessage"
+          unless messages.is_a?(Array) && messages.all? { |m| m.is_a?(AgUiProtocol::Core::Types::BaseMessage) || m.is_a?(AgUiProtocol::Core::Types::ActivityMessage) }
+            raise ArgumentError, "messages must be an Array of BaseMessage or ActivityMessage"
           end
 
           super(type: EventType::MESSAGES_SNAPSHOT, timestamp: timestamp, raw_event: raw_event)
@@ -871,6 +888,8 @@ module AgUiProtocol
         # @param run_id [String] ID of the run
         # @param parent_run_id [String] Lineage pointer for branching/time travel. If present, refers to a prior run within the same thread
         # @param input [Object] The exact agent input payload sent to the agent for this run. May omit messages already in history
+        # @param timestamp [Time, nil] Timestamp when the event was created
+        # @param raw_event [Object, nil] Original event data if this event was transformed
         sig do
           params(
             thread_id: String,
@@ -900,7 +919,74 @@ module AgUiProtocol
         end
       end
 
-      # Signals the successful completion of an agent run.
+      # Represents a successful outcome for a run.
+      #
+      # The `type` discriminator is enforced — only "success" is accepted (or nil for default).
+      # The optional `type:` kwarg exists to support round-trip deserialization from `to_h`
+      # output (which emits `type: "success"`); supplying any other value raises ArgumentError.
+      #
+      # ```ruby
+      # outcome = AgUiProtocol::Core::Events::RunFinishedSuccessOutcome.new
+      # ```
+      class RunFinishedSuccessOutcome < AgUiProtocol::Core::Types::Model
+        sig { returns(String) }
+        attr_reader :type
+
+        # @param type [String, nil] Optional. Must be "success" if provided. Always stored as "success"; the kwarg exists to support round-trip deserialization from `to_h` output.
+        sig { params(type: T.nilable(String)).void }
+        def initialize(type: nil)
+          if !type.nil? && type != "success"
+            raise ArgumentError, "RunFinishedSuccessOutcome.type must be \"success\""
+          end
+
+          @type = "success"
+        end
+
+        sig { returns(T::Hash[Symbol, T.untyped]) }
+        def to_h
+          { type: @type }
+        end
+      end
+
+      # Represents an interrupt outcome for a run.
+      #
+      # ```ruby
+      # outcome = AgUiProtocol::Core::Events::RunFinishedInterruptOutcome.new(
+      #   interrupts: [
+      #     AgUiProtocol::Core::Types::Interrupt.new(id: "int_1", reason: "input_required")
+      #   ]
+      # )
+      # ```
+      class RunFinishedInterruptOutcome < AgUiProtocol::Core::Types::Model
+        sig { returns(String) }
+        attr_reader :type
+
+        sig { returns(T::Array[AgUiProtocol::Core::Types::Interrupt]) }
+        attr_reader :interrupts
+
+        # @param interrupts [Array<AgUiProtocol::Core::Types::Interrupt>] List of interrupts
+        # @param type [String, nil] Optional. Must be "interrupt" if provided. Always stored as "interrupt"; the kwarg exists to support round-trip deserialization from `to_h` output.
+        sig { params(interrupts: T::Array[AgUiProtocol::Core::Types::Interrupt], type: T.nilable(String)).void }
+        def initialize(interrupts:, type: nil)
+          unless interrupts.is_a?(Array) && interrupts.all? { |i| i.is_a?(AgUiProtocol::Core::Types::Interrupt) }
+            raise ArgumentError, "interrupts must be an Array of Interrupt"
+          end
+
+          if !type.nil? && type != "interrupt"
+            raise ArgumentError, "RunFinishedInterruptOutcome.type must be \"interrupt\""
+          end
+
+          @type = "interrupt"
+          @interrupts = interrupts
+        end
+
+        sig { returns(T::Hash[Symbol, T.untyped]) }
+        def to_h
+          { type: @type, interrupts: @interrupts }
+        end
+      end
+
+      # Signals the completion of an agent run. The `outcome` field discriminates between success and interrupt: provide either a `RunFinishedSuccessOutcome` or `RunFinishedInterruptOutcome` (or use the legacy `result` field; the two are mutually exclusive).
       #
       # ```ruby
       #
@@ -924,10 +1010,11 @@ module AgUiProtocol
 
         # @param thread_id [String] ID of the conversation thread
         # @param run_id [String] ID of the run
-        # @param result [Object] Result data from the agent run
-        # @param outcome [RunFinishedSuccessOutcome, RunFinishedInterruptOutcome] Outcome of the run
+        # @param result [Object] Result data from the agent run. Mutually exclusive with `outcome`.
+        # @param outcome [RunFinishedSuccessOutcome, RunFinishedInterruptOutcome] Outcome of the run. Mutually exclusive with `result`.
         # @param timestamp [Time] Timestamp when the event was created
         # @param raw_event [Object] Original event data if this event was transformed
+        # @raise [ArgumentError] when both `result` and `outcome` are non-nil. Callers must choose one.
         sig do
           params(
             thread_id: String,
@@ -939,6 +1026,10 @@ module AgUiProtocol
           ).void
         end
         def initialize(thread_id:, run_id:, result: nil, outcome: nil, timestamp: nil, raw_event: nil)
+          if !result.nil? && !outcome.nil?
+            raise ArgumentError, "result and outcome are mutually exclusive; provide one or the other, not both"
+          end
+
           super(type: EventType::RUN_FINISHED, timestamp: timestamp, raw_event: raw_event)
           @thread_id = thread_id
           @run_id = run_id
@@ -1041,9 +1132,6 @@ module AgUiProtocol
         end
       end
 
-      # Valid values for reasoning encrypted value subtype.
-      ReasoningEncryptedValueSubtype = T.type_alias { T.any(String, T.nilable(String)) }
-
       # Signals the start of a reasoning block.
       #
       # ```ruby
@@ -1072,6 +1160,10 @@ module AgUiProtocol
 
       # Signals the start of a reasoning message within a reasoning block.
       #
+      # The `role` is always "reasoning" (enforced). The optional `role:` kwarg exists
+      # to support round-trip deserialization from `to_h` output (which emits
+      # `role: "reasoning"`); supplying any other value raises ArgumentError.
+      #
       # ```ruby
       # event = AgUiProtocol::Core::Events::ReasoningMessageStartEvent.new(message_id: "reason_msg_1")
       # ```
@@ -1085,12 +1177,18 @@ module AgUiProtocol
         attr_reader :role
 
         # @param message_id [String] Unique identifier
+        # @param role [String, nil] Optional. Must be "reasoning" if provided. Always stored as "reasoning"; the kwarg exists to support round-trip deserialization from `to_h` output.
         # @param timestamp [Time] Timestamp when the event was created
         # @param raw_event [Object] Original event data if this event was transformed
-        sig { params(message_id: String, timestamp: T.nilable(Time), raw_event: T.untyped).void }
-        def initialize(message_id:, timestamp: nil, raw_event: nil)
+        sig { params(message_id: String, role: T.nilable(String), timestamp: T.nilable(Time), raw_event: T.untyped).void }
+        def initialize(message_id:, role: nil, timestamp: nil, raw_event: nil)
+          if !role.nil? && role != "reasoning"
+            raise ArgumentError, "ReasoningMessageStartEvent.role must be \"reasoning\""
+          end
+
           super(type: EventType::REASONING_MESSAGE_START, timestamp: timestamp, raw_event: raw_event)
           @message_id = message_id
+          # Role is always "reasoning" for ReasoningMessageStartEvent.
           @role = "reasoning"
         end
 
@@ -1245,7 +1343,7 @@ module AgUiProtocol
         sig { returns(String) }
         attr_reader :encrypted_value
 
-        # @param subtype [String] Subtype ("tool-call" or "message")
+        # @param subtype [String] free-form string; protocol values are "tool-call" or "message" but not enforced by this SDK
         # @param entity_id [String] ID of the entity being encrypted
         # @param encrypted_value [String] The encrypted value
         # @param timestamp [Time] Timestamp when the event was created
@@ -1272,55 +1370,6 @@ module AgUiProtocol
         end
       end
 
-      # Represents a successful outcome for a run.
-      #
-      # ```ruby
-      # outcome = AgUiProtocol::Core::Events::RunFinishedSuccessOutcome.new
-      # ```
-      class RunFinishedSuccessOutcome < AgUiProtocol::Core::Types::Model
-        sig { returns(String) }
-        attr_reader :type
-
-        sig { params(type: String).void }
-        def initialize(type: "success")
-          @type = type
-        end
-
-        sig { returns(T::Hash[Symbol, T.untyped]) }
-        def to_h
-          { type: @type }
-        end
-      end
-
-      # Represents an interrupt outcome for a run.
-      #
-      # ```ruby
-      # outcome = AgUiProtocol::Core::Events::RunFinishedInterruptOutcome.new(
-      #   interrupts: [
-      #     AgUiProtocol::Core::Types::Interrupt.new(id: "int_1", reason: "input_required")
-      #   ]
-      # )
-      # ```
-      class RunFinishedInterruptOutcome < AgUiProtocol::Core::Types::Model
-        sig { returns(String) }
-        attr_reader :type
-
-        sig { returns(T::Array[AgUiProtocol::Core::Types::Interrupt]) }
-        attr_reader :interrupts
-
-        # @param interrupts [Array<AgUiProtocol::Core::Types::Interrupt>] List of interrupts
-        # @param type [String] Outcome type
-        sig { params(interrupts: T::Array[AgUiProtocol::Core::Types::Interrupt], type: String).void }
-        def initialize(interrupts:, type: "interrupt")
-          @type = type
-          @interrupts = interrupts
-        end
-
-        sig { returns(T::Hash[Symbol, T.untyped]) }
-        def to_h
-          { type: @type, interrupts: @interrupts }
-        end
-      end
     end
   end
 end

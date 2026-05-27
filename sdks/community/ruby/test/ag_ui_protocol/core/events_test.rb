@@ -257,6 +257,20 @@ class EventsTest < Minitest::Test
           AgUiProtocol::Core::Events::MessagesSnapshotEvent.new(messages: [1])
         end
       end
+
+      should "accept ActivityMessage entries alongside BaseMessage" do
+        base = AgUiProtocol::Core::Types::DeveloperMessage.new(id: "d1", content: "hi")
+        activity = AgUiProtocol::Core::Types::ActivityMessage.new(
+          id: "a1", activity_type: "progress", content: { "pct" => 10 }
+        )
+        event = AgUiProtocol::Core::Events::MessagesSnapshotEvent.new(messages: [base, activity])
+        payload = JSON.parse(event.to_json)
+        assert_equal "MESSAGES_SNAPSHOT", payload["type"]
+        assert_equal 2, payload["messages"].length
+        assert_equal "d1", payload["messages"][0]["id"]
+        assert_equal "a1", payload["messages"][1]["id"]
+        assert_equal "activity", payload["messages"][1]["role"]
+      end
     end
 
     context "ActivitySnapshotEvent" do
@@ -404,6 +418,15 @@ class EventsTest < Minitest::Test
         payload = JSON.parse(event.to_json)
         refute payload.key?("outcome")
       end
+
+      should "raise when both result and outcome are set" do
+        outcome = AgUiProtocol::Core::Events::RunFinishedSuccessOutcome.new
+        assert_raises(ArgumentError) do
+          AgUiProtocol::Core::Events::RunFinishedEvent.new(
+            thread_id: "t1", run_id: "r1", result: { "ok" => true }, outcome: outcome
+          )
+        end
+      end
     end
 
     context "RunErrorEvent" do
@@ -470,6 +493,17 @@ class EventsTest < Minitest::Test
       should "raise when message_id is missing" do
         assert_raises(ArgumentError) do
           AgUiProtocol::Core::Events::ReasoningMessageStartEvent.new
+        end
+      end
+
+      should "accept role: \"reasoning\" for round-trip compatibility" do
+        event = AgUiProtocol::Core::Events::ReasoningMessageStartEvent.new(message_id: "rm1", role: "reasoning")
+        assert_equal "reasoning", event.role
+      end
+
+      should "raise when role is not \"reasoning\"" do
+        assert_raises(ArgumentError) do
+          AgUiProtocol::Core::Events::ReasoningMessageStartEvent.new(message_id: "rm1", role: "user")
         end
       end
     end
@@ -555,6 +589,17 @@ class EventsTest < Minitest::Test
         payload = JSON.parse(outcome.to_json)
         assert_equal "success", payload["type"]
       end
+
+      should "accept type: \"success\" for round-trip compatibility" do
+        outcome = AgUiProtocol::Core::Events::RunFinishedSuccessOutcome.new(type: "success")
+        assert_equal "success", outcome.type
+      end
+
+      should "raise when type is not \"success\"" do
+        assert_raises(ArgumentError) do
+          AgUiProtocol::Core::Events::RunFinishedSuccessOutcome.new(type: "interrupt")
+        end
+      end
     end
 
     context "RunFinishedInterruptOutcome" do
@@ -569,6 +614,27 @@ class EventsTest < Minitest::Test
       should "raise when interrupts is missing" do
         assert_raises(ArgumentError) do
           AgUiProtocol::Core::Events::RunFinishedInterruptOutcome.new
+        end
+      end
+
+      should "accept type: \"interrupt\" for round-trip compatibility" do
+        interrupt = AgUiProtocol::Core::Types::Interrupt.new(id: "int1", reason: "input_required")
+        outcome = AgUiProtocol::Core::Events::RunFinishedInterruptOutcome.new(interrupts: [interrupt], type: "interrupt")
+        assert_equal "interrupt", outcome.type
+      end
+
+      should "raise when type is not \"interrupt\"" do
+        interrupt = AgUiProtocol::Core::Types::Interrupt.new(id: "int1", reason: "input_required")
+        assert_raises(ArgumentError) do
+          AgUiProtocol::Core::Events::RunFinishedInterruptOutcome.new(interrupts: [interrupt], type: "success")
+        end
+      end
+
+      should "raise when interrupts contains non-Interrupt entries" do
+        # sorbet-runtime catches T::Array[Interrupt] violations with a TypeError;
+        # accept either ArgumentError (our runtime check) or TypeError (sig check).
+        assert_raises(ArgumentError, TypeError) do
+          AgUiProtocol::Core::Events::RunFinishedInterruptOutcome.new(interrupts: ["not_an_interrupt"])
         end
       end
     end
@@ -591,11 +657,6 @@ class EventsTest < Minitest::Test
       end
     end
 
-    context "ReasoningEncryptedValueSubtype" do
-      should "be defined" do
-        refute_nil AgUiProtocol::Core::Events::ReasoningEncryptedValueSubtype
-      end
-    end
   end
 
   def assert_event_payload(event, expected)

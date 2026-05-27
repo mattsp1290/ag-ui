@@ -17,6 +17,12 @@ class TypesTest < Minitest::Test
       end
     end
 
+    context "Role" do
+      should "include reasoning in Role values" do
+        assert_includes AgUiProtocol::Core::Types::Role, "reasoning"
+      end
+    end
+
     context "FunctionCall" do
       should "serialize to JSON" do
         obj = AgUiProtocol::Core::Types::FunctionCall.new(name: "f", arguments: "{}")
@@ -128,6 +134,29 @@ class TypesTest < Minitest::Test
           AgUiProtocol::Core::Types::AssistantMessage.new(id: "a1", tool_calls: [{ id: "tc1" }])
         end
       end
+
+      should "support encrypted_value" do
+        obj = AgUiProtocol::Core::Types::AssistantMessage.new(id: "a1", content: "hi", encrypted_value: "enc")
+        payload = JSON.parse(obj.to_json)
+        assert_equal "enc", payload["encryptedValue"]
+      end
+
+      should "omit encrypted_value when nil" do
+        obj = AgUiProtocol::Core::Types::AssistantMessage.new(id: "a1", content: "hi")
+        payload = JSON.parse(obj.to_json)
+        refute payload.key?("encryptedValue")
+      end
+
+      should "accept tool_calls hash with string keys" do
+        obj = AgUiProtocol::Core::Types::AssistantMessage.new(
+          id: "a1",
+          content: "hi",
+          tool_calls: [{ "id" => "tc1", "function" => { "name" => "f", "arguments" => "{}" } }]
+        )
+        assert_kind_of AgUiProtocol::Core::Types::ToolCall, obj.tool_calls[0]
+        assert_equal "tc1", obj.tool_calls[0].id
+        assert_equal "f", obj.tool_calls[0].function.name
+      end
     end
 
     context "TextInputContent" do
@@ -148,6 +177,12 @@ class TypesTest < Minitest::Test
       should "raise when no source is provided" do
         assert_raises(ArgumentError) do
           AgUiProtocol::Core::Types::BinaryInputContent.new(mime_type: "image/png")
+        end
+      end
+
+      should "raise when all source fields are empty strings" do
+        assert_raises(ArgumentError) do
+          AgUiProtocol::Core::Types::BinaryInputContent.new(mime_type: "image/png", url: "", data: "", id: "")
         end
       end
 
@@ -181,6 +216,27 @@ class TypesTest < Minitest::Test
         end
       end
 
+      should "support encrypted_value" do
+        msg = AgUiProtocol::Core::Types::UserMessage.new(id: "u1", content: "hello", encrypted_value: "enc")
+        payload = JSON.parse(msg.to_json)
+        assert_equal "enc", payload["encryptedValue"]
+      end
+
+      should "omit encrypted_value when nil" do
+        msg = AgUiProtocol::Core::Types::UserMessage.new(id: "u1", content: "hello")
+        payload = JSON.parse(msg.to_json)
+        refute payload.key?("encryptedValue")
+      end
+
+      should "raise on unknown content type in array" do
+        assert_raises(ArgumentError) do
+          AgUiProtocol::Core::Types::UserMessage.new(
+            id: "u1",
+            content: [{ type: "mystery", value: "nope" }]
+          )
+        end
+      end
+
       should "normalize array content into typed input content models" do
         msg = AgUiProtocol::Core::Types::UserMessage.new(
           id: "u1",
@@ -211,6 +267,33 @@ class TypesTest < Minitest::Test
         assert_kind_of AgUiProtocol::Core::Types::AudioInputContent, msg.content[2]
         assert_kind_of AgUiProtocol::Core::Types::VideoInputContent, msg.content[3]
         assert_kind_of AgUiProtocol::Core::Types::DocumentInputContent, msg.content[4]
+      end
+
+      should "accept camelCase mimeType in multimodal image source" do
+        msg = AgUiProtocol::Core::Types::UserMessage.new(
+          id: "u1",
+          content: [
+            { type: "image", source: { type: "url", value: "https://example.com/a.png", mimeType: "image/png" } }
+          ]
+        )
+
+        assert_kind_of AgUiProtocol::Core::Types::ImageInputContent, msg.content[0]
+        assert_kind_of AgUiProtocol::Core::Types::InputContentUrlSource, msg.content[0].source
+        assert_equal "image/png", msg.content[0].source.mime_type
+      end
+
+      should "accept camelCase fileName in binary content normalization" do
+        msg = AgUiProtocol::Core::Types::UserMessage.new(
+          id: "u1",
+          content: [
+            { type: "binary", mimeType: "image/png", url: "https://example.com/a.png", fileName: "x.png" }
+          ]
+        )
+
+        assert_kind_of AgUiProtocol::Core::Types::BinaryInputContent, msg.content[0]
+        assert_equal "x.png", msg.content[0].filename
+        assert_equal "image/png", msg.content[0].mime_type
+        assert_equal "https://example.com/a.png", msg.content[0].url
       end
 
       should "normalize multimodal content with data source" do
@@ -282,6 +365,13 @@ class TypesTest < Minitest::Test
         assert_raises(ArgumentError) do
           AgUiProtocol::Core::Types::ActivityMessage.new(id: "am1", content: { "pct" => 10 })
         end
+      end
+
+      should "serialize structured content payload" do
+        msg = AgUiProtocol::Core::Types::ActivityMessage.new(id: "am1", activity_type: "progress", content: { "pct" => 10 })
+        payload = JSON.parse(msg.to_json)
+        assert_equal "progress", payload["activityType"]
+        assert_equal 10, payload["content"]["pct"]
       end
     end
 
@@ -355,6 +445,14 @@ class TypesTest < Minitest::Test
         assert_raises(ArgumentError) do
           AgUiProtocol::Core::Types::ResumeEntry.new(status: "resolved", payload: {})
         end
+      end
+
+      should "allow omitting status and payload" do
+        obj = AgUiProtocol::Core::Types::ResumeEntry.new(interrupt_id: "int1")
+        payload = JSON.parse(obj.to_json)
+        assert_equal "int1", payload["interruptId"]
+        refute payload.key?("status")
+        refute payload.key?("payload")
       end
     end
 
@@ -483,6 +581,16 @@ class TypesTest < Minitest::Test
         payload = JSON.parse(obj.to_json)
         refute payload.key?("resume")
       end
+
+      should "raise when resume contains a non-ResumeEntry element" do
+        assert_raises(ArgumentError) do
+          AgUiProtocol::Core::Types::RunAgentInput.new(
+            thread_id: "t1", run_id: "r1", state: {},
+            messages: [], tools: [], context: [], forwarded_props: {},
+            resume: [{ interrupt_id: "int1", status: "resolved", payload: {} }]
+          )
+        end
+      end
     end
 
     should "work with array content" do
@@ -520,17 +628,17 @@ class TypesTest < Minitest::Test
         AgUiProtocol::Core::Types::FunctionCall.new(name: "f", arguments: "{}"),
         AgUiProtocol::Core::Types::ToolCall.new(id: "tc1", function: { name: "f", arguments: "{}" }),
       ]
-      
+
       assert_raises(ArgumentError) do
-        obj = AgUiProtocol::Core::Types::RunAgentInput.new(
-        thread_id: "t1",
-        run_id: "r1",
-        state: {},
-        messages: messages,
-        tools: [],
-        context: [],
-        forwarded_props: {}
-      )
+        AgUiProtocol::Core::Types::RunAgentInput.new(
+          thread_id: "t1",
+          run_id: "r1",
+          state: {},
+          messages: messages,
+          tools: [],
+          context: [],
+          forwarded_props: {}
+        )
       end
     end
   end

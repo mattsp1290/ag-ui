@@ -391,6 +391,11 @@ describe("A2UIMiddleware", () => {
       for (let i = 1; i < itemCounts.length; i++) {
         expect(itemCounts[i]).toBeGreaterThanOrEqual(itemCounts[i - 1]);
       }
+      // TEETH: at least one PARTIAL data emit (fewer than the full 3 items)
+      // must have been observed. This is the assertion that fails if streaming
+      // is reverted to atomic data emission — atomic mode only ever emits the
+      // full array, so every count would equal 3 and min would not be < 3.
+      expect(Math.min(...itemCounts)).toBeLessThan(3);
 
       // updateComponents emitted exactly once-worth (atomic): the components
       // array is identical across every snapshot that carries it.

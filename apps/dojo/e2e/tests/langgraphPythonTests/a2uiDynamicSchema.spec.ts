@@ -1,7 +1,7 @@
 import { test, expect } from "../../test-isolation-helper";
 import { A2UIPage } from "../../featurePages/A2UIPage";
 
-test("[LangGraph FastAPI] A2UI Dynamic Schema renders hotel comparison surface", async ({
+test("[LangGraph Python] A2UI Dynamic Schema renders hotel comparison surface", async ({
   page,
 }) => {
   await page.goto("/langgraph/feature/a2ui_dynamic_schema");
@@ -27,7 +27,7 @@ test("[LangGraph FastAPI] A2UI Dynamic Schema renders hotel comparison surface",
   await expect(surface.getByText("4.8").first()).toBeVisible();
 });
 
-test("[LangGraph FastAPI] A2UI Dynamic Schema renders product comparison surface", async ({
+test("[LangGraph Python] A2UI Dynamic Schema renders product comparison surface", async ({
   page,
 }) => {
   await page.goto("/langgraph/feature/a2ui_dynamic_schema");
@@ -49,7 +49,7 @@ test("[LangGraph FastAPI] A2UI Dynamic Schema renders product comparison surface
   ]);
 });
 
-test("[LangGraph FastAPI] A2UI Dynamic Schema renders team roster surface", async ({
+test("[LangGraph Python] A2UI Dynamic Schema renders team roster surface", async ({
   page,
 }) => {
   await page.goto("/langgraph/feature/a2ui_dynamic_schema");

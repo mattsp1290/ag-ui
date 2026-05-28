@@ -1,7 +1,7 @@
 import { test, expect } from "../../test-isolation-helper";
 import { A2UIPage } from "../../featurePages/A2UIPage";
 
-test("[LangGraph FastAPI] A2UI Advanced renders surface with hotel comparison", async ({
+test("[LangGraph TypeScript] A2UI Advanced renders surface with hotel comparison", async ({
   page,
 }) => {
   await page.goto("/langgraph-typescript/feature/a2ui_advanced");
@@ -20,7 +20,7 @@ test("[LangGraph FastAPI] A2UI Advanced renders surface with hotel comparison", 
   ]);
 });
 
-test("[LangGraph FastAPI] A2UI Advanced renders team directory surface", async ({
+test("[LangGraph TypeScript] A2UI Advanced renders team directory surface", async ({
   page,
 }) => {
   await page.goto("/langgraph-typescript/feature/a2ui_advanced");

@@ -1,7 +1,7 @@
 import { test, expect } from "../../test-isolation-helper";
 import { A2UIPage } from "../../featurePages/A2UIPage";
 
-test("[LangGraph FastAPI] A2UI Fixed Schema renders flight search surface", async ({
+test("[LangGraph TypeScript] A2UI Fixed Schema renders flight search surface", async ({
   page,
 }) => {
   await page.goto("/langgraph-typescript/feature/a2ui_fixed_schema");
@@ -16,7 +16,7 @@ test("[LangGraph FastAPI] A2UI Fixed Schema renders flight search surface", asyn
   await a2ui.assertSurfaceContainsAll(["UA 123", "DL 456", "$289", "$315"]);
 });
 
-test("[LangGraph FastAPI] A2UI Fixed Schema renders hotel search with StarRating", async ({
+test("[LangGraph TypeScript] A2UI Fixed Schema renders hotel search with StarRating", async ({
   page,
 }) => {
   await page.goto("/langgraph-typescript/feature/a2ui_fixed_schema");
@@ -37,7 +37,7 @@ test("[LangGraph FastAPI] A2UI Fixed Schema renders hotel search with StarRating
   await expect(surface.getByText("4.5").first()).toBeVisible();
 });
 
-test("[LangGraph FastAPI] A2UI Fixed Schema renders multiple surfaces in sequence", async ({
+test("[LangGraph TypeScript] A2UI Fixed Schema renders multiple surfaces in sequence", async ({
   page,
 }) => {
   await page.goto("/langgraph-typescript/feature/a2ui_fixed_schema");

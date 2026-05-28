@@ -179,7 +179,7 @@ When the user asks about hotels, use the search_hotels tool.
 IMPORTANT: After calling a tool, do NOT repeat or summarize the data in your text response. The tool renders a rich UI automatically. Just say something brief like "Here are your results" or ask if they'd like to book.
 
 For flights, each needs: id, airline, airlineLogo (Google favicon API), flightNumber, origin, destination,
-date, departureTime, arrivalTime, duration, status, statusIcon, and price.
+date, departureTime, arrivalTime, duration, status, and price.
 
 For hotels, each needs: id, name, location, rating (float 0-5), and price (per night).
 

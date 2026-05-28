@@ -10,7 +10,6 @@ import {
   ToolMessage,
   ToolCall,
   ActivitySnapshotEvent,
-  ActivityDeltaEvent,
   ToolCallResultEvent,
   ToolCallStartEvent,
   ToolCallArgsEvent,
@@ -49,19 +48,6 @@ export const A2UI_SCHEMA_CONTEXT_DESCRIPTION = "A2UI Component Schema — availa
 type ExtractObservableType<T> = T extends Observable<infer U> ? U : never;
 type RunNextWithStateReturn = ReturnType<Middleware["runNextWithState"]>;
 type EventWithState = ExtractObservableType<RunNextWithStateReturn>;
-
-/**
- * Group operations by surfaceId.
- */
-function groupBySurface(ops: Array<Record<string, unknown>>): Map<string, Array<Record<string, unknown>>> {
-  const groups = new Map<string, Array<Record<string, unknown>>>();
-  for (const op of ops) {
-    const sid = getOperationSurfaceId(op) ?? "default";
-    if (!groups.has(sid)) groups.set(sid, []);
-    groups.get(sid)!.push(op);
-  }
-  return groups;
-}
 
 /**
  * Derive the repeated-data array key from a component set.
@@ -239,7 +225,8 @@ export class A2UIMiddleware extends Middleware {
       ? this.config.injectA2UITool
       : RENDER_A2UI_TOOL_NAME;
     const tool: Tool = { ...RENDER_A2UI_TOOL, name: toolName };
-    const filteredTools = input.tools.filter((t) => t.name !== toolName);
+    // Guard against undefined ``input.tools`` — the AG-UI shape allows it.
+    const filteredTools = (input.tools ?? []).filter((t) => t.name !== toolName);
     return {
       ...input,
       tools: [...filteredTools, tool],
@@ -278,8 +265,26 @@ export class A2UIMiddleware extends Middleware {
    * Uses runNextWithState for automatic message tracking.
    */
   private processStream(source: Observable<EventWithState>): Observable<BaseEvent> {
-    // Tool names recognized as A2UI rendering tools
+    // Tool names recognized as A2UI rendering tools. When the middleware also
+    // INJECTS the rendering tool (config.injectA2UITool truthy), the injected
+    // name MUST be part of the intercept set — otherwise TOOL_CALL_START for
+    // it wouldn't open a streaming entry and the progressive-render path
+    // would silently degrade to result-only.
+    //
+    // Two cases to cover:
+    //   - `injectA2UITool: true`       → injected under the default
+    //     RENDER_A2UI_TOOL_NAME (matches the default `a2uiToolNames`, but a
+    //     host that ALSO overrides `a2uiToolNames` to something like
+    //     `["foo"]` would lose the default — explicitly re-add).
+    //   - `injectA2UITool: "myName"`   → injected under that custom name.
     const a2uiToolNames = new Set(this.config.a2uiToolNames ?? [RENDER_A2UI_TOOL_NAME]);
+    if (this.config.injectA2UITool) {
+      const injectedName =
+        typeof this.config.injectA2UITool === "string" && this.config.injectA2UITool.length > 0
+          ? this.config.injectA2UITool
+          : RENDER_A2UI_TOOL_NAME;
+      a2uiToolNames.add(injectedName);
+    }
 
     return new Observable<BaseEvent>((subscriber) => {
       let heldRunFinished: EventWithState | null = null;
@@ -287,13 +292,14 @@ export class A2UIMiddleware extends Middleware {
       // Streaming tracker for dynamic render_a2ui tool calls.
       //
       // Progressive emission strategy ("components atomic, data incremental"):
-      //  1. createSurface is emitted as soon as the surfaceId parses, so the
-      //     frontend can paint an empty container / skeleton immediately.
-      //  2. updateComponents is emitted ONCE, only after the components array
-      //     is fully closed and every component carries a `component` type.
-      //     The renderer (@a2ui/web_core) throws when asked to build a
-      //     type-less component or resolve a child id that isn't present yet,
-      //     so partial component trees are never emitted.
+      //  1. createSurface rides into the FIRST snapshot together with components
+      //     (never on its own — an empty surface makes the renderer try to
+      //     resolve a not-yet-present root component and throw).
+      //  2. updateComponents is computed ONCE, only after the components array
+      //     is fully closed and every component carries a `component` type. It
+      //     IS re-included in every subsequent cumulative snapshot for
+      //     idempotency (the host filters duplicates by component id), but the
+      //     components payload is the same byte-for-byte across snapshots.
       //  3. updateDataModel is emitted INCREMENTALLY: as each item in the
       //     repeated data array (e.g. `data.items`) closes, a new snapshot
       //     carries the items-so-far. Because the repeated card reuses one
@@ -306,7 +312,7 @@ export class A2UIMiddleware extends Middleware {
       const streamingToolCalls = new Map<string, {
         schema: { surfaceId: string; catalogId: string; components: Array<Record<string, unknown>> } | null;
         args: string;
-        surfaceEmitted: boolean;   // createSurface sent
+        outerCallId: string | null; // the outer tool call this streaming inner was started inside (null if direct)
         componentsEmitted: boolean; // updateComponents sent (atomic)
         dataItemsKey: string;      // repeated-array key derived from components
         dataItemsCount: number;    // number of data items emitted so far
@@ -343,7 +349,8 @@ export class A2UIMiddleware extends Middleware {
             if (a2uiToolNames.has(startEvent.toolCallName)) {
               streamingToolCalls.set(startEvent.toolCallId, {
                 schema: null, args: "",
-                surfaceEmitted: false, componentsEmitted: false,
+                outerCallId: currentOuterCallId,
+                componentsEmitted: false,
                 dataItemsKey: "items", dataItemsCount: 0, dataComplete: false,
               });
             } else if (!nonOuterToolNames.has(startEvent.toolCallName)) {
@@ -384,9 +391,18 @@ export class A2UIMiddleware extends Middleware {
                   // streamed createSurface from referencing a catalog the
                   // frontend never registered (e.g. "basic" when the app uses a
                   // custom catalog) — which throws "Catalog not found".
+                  //
+                  // Treat an empty-string defaultCatalogId as unset: a `??`
+                  // alone would propagate "" into the emitted createSurface and
+                  // surface as "Catalog not found: " in the renderer, hiding
+                  // the real cause (misconfiguration).
+                  const configCatalogId =
+                    this.config.defaultCatalogId && this.config.defaultCatalogId.length > 0
+                      ? this.config.defaultCatalogId
+                      : undefined;
                   const streamedCatalogId = extractStringField(streaming.args, "catalogId");
                   const catalogId =
-                    this.config.defaultCatalogId ??
+                    configCatalogId ??
                     (streamedCatalogId && streamedCatalogId !== "basic"
                       ? streamedCatalogId
                       : "https://a2ui.org/specification/v0_9/basic_catalog.json");
@@ -438,7 +454,6 @@ export class A2UIMiddleware extends Middleware {
                     // Always include createSurface — the frontend filters it out
                     // if the surface already exists, so snapshots stay self-sufficient.
                     ops.push({ version: "v0.9", createSurface: { surfaceId, catalogId } });
-                    streaming.surfaceEmitted = true;
 
                     if (streaming.schema) {
                       ops.push({ version: "v0.9", updateComponents: { surfaceId, components: streaming.schema.components } });
@@ -456,7 +471,7 @@ export class A2UIMiddleware extends Middleware {
                     const content: Record<string, unknown> = { [A2UI_OPERATIONS_KEY]: ops };
                     const snapshotEvent: ActivitySnapshotEvent = {
                       type: EventType.ACTIVITY_SNAPSHOT,
-                      messageId: `a2ui-surface-${surfaceId}-${currentOuterCallId ?? argsEvent.toolCallId}`,
+                      messageId: `a2ui-surface-${surfaceId}-${streaming.outerCallId ?? argsEvent.toolCallId}`,
                       activityType: A2UIActivityType,
                       content,
                       replace: true,
@@ -479,7 +494,7 @@ export class A2UIMiddleware extends Middleware {
                       const content: Record<string, unknown> = { [A2UI_OPERATIONS_KEY]: ops };
                       const snapshotEvent: ActivitySnapshotEvent = {
                         type: EventType.ACTIVITY_SNAPSHOT,
-                        messageId: `a2ui-surface-${surfaceId}-${currentOuterCallId ?? argsEvent.toolCallId}`,
+                        messageId: `a2ui-surface-${surfaceId}-${streaming.outerCallId ?? argsEvent.toolCallId}`,
                         activityType: A2UIActivityType,
                         content,
                         replace: true,
@@ -516,24 +531,26 @@ export class A2UIMiddleware extends Middleware {
               const streamingEntry = streamingToolCalls.get(resultEvent.toolCallId);
               const streamingHandled = isStreaming && streamingEntry?.componentsEmitted;
 
-              // Also check if ANY streaming entry already handled a surface.
-              // This covers the case where render_a2ui (inner tool) streamed the
-              // surface, but the TOOL_CALL_RESULT belongs to generate_a2ui (outer
-              // tool) — different toolCallId, but same surface already rendered.
-              let anyStreamingHandled = streamingHandled;
-              if (!anyStreamingHandled) {
+              // Also dedup against the SPECIFIC outer call this result belongs
+              // to: if an inner ``render_a2ui`` started inside the same outer
+              // call already streamed its surface, the outer's result (which
+              // typically wraps the same envelope) would re-emit the same
+              // surface. Earlier we used a blanket "any streaming entry handled"
+              // check, but that wrongly suppressed legitimate later
+              // ``a2ui_operations`` payloads from unrelated tools in the same
+              // run. Scope the dedup to entries whose outerCallId matches the
+              // result's tool-call id.
+              let outerHasStreamedSurface = !!streamingHandled;
+              if (!outerHasStreamedSurface) {
                 for (const entry of streamingToolCalls.values()) {
-                  if (entry.componentsEmitted) {
-                    anyStreamingHandled = true;
+                  if (entry.componentsEmitted && entry.outerCallId === resultEvent.toolCallId) {
+                    outerHasStreamedSurface = true;
                     break;
                   }
                 }
               }
 
-              // Skip if any streaming entry already rendered a surface (e.g.,
-              // render_a2ui streamed the surface, and now generate_a2ui's result
-              // would duplicate it).
-              if (!anyStreamingHandled) {
+              if (!outerHasStreamedSurface) {
                 const parsed = tryParseA2UIOperations(resultEvent.content);
                 if (parsed) {
                   // Emit all operations at once. Unlike the streaming path

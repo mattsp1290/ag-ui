@@ -233,12 +233,14 @@ export class MCPMiddleware extends Middleware {
       // calls and loop. `toolMap` (exposed name -> origin) is built once and
       // reused across iterations.
       //
-      // RUN_FINISHED is *buffered* — never forwarded as it arrives, only
-      // emitted after any MCP tool results, so the merged stream the
-      // consumer sees keeps `TOOL_CALL_RESULT` *inside* the still-active
-      // run. AG-UI's `verifyEvents` enforces this: nothing can come after
-      // RUN_FINISHED until a new RUN_STARTED. The continuation run emits
-      // its own RUN_STARTED, which verify accepts as a new run.
+      // Run-lifecycle policy: from the consumer's perspective, the entire
+      // tool-execution loop is presented as a SINGLE run. We forward the
+      // first run's `RUN_STARTED`, then suppress every subsequent
+      // `RUN_STARTED` *and* `RUN_FINISHED` until the loop actually stops —
+      // at which point we flush the last buffered `RUN_FINISHED`. This keeps
+      // any downstream consumer (or persistence layer) that treats
+      // `RUN_FINISHED` as "the assistant turn is over" from prematurely
+      // closing things between iterations.
       //
       // Why we sync `next.messages`: `runNextWithState` uses
       // `defaultApplyEvents`, which seeds its `messages` from
@@ -253,6 +255,7 @@ export class MCPMiddleware extends Middleware {
       const runOnce = (
         runInput: RunAgentInput,
         toolMap: Map<string, ResolvedMCPTool>,
+        isContinuation: boolean,
       ): void => {
         let latestMessages: Message[] = runInput.messages;
         let errored = false;
@@ -260,7 +263,8 @@ export class MCPMiddleware extends Middleware {
 
         console.error(
           `[MCPMiddleware] runOnce: round=${toolRounds} runId=${runInput.runId} ` +
-            `tools=${runInput.tools.length} messages=${runInput.messages.length}`,
+            `tools=${runInput.tools.length} messages=${runInput.messages.length} ` +
+            `isContinuation=${isContinuation}`,
         );
         activeSub = this.runNextWithState(runInput, next).subscribe({
           next: ({ event, messages }) => {
@@ -272,10 +276,18 @@ export class MCPMiddleware extends Middleware {
               return;
             }
             if (event.type === EventType.RUN_FINISHED) {
+              // Always buffer; only flushed when the loop truly stops.
               console.error(
                 `[MCPMiddleware] buffering RUN_FINISHED runId=${runInput.runId}`,
               );
               bufferedRunFinished = event;
+              return;
+            }
+            if (event.type === EventType.RUN_STARTED && isContinuation) {
+              // Hide continuation run boundary — consumer sees one run.
+              console.error(
+                `[MCPMiddleware] suppressing continuation RUN_STARTED runId=${runInput.runId}`,
+              );
               return;
             }
             subscriber.next(event);
@@ -397,23 +409,18 @@ export class MCPMiddleware extends Middleware {
           });
         }
 
-        // Close out the current run with the held RUN_FINISHED now that
-        // every TOOL_CALL_RESULT has been emitted.
-        if (bufferedRunFinished) {
-          console.error(`[MCPMiddleware] flushing buffered RUN_FINISHED`);
-          subscriber.next(bufferedRunFinished);
-        }
-
         const updatedMessages = [...messages, ...resultMessages];
         const stillOpen = getOpenToolCalls(updatedMessages);
 
-        // Scenario 2: other (e.g. frontend) tool calls are still open — stop
-        // and let the frontend take over.
+        // Scenario 2: other (e.g. frontend) tool calls are still open — we
+        // don't trigger another run. Flush the buffered RUN_FINISHED and
+        // hand off to the frontend.
         if (stillOpen.length > 0) {
           console.error(
             `[MCPMiddleware] ${stillOpen.length} non-MCP tool call(s) still open; ` +
-              `letting frontend resolve them`,
+              `flushing RUN_FINISHED and letting frontend resolve them`,
           );
+          if (bufferedRunFinished) subscriber.next(bufferedRunFinished);
           subscriber.complete();
           return;
         }
@@ -428,13 +435,16 @@ export class MCPMiddleware extends Middleware {
             `(total=${next.messages.length})`,
         );
 
-        // Scenario 1: everything is resolved — start a brand-new run. Its
-        // own RUN_STARTED will be forwarded normally; verify accepts a
-        // RUN_STARTED after the previous RUN_FINISHED.
-        console.error(`[MCPMiddleware] all tool calls resolved; starting continuation run`);
+        // Scenario 1: everything is resolved — start a continuation run
+        // WITHOUT flushing RUN_FINISHED. The continuation's own RUN_STARTED
+        // will be suppressed by `runOnce`, and its RUN_FINISHED will be
+        // buffered (and only flushed when the loop truly stops). The
+        // consumer sees one seamless run.
+        console.error(`[MCPMiddleware] all tool calls resolved; starting continuation run (hidden)`);
         runOnce(
           { ...runInput, runId: crypto.randomUUID(), messages: updatedMessages },
           toolMap,
+          true,
         );
       };
 
@@ -460,6 +470,7 @@ export class MCPMiddleware extends Middleware {
           runOnce(
             { ...input, tools: [...input.tools, ...resolved.map((r) => r.tool)] },
             toolMap,
+            false,
           );
         } catch (err) {
           console.error(`[MCPMiddleware] bootstrap error:`, err);

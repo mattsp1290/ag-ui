@@ -525,3 +525,66 @@ describe("MCPMiddleware — headers + caching", () => {
     expect(second.runCalls[0].tools).toHaveLength(0);
   });
 });
+
+// --- Run-lifecycle ordering ---------------------------------------------------
+// AG-UI verify rejects events sent after RUN_FINISHED until a new RUN_STARTED.
+// The middleware must keep TOOL_CALL_RESULTs *inside* the still-active run.
+describe("MCPMiddleware — RUN_FINISHED ordering", () => {
+  it("emits TOOL_CALL_RESULTs before RUN_FINISHED in scenario 1 (loop)", async () => {
+    mockListTools.mockResolvedValue({ tools: [{ name: "weather", inputSchema: {} }] });
+    mockCallTool.mockResolvedValue({ content: [{ type: "text", text: "sunny" }] });
+    const next = new BatchMockAgent([
+      [runStarted(), ...toolCall("c1", "mcp__s__weather"), runFinished()],
+      [runStarted("r2"), ...textMessage("m2", "done"), runFinished("r2")],
+    ]);
+    const received = await collectEvents(
+      new MCPMiddleware([weatherServer()]).run(createRunAgentInput(), next),
+    );
+
+    const types = received.map((e) => e.type);
+    const idxResult = types.indexOf(EventType.TOOL_CALL_RESULT);
+    const idxFirstFinish = types.indexOf(EventType.RUN_FINISHED);
+    const idxNextStart = types.indexOf(
+      EventType.RUN_STARTED,
+      idxFirstFinish + 1,
+    );
+
+    expect(idxResult).toBeGreaterThan(-1);
+    expect(idxFirstFinish).toBeGreaterThan(idxResult); // result before finish
+    expect(idxNextStart).toBeGreaterThan(idxFirstFinish); // new run after finish
+  });
+
+  it("emits TOOL_CALL_RESULTs before RUN_FINISHED in scenario 2 (stop)", async () => {
+    mockListTools.mockResolvedValue({ tools: [{ name: "weather", inputSchema: {} }] });
+    const next = new BatchMockAgent([
+      [
+        runStarted(),
+        ...toolCall("c1", "mcp__s__weather"),
+        ...toolCall("c2", "frontendTool"),
+        runFinished(),
+      ],
+    ]);
+    const received = await collectEvents(
+      new MCPMiddleware([weatherServer()]).run(createRunAgentInput(), next),
+    );
+
+    const types = received.map((e) => e.type);
+    const idxResult = types.indexOf(EventType.TOOL_CALL_RESULT);
+    const idxFinish = types.indexOf(EventType.RUN_FINISHED);
+    expect(idxResult).toBeGreaterThan(-1);
+    expect(idxFinish).toBeGreaterThan(idxResult);
+    // Exactly one RUN_FINISHED — the held one, emitted after results.
+    expect(types.filter((t) => t === EventType.RUN_FINISHED)).toHaveLength(1);
+  });
+
+  it("non-interference: a single RUN_FINISHED still arrives last", async () => {
+    mockListTools.mockResolvedValue({ tools: [{ name: "weather", inputSchema: {} }] });
+    const next = new BatchMockAgent([
+      [runStarted(), ...textMessage("m1", "hi"), runFinished()],
+    ]);
+    const received = await collectEvents(
+      new MCPMiddleware([weatherServer()]).run(createRunAgentInput(), next),
+    );
+    expect(received[received.length - 1].type).toBe(EventType.RUN_FINISHED);
+  });
+});

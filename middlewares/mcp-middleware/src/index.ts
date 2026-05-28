@@ -226,24 +226,44 @@ export class MCPMiddleware extends Middleware {
       // Run the agent once; on completion decide whether to execute MCP tool
       // calls and loop. `toolMap` (exposed name -> origin) is built once and
       // reused across iterations.
+      //
+      // RUN_FINISHED is *buffered* — never forwarded as it arrives, only
+      // emitted after any MCP tool results, so the merged stream the
+      // consumer sees keeps `TOOL_CALL_RESULT` *inside* the still-active
+      // run. AG-UI's `verifyEvents` enforces this: nothing can come after
+      // RUN_FINISHED until a new RUN_STARTED. The continuation run emits
+      // its own RUN_STARTED, which verify accepts as a new run.
       const runOnce = (
         runInput: RunAgentInput,
         toolMap: Map<string, ResolvedMCPTool>,
       ): void => {
         let latestMessages: Message[] = runInput.messages;
         let errored = false;
+        let bufferedRunFinished: BaseEvent | null = null;
 
         activeSub = this.runNextWithState(runInput, next).subscribe({
           next: ({ event, messages }) => {
             latestMessages = messages;
             if (event.type === EventType.RUN_ERROR) {
               errored = true;
+              subscriber.next(event);
+              return;
             }
-            subscriber.next(event); // forward every event verbatim
+            if (event.type === EventType.RUN_FINISHED) {
+              bufferedRunFinished = event;
+              return;
+            }
+            subscriber.next(event);
           },
           error: (err) => subscriber.error(err),
           complete: () => {
-            void onRunComplete(runInput, latestMessages, toolMap, errored);
+            void onRunComplete(
+              runInput,
+              latestMessages,
+              toolMap,
+              errored,
+              bufferedRunFinished,
+            );
           },
         });
       };
@@ -253,11 +273,12 @@ export class MCPMiddleware extends Middleware {
         messages: Message[],
         toolMap: Map<string, ResolvedMCPTool>,
         errored: boolean,
+        bufferedRunFinished: BaseEvent | null,
       ): Promise<void> => {
         if (cancelled) return;
 
         // The run errored — do not execute tools or loop; the RUN_ERROR has
-        // already been forwarded.
+        // already been forwarded. There's no RUN_FINISHED to flush.
         if (errored) {
           subscriber.complete();
           return;
@@ -266,25 +287,28 @@ export class MCPMiddleware extends Middleware {
         const openCalls = getOpenToolCalls(messages);
         const ourCalls = openCalls.filter((tc) => toolMap.has(tc.function.name));
 
-        // Nothing for us — do not interfere; the run is finished.
+        // Nothing for us — flush the buffered RUN_FINISHED untouched and stop.
         if (ourCalls.length === 0) {
+          if (bufferedRunFinished) subscriber.next(bufferedRunFinished);
           subscriber.complete();
           return;
         }
 
-        // Runaway guard: refuse to execute beyond the iteration cap.
+        // Runaway guard: flush RUN_FINISHED and stop without executing more.
         if (toolRounds >= this.maxIterations) {
           console.warn(
             `[MCPMiddleware] Reached maxIterations (${this.maxIterations}); ` +
               `leaving ${ourCalls.length} MCP tool call(s) unexecuted.`,
           );
+          if (bufferedRunFinished) subscriber.next(bufferedRunFinished);
           subscriber.complete();
           return;
         }
         toolRounds++;
 
         // Execute our MCP tool calls (in parallel), then emit results in
-        // their original order so message ordering is deterministic.
+        // their original order — *before* flushing the held RUN_FINISHED —
+        // so the stream stays valid under AG-UI verify.
         const executed = await Promise.all(
           ourCalls.map(async (tc) => {
             const resolved = toolMap.get(tc.function.name)!;
@@ -313,6 +337,10 @@ export class MCPMiddleware extends Middleware {
           });
         }
 
+        // Close out the current run with the held RUN_FINISHED now that
+        // every TOOL_CALL_RESULT has been emitted.
+        if (bufferedRunFinished) subscriber.next(bufferedRunFinished);
+
         const updatedMessages = [...messages, ...resultMessages];
 
         // Scenario 2: other (e.g. frontend) tool calls are still open — stop
@@ -322,7 +350,9 @@ export class MCPMiddleware extends Middleware {
           return;
         }
 
-        // Scenario 1: everything is resolved — run again with the results.
+        // Scenario 1: everything is resolved — start a brand-new run. Its
+        // own RUN_STARTED will be forwarded normally; verify accepts a
+        // RUN_STARTED after the previous RUN_FINISHED.
         runOnce(
           { ...runInput, runId: crypto.randomUUID(), messages: updatedMessages },
           toolMap,

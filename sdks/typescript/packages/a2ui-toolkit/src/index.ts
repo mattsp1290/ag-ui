@@ -289,3 +289,158 @@ export function assembleOps(input: AssembleOpsInput): A2UIOperation[] {
 export function wrapAsOperationsEnvelope(ops: A2UIOperation[]): string {
   return JSON.stringify({ [A2UI_OPERATIONS_KEY]: ops });
 }
+
+/**
+ * Wrap an error as the JSON string a subagent tool returns when it can't
+ * produce a surface. Keeps the error shape consistent across frameworks.
+ */
+export function wrapErrorEnvelope(message: string): string {
+  return JSON.stringify({ error: message });
+}
+
+// ---------------------------------------------------------------------------
+// Subagent-tool defaults (shared so every framework adapter advertises the
+// same planner-facing surface and behaviour)
+// ---------------------------------------------------------------------------
+
+/** Surface id used when the subagent omits ``surfaceId`` on a create. */
+export const DEFAULT_SURFACE_ID = "dynamic-surface";
+
+/** Default name the outer A2UI tool is advertised under to the main planner. */
+export const GENERATE_A2UI_TOOL_NAME = "generate_a2ui";
+
+/** Default description shown to the main agent's planner. */
+export const GENERATE_A2UI_TOOL_DESCRIPTION =
+  "Generate or update a dynamic A2UI surface based on the conversation. " +
+  "A secondary LLM designs the UI components and data. " +
+  "Use intent='create' (default) when the user requests new visual content " +
+  "(cards, forms, lists, dashboards, comparisons, etc.). " +
+  "Use intent='update' with target_surface_id to modify a surface you " +
+  "previously rendered (e.g. 'change the second card's price', " +
+  "'add a Buy button', 'use red instead of blue').";
+
+/** Planner-facing descriptions for the outer tool's three arguments. */
+export const GENERATE_A2UI_ARG_DESCRIPTIONS = {
+  intent:
+    "'create' to render a new surface; 'update' to modify a surface previously rendered in this conversation. Defaults to 'create'.",
+  target_surface_id:
+    "Required when intent='update'. The surface id of the prior render to modify.",
+  changes:
+    "Optional natural-language description of the changes to apply when intent='update'.",
+} as const;
+
+// ---------------------------------------------------------------------------
+// High-level orchestration
+//
+// These two functions hold the entire create/update decision + prompt prep +
+// result-assembly logic so every framework adapter is reduced to pure glue
+// (tool decorator, state access, model bind+invoke, tool-call read).
+// ---------------------------------------------------------------------------
+
+export interface PrepareA2UIRequestInput {
+  /** Raw ``intent`` arg from the planner (defaults to ``"create"``). */
+  intent?: string;
+  /** Raw ``target_surface_id`` arg from the planner. */
+  targetSurfaceId?: string;
+  /** Raw ``changes`` arg from the planner. */
+  changes?: string;
+  /** Conversation history with the current (unbalanced) tool call stripped. */
+  messages: Array<any>;
+  /** The agent's run state (read for context + catalog via buildContextPrompt). */
+  state: Record<string, unknown>;
+  /** Project-specific composition rules to append to the subagent prompt. */
+  compositionGuide?: string;
+}
+
+export interface PreparedA2UIRequest {
+  /** System prompt to feed the subagent. Empty string when ``error`` is set. */
+  prompt: string;
+  /** Whether this is an in-place edit of a prior surface. */
+  isUpdate: boolean;
+  /** The reconstructed prior surface, when editing. */
+  prior?: PriorSurface;
+  /** Set when the request is invalid (e.g. update with no matching surface). */
+  error?: string;
+}
+
+/**
+ * Resolve the create/update decision, locate any prior surface, and build the
+ * subagent system prompt. Returns ``error`` instead of a prompt when the
+ * request is invalid (update referencing a surface not in history).
+ */
+export function prepareA2UIRequest(
+  input: PrepareA2UIRequestInput,
+): PreparedA2UIRequest {
+  const intent = input.intent ?? "create";
+  const isUpdate = intent === "update" && Boolean(input.targetSurfaceId);
+
+  const prior = isUpdate
+    ? findPriorSurface(input.messages, input.targetSurfaceId!)
+    : undefined;
+
+  if (isUpdate && !prior) {
+    return {
+      prompt: "",
+      isUpdate,
+      error:
+        `intent='update' requested target_surface_id='${input.targetSurfaceId}' ` +
+        `but no prior render of that surface was found in conversation history`,
+    };
+  }
+
+  const prompt = buildSubagentPrompt({
+    contextPrompt: buildContextPrompt(input.state),
+    compositionGuide: input.compositionGuide,
+    editContext: prior
+      ? { surfaceId: input.targetSurfaceId!, prior, changes: input.changes }
+      : undefined,
+  });
+
+  return { prompt, isUpdate, prior };
+}
+
+export interface BuildA2UIEnvelopeInput {
+  /** The subagent's ``render_a2ui`` structured-output args. */
+  args: Record<string, unknown>;
+  /** From ``prepareA2UIRequest``. */
+  isUpdate: boolean;
+  /** The planner's ``target_surface_id`` (used as the surface id on update). */
+  targetSurfaceId?: string;
+  /** The prior surface from ``prepareA2UIRequest`` (supplies the catalog id on update). */
+  prior?: PriorSurface;
+  /** Surface id used when the subagent omits one on create. */
+  defaultSurfaceId?: string;
+  /** Catalog id used when there's no prior surface to inherit one from. */
+  defaultCatalogId?: string;
+}
+
+/**
+ * Turn the subagent's structured output into the final operations envelope.
+ *
+ * Catalog ownership stays with the host: the subagent never picks a catalog,
+ * so the id comes from the prior surface (update) or the configured default
+ * (create) — never from the model's args.
+ */
+export function buildA2UIEnvelope(input: BuildA2UIEnvelopeInput): string {
+  const surfaceId = input.isUpdate
+    ? (input.targetSurfaceId as string)
+    : (input.args.surfaceId as string) ||
+      (input.defaultSurfaceId ?? DEFAULT_SURFACE_ID);
+
+  const catalogId =
+    input.prior?.catalogId || (input.defaultCatalogId ?? BASIC_CATALOG_ID);
+
+  const components =
+    (input.args.components as Array<Record<string, unknown>>) || [];
+  const data = (input.args.data as Record<string, unknown>) || {};
+
+  const ops = assembleOps({
+    intent: input.isUpdate ? "update" : "create",
+    surfaceId,
+    catalogId,
+    components,
+    data,
+  });
+
+  return wrapAsOperationsEnvelope(ops);
+}

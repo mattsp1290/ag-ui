@@ -27,7 +27,7 @@
   },
   "pnpm": {
     "overrides": {
-      "@ag-ui/a2ui-toolkit": "0.0.1-alpha.0"
+      "@ag-ui/a2ui-toolkit": "0.0.1-alpha.1"
     }
   }
 }

@@ -24,12 +24,14 @@ import { SystemMessage } from "@langchain/core/messages";
 import {
   A2UI_OPERATIONS_KEY,
   BASIC_CATALOG_ID,
+  DEFAULT_SURFACE_ID,
+  GENERATE_A2UI_TOOL_NAME,
+  GENERATE_A2UI_TOOL_DESCRIPTION,
+  GENERATE_A2UI_ARG_DESCRIPTIONS,
   RENDER_A2UI_TOOL_DEF,
-  assembleOps,
-  buildContextPrompt,
-  buildSubagentPrompt,
-  findPriorSurface,
-  wrapAsOperationsEnvelope,
+  buildA2UIEnvelope,
+  prepareA2UIRequest,
+  wrapErrorEnvelope,
 } from "@ag-ui/a2ui-toolkit";
 
 /**
@@ -90,16 +92,10 @@ export function getA2UITools(
 ) {
   const {
     compositionGuide,
-    defaultSurfaceId = "dynamic-surface",
+    defaultSurfaceId = DEFAULT_SURFACE_ID,
     defaultCatalogId = BASIC_CATALOG_ID,
-    toolName = "generate_a2ui",
-    toolDescription = "Generate or update a dynamic A2UI surface based on the conversation. " +
-      "A secondary LLM designs the UI components and data. " +
-      "Use intent='create' (default) when the user requests new visual content " +
-      "(cards, forms, lists, dashboards, comparisons, etc.). " +
-      "Use intent='update' with target_surface_id to modify a surface you " +
-      "previously rendered (e.g. 'change the second card's price', " +
-      "'add a Buy button', 'use red instead of blue').",
+    toolName = GENERATE_A2UI_TOOL_NAME,
+    toolDescription = GENERATE_A2UI_TOOL_DESCRIPTION,
   } = options;
 
   return tool(
@@ -112,72 +108,44 @@ export function getA2UITools(
       // Strip current (unbalanced) tool call from history.
       const messages = allMessages.slice(0, -1);
 
-      const intent = input.intent ?? "create";
-      const targetSurfaceId = input.target_surface_id;
-      const changes = input.changes;
-      const isUpdate = intent === "update" && Boolean(targetSurfaceId);
-
-      const prior = isUpdate
-        ? findPriorSurface(messages, targetSurfaceId!)
-        : undefined;
-      if (isUpdate && !prior) {
-        return JSON.stringify({
-          error:
-            `intent='update' requested target_surface_id='${targetSurfaceId}' ` +
-            `but no prior render of that surface was found in conversation history`,
-        });
-      }
-
-      const prompt = buildSubagentPrompt({
-        contextPrompt: buildContextPrompt(state),
+      // Shared: decide create/update, find prior surface, build the prompt.
+      const prep = prepareA2UIRequest({
+        intent: input.intent,
+        targetSurfaceId: input.target_surface_id,
+        changes: input.changes,
+        messages,
+        state,
         compositionGuide,
-        editContext: prior
-          ? { surfaceId: targetSurfaceId!, prior, changes }
-          : undefined,
       });
+      if (prep.error) return wrapErrorEnvelope(prep.error);
 
+      // Glue: bind the structured-output tool and invoke the subagent.
       if (!model.bindTools) {
-        return JSON.stringify({
-          error: "Provided model does not support bindTools",
-        });
+        return wrapErrorEnvelope("Provided model does not support bindTools");
       }
-
       const modelWithTool = model.bindTools([RENDER_A2UI_TOOL_DEF], {
-        tool_choice: {
-          type: "function",
-          function: { name: "render_a2ui" },
-        },
+        tool_choice: { type: "function", function: { name: "render_a2ui" } },
       });
-
       const response: any = await modelWithTool.invoke([
-        new SystemMessage(prompt),
+        new SystemMessage(prep.prompt),
         ...messages,
       ] as any);
 
       const toolCalls: Array<{ args?: Record<string, unknown> }> =
         response.tool_calls ?? [];
       if (toolCalls.length === 0) {
-        return JSON.stringify({ error: "LLM did not call render_a2ui" });
+        return wrapErrorEnvelope("LLM did not call render_a2ui");
       }
 
-      const args = toolCalls[0].args ?? {};
-      const surfaceId = isUpdate
-        ? (targetSurfaceId as string)
-        : (args.surfaceId as string) || defaultSurfaceId;
-      const catalogId = prior?.catalogId || defaultCatalogId;
-      const components =
-        (args.components as Array<Record<string, unknown>>) || [];
-      const data = (args.data as Record<string, unknown>) || {};
-
-      const ops = assembleOps({
-        intent: isUpdate ? "update" : "create",
-        surfaceId,
-        catalogId,
-        components,
-        data,
+      // Shared: assemble the final operations envelope.
+      return buildA2UIEnvelope({
+        args: toolCalls[0].args ?? {},
+        isUpdate: prep.isUpdate,
+        targetSurfaceId: input.target_surface_id,
+        prior: prep.prior,
+        defaultSurfaceId,
+        defaultCatalogId,
       });
-
-      return wrapAsOperationsEnvelope(ops);
     },
     {
       name: toolName,
@@ -188,18 +156,15 @@ export function getA2UITools(
           intent: {
             type: "string",
             enum: ["create", "update"],
-            description:
-              "'create' to render a new surface; 'update' to modify a surface previously rendered in this conversation. Defaults to 'create'.",
+            description: GENERATE_A2UI_ARG_DESCRIPTIONS.intent,
           },
           target_surface_id: {
             type: "string",
-            description:
-              "Required when intent='update'. The surface id of the prior render to modify.",
+            description: GENERATE_A2UI_ARG_DESCRIPTIONS.target_surface_id,
           },
           changes: {
             type: "string",
-            description:
-              "Optional natural-language description of the changes to apply when intent='update'.",
+            description: GENERATE_A2UI_ARG_DESCRIPTIONS.changes,
           },
         },
       } as any,

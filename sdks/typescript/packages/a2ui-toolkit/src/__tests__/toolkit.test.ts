@@ -2,15 +2,19 @@ import { describe, it, expect } from "vitest";
 import {
   A2UI_OPERATIONS_KEY,
   BASIC_CATALOG_ID,
+  DEFAULT_SURFACE_ID,
   RENDER_A2UI_TOOL_DEF,
   assembleOps,
+  buildA2UIEnvelope,
   buildContextPrompt,
   buildSubagentPrompt,
   createSurface,
   findPriorSurface,
+  prepareA2UIRequest,
   updateComponents,
   updateDataModel,
   wrapAsOperationsEnvelope,
+  wrapErrorEnvelope,
 } from "../index";
 
 describe("constants", () => {
@@ -296,5 +300,109 @@ describe("wrapAsOperationsEnvelope", () => {
     expect(JSON.parse(wrapAsOperationsEnvelope([]))).toEqual({
       [A2UI_OPERATIONS_KEY]: [],
     });
+  });
+});
+
+describe("wrapErrorEnvelope", () => {
+  it("wraps a message under the error key", () => {
+    expect(JSON.parse(wrapErrorEnvelope("boom"))).toEqual({ error: "boom" });
+  });
+});
+
+// A prior surface encoded the way it appears in conversation history.
+function priorSurfaceMessage(surfaceId: string) {
+  return {
+    type: "tool",
+    content: wrapAsOperationsEnvelope([
+      createSurface(surfaceId, "cat://x"),
+      updateComponents(surfaceId, [{ id: "root", component: "Row" }]),
+      updateDataModel(surfaceId, { items: [1, 2] }),
+    ]),
+  };
+}
+
+describe("prepareA2UIRequest", () => {
+  it("create: builds a prompt, no prior, not an update", () => {
+    const prep = prepareA2UIRequest({
+      intent: "create",
+      messages: [],
+      state: { "ag-ui": { context: [{ value: "ctx" }] } },
+      compositionGuide: "guide",
+    });
+    expect(prep.error).toBeUndefined();
+    expect(prep.isUpdate).toBe(false);
+    expect(prep.prior).toBeUndefined();
+    expect(prep.prompt).toContain("ctx");
+    expect(prep.prompt).toContain("guide");
+  });
+
+  it("defaults a missing intent to create", () => {
+    const prep = prepareA2UIRequest({ messages: [], state: {} });
+    expect(prep.isUpdate).toBe(false);
+    expect(prep.error).toBeUndefined();
+  });
+
+  it("update with a matching prior surface: edit prompt + prior populated", () => {
+    const prep = prepareA2UIRequest({
+      intent: "update",
+      targetSurfaceId: "s1",
+      changes: "make it red",
+      messages: [priorSurfaceMessage("s1")],
+      state: {},
+    });
+    expect(prep.error).toBeUndefined();
+    expect(prep.isUpdate).toBe(true);
+    expect(prep.prior?.catalogId).toBe("cat://x");
+    expect(prep.prompt).toContain("Editing an existing surface");
+    expect(prep.prompt).toContain("make it red");
+  });
+
+  it("update with no matching prior: returns an error, no prompt", () => {
+    const prep = prepareA2UIRequest({
+      intent: "update",
+      targetSurfaceId: "missing",
+      messages: [priorSurfaceMessage("s1")],
+      state: {},
+    });
+    expect(prep.prompt).toBe("");
+    expect(prep.error).toContain("missing");
+    expect(prep.error).toContain("no prior render");
+  });
+});
+
+describe("buildA2UIEnvelope", () => {
+  it("create: createSurface uses the configured default catalog, not the args", () => {
+    const env = JSON.parse(
+      buildA2UIEnvelope({
+        args: { surfaceId: "from-args", components: [{ id: "root", component: "Row" }], data: { items: [1] } },
+        isUpdate: false,
+        defaultCatalogId: "cat://configured",
+      }),
+    );
+    const ops = env[A2UI_OPERATIONS_KEY];
+    expect(ops[0].createSurface).toEqual({ surfaceId: "from-args", catalogId: "cat://configured" });
+    expect(ops[1].updateComponents.components).toEqual([{ id: "root", component: "Row" }]);
+    expect(ops[2].updateDataModel.value).toEqual({ items: [1] });
+  });
+
+  it("create: falls back to DEFAULT_SURFACE_ID when args omit surfaceId", () => {
+    const env = JSON.parse(
+      buildA2UIEnvelope({ args: { components: [] }, isUpdate: false }),
+    );
+    expect(env[A2UI_OPERATIONS_KEY][0].createSurface.surfaceId).toBe(DEFAULT_SURFACE_ID);
+  });
+
+  it("update: skips createSurface, keeps target id + prior catalog", () => {
+    const env = JSON.parse(
+      buildA2UIEnvelope({
+        args: { surfaceId: "ignored", components: [{ id: "root", component: "Column" }] },
+        isUpdate: true,
+        targetSurfaceId: "s1",
+        prior: { components: [], data: null, catalogId: "cat://prior" },
+      }),
+    );
+    const ops = env[A2UI_OPERATIONS_KEY];
+    expect(ops.some((o: any) => o.createSurface)).toBe(false);
+    expect(ops[0].updateComponents.surfaceId).toBe("s1");
   });
 });

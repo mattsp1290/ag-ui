@@ -12,15 +12,19 @@ import unittest
 from ag_ui_a2ui_toolkit import (
     A2UI_OPERATIONS_KEY,
     BASIC_CATALOG_ID,
+    DEFAULT_SURFACE_ID,
     RENDER_A2UI_TOOL_DEF,
     assemble_ops,
+    build_a2ui_envelope,
     build_context_prompt,
     build_subagent_prompt,
     create_surface,
     find_prior_surface,
+    prepare_a2ui_request,
     update_components,
     update_data_model,
     wrap_as_operations_envelope,
+    wrap_error_envelope,
 )
 
 
@@ -319,6 +323,137 @@ class TestWrapAsOperationsEnvelope(unittest.TestCase):
     def test_empty_ops(self):
         envelope = json.loads(wrap_as_operations_envelope([]))
         self.assertEqual(envelope, {A2UI_OPERATIONS_KEY: []})
+
+
+class TestWrapErrorEnvelope(unittest.TestCase):
+    def test_wraps_message(self):
+        self.assertEqual(json.loads(wrap_error_envelope("boom")), {"error": "boom"})
+
+
+def _prior_surface_message(surface_id: str):
+    """A prior surface encoded the way it appears in conversation history."""
+
+    class _Tool:
+        def __init__(self, content: str):
+            self.type = "tool"
+            self.content = content
+
+    return _Tool(
+        wrap_as_operations_envelope(
+            [
+                create_surface(surface_id, "cat://x"),
+                update_components(surface_id, [{"id": "root", "component": "Row"}]),
+                update_data_model(surface_id, {"items": [1, 2]}),
+            ]
+        )
+    )
+
+
+class TestPrepareA2UIRequest(unittest.TestCase):
+    def test_create_builds_prompt_no_prior(self):
+        prep = prepare_a2ui_request(
+            intent="create",
+            target_surface_id=None,
+            changes=None,
+            messages=[],
+            state={"ag-ui": {"context": [{"value": "ctx"}]}},
+            composition_guide="guide",
+        )
+        self.assertIsNone(prep.get("error"))
+        self.assertFalse(prep["is_update"])
+        self.assertIsNone(prep["prior"])
+        self.assertIn("ctx", prep["prompt"])
+        self.assertIn("guide", prep["prompt"])
+
+    def test_missing_intent_defaults_to_create(self):
+        prep = prepare_a2ui_request(
+            intent=None, target_surface_id=None, changes=None, messages=[], state={}
+        )
+        self.assertFalse(prep["is_update"])
+        self.assertIsNone(prep.get("error"))
+
+    def test_update_with_matching_prior(self):
+        prep = prepare_a2ui_request(
+            intent="update",
+            target_surface_id="s1",
+            changes="make it red",
+            messages=[_prior_surface_message("s1")],
+            state={},
+        )
+        self.assertIsNone(prep.get("error"))
+        self.assertTrue(prep["is_update"])
+        self.assertEqual(prep["prior"]["catalogId"], "cat://x")
+        self.assertIn("Editing an existing surface", prep["prompt"])
+        self.assertIn("make it red", prep["prompt"])
+
+    def test_update_without_prior_errors(self):
+        prep = prepare_a2ui_request(
+            intent="update",
+            target_surface_id="missing",
+            changes=None,
+            messages=[_prior_surface_message("s1")],
+            state={},
+        )
+        self.assertEqual(prep["prompt"], "")
+        self.assertIn("missing", prep["error"])
+        self.assertIn("no prior render", prep["error"])
+
+
+class TestBuildA2UIEnvelope(unittest.TestCase):
+    def test_create_uses_configured_catalog_not_args(self):
+        env = json.loads(
+            build_a2ui_envelope(
+                args={
+                    "surfaceId": "from-args",
+                    "components": [{"id": "root", "component": "Row"}],
+                    "data": {"items": [1]},
+                },
+                is_update=False,
+                target_surface_id=None,
+                prior=None,
+                default_catalog_id="cat://configured",
+            )
+        )
+        ops = env[A2UI_OPERATIONS_KEY]
+        self.assertEqual(
+            ops[0]["createSurface"],
+            {"surfaceId": "from-args", "catalogId": "cat://configured"},
+        )
+        self.assertEqual(
+            ops[1]["updateComponents"]["components"],
+            [{"id": "root", "component": "Row"}],
+        )
+        self.assertEqual(ops[2]["updateDataModel"]["value"], {"items": [1]})
+
+    def test_create_falls_back_to_default_surface_id(self):
+        env = json.loads(
+            build_a2ui_envelope(
+                args={"components": []},
+                is_update=False,
+                target_surface_id=None,
+                prior=None,
+            )
+        )
+        self.assertEqual(
+            env[A2UI_OPERATIONS_KEY][0]["createSurface"]["surfaceId"],
+            DEFAULT_SURFACE_ID,
+        )
+
+    def test_update_skips_create_surface_and_keeps_target(self):
+        env = json.loads(
+            build_a2ui_envelope(
+                args={
+                    "surfaceId": "ignored",
+                    "components": [{"id": "root", "component": "Column"}],
+                },
+                is_update=True,
+                target_surface_id="s1",
+                prior={"components": [], "data": None, "catalogId": "cat://prior"},
+            )
+        )
+        ops = env[A2UI_OPERATIONS_KEY]
+        self.assertFalse(any("createSurface" in o for o in ops))
+        self.assertEqual(ops[0]["updateComponents"]["surfaceId"], "s1")
 
 
 if __name__ == "__main__":

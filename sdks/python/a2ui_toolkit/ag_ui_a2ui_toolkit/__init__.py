@@ -18,6 +18,10 @@ __all__ = [
     "A2UI_OPERATIONS_KEY",
     "BASIC_CATALOG_ID",
     "RENDER_A2UI_TOOL_DEF",
+    "DEFAULT_SURFACE_ID",
+    "GENERATE_A2UI_TOOL_NAME",
+    "GENERATE_A2UI_TOOL_DESCRIPTION",
+    "GENERATE_A2UI_ARG_DESCRIPTIONS",
     "create_surface",
     "update_components",
     "update_data_model",
@@ -26,8 +30,12 @@ __all__ = [
     "build_subagent_prompt",
     "assemble_ops",
     "wrap_as_operations_envelope",
+    "wrap_error_envelope",
+    "prepare_a2ui_request",
+    "build_a2ui_envelope",
     "PriorSurface",
     "EditContext",
+    "PreparedA2UIRequest",
 ]
 
 
@@ -302,3 +310,146 @@ def wrap_as_operations_envelope(ops: list[dict[str, Any]]) -> str:
     """Wrap a list of A2UI operations as the JSON envelope the A2UI middleware
     looks for in tool results."""
     return json.dumps({A2UI_OPERATIONS_KEY: ops})
+
+
+def wrap_error_envelope(message: str) -> str:
+    """Wrap an error as the JSON string a subagent tool returns when it can't
+    produce a surface. Keeps the error shape consistent across frameworks."""
+    return json.dumps({"error": message})
+
+
+# ---------------------------------------------------------------------------
+# Subagent-tool defaults (shared so every framework adapter advertises the
+# same planner-facing surface and behaviour)
+# ---------------------------------------------------------------------------
+
+DEFAULT_SURFACE_ID = "dynamic-surface"
+"""Surface id used when the subagent omits ``surfaceId`` on a create."""
+
+GENERATE_A2UI_TOOL_NAME = "generate_a2ui"
+"""Default name the outer A2UI tool is advertised under to the main planner."""
+
+GENERATE_A2UI_TOOL_DESCRIPTION = (
+    "Generate or update a dynamic A2UI surface based on the conversation. "
+    "A secondary LLM designs the UI components and data. "
+    "Use intent='create' (default) when the user requests new visual content "
+    "(cards, forms, lists, dashboards, comparisons, etc.). "
+    "Use intent='update' with target_surface_id to modify a surface you "
+    "previously rendered (e.g. 'change the second card's price', "
+    "'add a Buy button', 'use red instead of blue')."
+)
+"""Default description shown to the main agent's planner."""
+
+GENERATE_A2UI_ARG_DESCRIPTIONS: dict[str, str] = {
+    "intent": (
+        "'create' to render a new surface; 'update' to modify a surface "
+        "previously rendered in this conversation. Defaults to 'create'."
+    ),
+    "target_surface_id": (
+        "Required when intent='update'. The surface id of the prior render to modify."
+    ),
+    "changes": (
+        "Optional natural-language description of the changes to apply when intent='update'."
+    ),
+}
+"""Planner-facing descriptions for the outer tool's three arguments."""
+
+
+# ---------------------------------------------------------------------------
+# High-level orchestration
+#
+# These two functions hold the entire create/update decision + prompt prep +
+# result-assembly logic so every framework adapter is reduced to pure glue
+# (tool decorator, state access, model bind+invoke, tool-call read).
+# ---------------------------------------------------------------------------
+
+
+class PreparedA2UIRequest(TypedDict, total=False):
+    prompt: str
+    is_update: bool
+    prior: Optional[PriorSurface]
+    error: Optional[str]
+
+
+def prepare_a2ui_request(
+    *,
+    intent: Optional[str],
+    target_surface_id: Optional[str],
+    changes: Optional[str],
+    messages: list[Any],
+    state: dict,
+    composition_guide: Optional[str] = None,
+) -> PreparedA2UIRequest:
+    """Resolve the create/update decision, locate any prior surface, and build
+    the subagent system prompt.
+
+    Returns a dict with ``error`` set (and no ``prompt``) when the request is
+    invalid — an ``update`` referencing a surface not found in history.
+    """
+    resolved_intent = intent or "create"
+    is_update = resolved_intent == "update" and bool(target_surface_id)
+
+    prior = (
+        find_prior_surface(messages, target_surface_id)  # type: ignore[arg-type]
+        if is_update
+        else None
+    )
+
+    if is_update and prior is None:
+        return {
+            "prompt": "",
+            "is_update": is_update,
+            "prior": None,
+            "error": (
+                f"intent='update' requested target_surface_id="
+                f"'{target_surface_id}' but no prior render of that surface "
+                f"was found in conversation history"
+            ),
+        }
+
+    prompt = build_subagent_prompt(
+        context_prompt=build_context_prompt(state),
+        composition_guide=composition_guide,
+        edit_context=(
+            {"surfaceId": target_surface_id, "prior": prior, "changes": changes}
+            if prior is not None
+            else None
+        ),
+    )
+
+    return {"prompt": prompt, "is_update": is_update, "prior": prior, "error": None}
+
+
+def build_a2ui_envelope(
+    *,
+    args: dict[str, Any],
+    is_update: bool,
+    target_surface_id: Optional[str],
+    prior: Optional[PriorSurface],
+    default_surface_id: str = DEFAULT_SURFACE_ID,
+    default_catalog_id: str = BASIC_CATALOG_ID,
+) -> str:
+    """Turn the subagent's structured output into the final operations envelope.
+
+    Catalog ownership stays with the host: the subagent never picks a catalog,
+    so the id comes from the prior surface (update) or the configured default
+    (create) — never from the model's args.
+    """
+    surface_id = (
+        target_surface_id
+        if is_update
+        else (args.get("surfaceId") or default_surface_id)
+    )
+    catalog_id = (prior or {}).get("catalogId") or default_catalog_id
+    components = args.get("components") or []
+    data = args.get("data") or {}
+
+    ops = assemble_ops(
+        intent="update" if is_update else "create",
+        surface_id=surface_id,
+        catalog_id=catalog_id,
+        components=components,
+        data=data,
+    )
+
+    return wrap_as_operations_envelope(ops)

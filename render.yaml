@@ -149,10 +149,10 @@ projects:
       - key: OPENAI_API_KEY
         sync: false
       region: virginia
-      buildCommand: cd ../../.. && npm install -g pnpm && pnpm install && npx nx run @ag-ui/aws-strands:build
-      startCommand: npx tsx examples/server/server.ts
+      buildCommand: cd ../../../.. && npm install -g pnpm && pnpm install && npx nx run @ag-ui/aws-strands:build
+      startCommand: npx tsx server/server.ts
       autoDeployTrigger: commit
-      rootDir: integrations/aws-strands/typescript
+      rootDir: integrations/aws-strands/typescript/examples
     - type: web
       name: ag-ui-dojo-agno
       runtime: python

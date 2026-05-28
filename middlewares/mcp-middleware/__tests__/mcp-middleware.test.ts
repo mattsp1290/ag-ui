@@ -22,14 +22,21 @@ vi.mock("@modelcontextprotocol/sdk/client/index.js", () => ({
     callTool = mockCallTool;
   },
 }));
+const sseTransportCalls: Array<{ url: URL; opts: unknown }> = [];
+const httpTransportCalls: Array<{ url: URL; opts: unknown }> = [];
+
 vi.mock("@modelcontextprotocol/sdk/client/sse.js", () => ({
   SSEClientTransport: class {
-    constructor(public url: URL) {}
+    constructor(public url: URL, public opts?: unknown) {
+      sseTransportCalls.push({ url, opts });
+    }
   },
 }));
 vi.mock("@modelcontextprotocol/sdk/client/streamableHttp.js", () => ({
   StreamableHTTPClientTransport: class {
-    constructor(public url: URL) {}
+    constructor(public url: URL, public opts?: unknown) {
+      httpTransportCalls.push({ url, opts });
+    }
   },
 }));
 
@@ -140,6 +147,8 @@ beforeEach(() => {
   mockCallTool
     .mockReset()
     .mockResolvedValue({ content: [{ type: "text", text: "ok" }] });
+  sseTransportCalls.length = 0;
+  httpTransportCalls.length = 0;
 });
 
 // --- Tool injection -----------------------------------------------------------
@@ -424,5 +433,95 @@ describe("MCPMiddleware — execution loop", () => {
 
     expect(received.some((e) => e.type === EventType.TOOL_CALL_RESULT)).toBe(false);
     expect(next.runCalls).toHaveLength(1); // never looped
+  });
+});
+
+// --- Headers + listTools caching ----------------------------------------------
+describe("MCPMiddleware — headers + caching", () => {
+  it("passes config headers to the streamable HTTP transport", async () => {
+    mockListTools.mockResolvedValue({ tools: [{ name: "weather", inputSchema: {} }] });
+    const next = new BatchMockAgent([[runStarted(), runFinished()]]);
+    await collectEvents(
+      new MCPMiddleware([
+        {
+          type: "http",
+          url: "https://example.com/mcp",
+          serverId: "s",
+          headers: {
+            Authorization: "Bearer abc",
+            "X-Cpki-User-Id": "user-1",
+          },
+        },
+      ]).run(createRunAgentInput(), next),
+    );
+    expect(httpTransportCalls).toHaveLength(1);
+    expect(httpTransportCalls[0].opts).toEqual({
+      requestInit: {
+        headers: { Authorization: "Bearer abc", "X-Cpki-User-Id": "user-1" },
+      },
+    });
+  });
+
+  it("omits transport options when no headers are configured", async () => {
+    mockListTools.mockResolvedValue({ tools: [] });
+    const next = new BatchMockAgent([[runStarted(), runFinished()]]);
+    await collectEvents(
+      new MCPMiddleware([
+        { type: "http", url: "https://example.com/mcp", serverId: "s" },
+      ]).run(createRunAgentInput(), next),
+    );
+    expect(httpTransportCalls).toHaveLength(1);
+    expect(httpTransportCalls[0].opts).toBeUndefined();
+  });
+
+  it("also passes headers to the SSE transport", async () => {
+    mockListTools.mockResolvedValue({ tools: [] });
+    const next = new BatchMockAgent([[runStarted(), runFinished()]]);
+    await collectEvents(
+      new MCPMiddleware([
+        {
+          type: "sse",
+          url: "https://example.com/sse",
+          serverId: "s",
+          headers: { Authorization: "Bearer xyz" },
+        },
+      ]).run(createRunAgentInput(), next),
+    );
+    expect(sseTransportCalls).toHaveLength(1);
+    expect(sseTransportCalls[0].opts).toEqual({
+      requestInit: { headers: { Authorization: "Bearer xyz" } },
+    });
+  });
+
+  it("lists tools only once per middleware instance, across runs", async () => {
+    mockListTools.mockResolvedValue({ tools: [{ name: "weather", inputSchema: {} }] });
+    const middleware = new MCPMiddleware([weatherServer()]);
+
+    const first = new BatchMockAgent([[runStarted(), runFinished()]]);
+    await collectEvents(middleware.run(createRunAgentInput(), first));
+
+    const second = new BatchMockAgent([[runStarted("r2"), runFinished("r2")]]);
+    await collectEvents(middleware.run(createRunAgentInput({ runId: "r2" }), second));
+
+    expect(mockListTools).toHaveBeenCalledTimes(1);
+    // The second run still received the cached tool injected.
+    expect(second.runCalls[0].tools.map((t) => t.name)).toContain("mcp__s__weather");
+  });
+
+  it("does not retry a failed listing on the second run", async () => {
+    mockListTools.mockRejectedValue(new Error("listing died"));
+    const middleware = new MCPMiddleware([weatherServer()]);
+
+    const first = new BatchMockAgent([[runStarted(), runFinished()]]);
+    await collectEvents(middleware.run(createRunAgentInput(), first));
+
+    const second = new BatchMockAgent([[runStarted("r2"), runFinished("r2")]]);
+    await collectEvents(middleware.run(createRunAgentInput({ runId: "r2" }), second));
+
+    // The failed listing is cached too — we don't keep hammering broken servers.
+    expect(mockListTools).toHaveBeenCalledTimes(1);
+    // No tools were injected on either run.
+    expect(first.runCalls[0].tools).toHaveLength(0);
+    expect(second.runCalls[0].tools).toHaveLength(0);
   });
 });

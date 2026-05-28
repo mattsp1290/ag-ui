@@ -178,9 +178,30 @@ function extractTextContent(mcpResult: unknown): string {
  * If a run produces no open tool calls targeting our MCP tools, the
  * middleware does not interfere at all — every event is forwarded verbatim.
  */
+/**
+ * One MCP tool as returned by `listTools`, paired with the server it came
+ * from. Cached on the middleware instance so we only hit the network once.
+ */
+interface ListedTool {
+  mcpTool: {
+    name: string;
+    description?: string;
+    inputSchema?: Record<string, unknown>;
+  };
+  serverConfig: MCPClientConfig;
+  serverId: string;
+}
+
 export class MCPMiddleware extends Middleware {
   private readonly mcpServers: MCPClientConfig[];
   private readonly maxIterations: number;
+  /**
+   * Lazily-populated cache of the full `listTools` result across every
+   * configured server. Populated on the first `run()` and reused for the
+   * lifetime of the instance — so listing happens exactly once per
+   * middleware instance, no matter how many runs come through.
+   */
+  private listingPromise: Promise<ListedTool[]> | null = null;
 
   constructor(
     mcpServers: MCPClientConfig[] = [],
@@ -335,17 +356,49 @@ export class MCPMiddleware extends Middleware {
   }
 
   /**
-   * Connect to each configured server, list its tools, and return them as
-   * namespaced, deduped {@link ResolvedMCPTool}s. A server that fails to
-   * connect or list is logged and skipped — one bad server never blocks the
-   * run or the other servers' tools.
+   * Resolve injectable tool descriptors for this run. Listing is cached
+   * per-instance (see {@link listingPromise}); only the name resolution
+   * (prefix / truncate / dedupe) is recomputed per run, since dedupe needs
+   * the current `input.tools` as its seed.
    */
   private async resolveTools(
     existingNames: Set<string>,
   ): Promise<ResolvedMCPTool[]> {
+    const listed = await this.listAllTools();
     const used = new Set(existingNames);
-    const resolved: ResolvedMCPTool[] = [];
+    return listed.map((entry) => {
+      const name = makeUniqueToolName(entry.serverId, entry.mcpTool.name, used);
+      used.add(name);
+      return {
+        tool: {
+          name,
+          description: entry.mcpTool.description ?? "",
+          parameters: entry.mcpTool.inputSchema ?? {
+            type: "object",
+            properties: {},
+          },
+        },
+        originalName: entry.mcpTool.name,
+        serverConfig: entry.serverConfig,
+      };
+    });
+  }
 
+  /**
+   * List tools from every configured server, exactly once per instance. A
+   * server that fails to connect or list is logged and skipped — one bad
+   * server never blocks the other servers' tools. The failure is part of
+   * the cached result, so we don't keep retrying broken servers.
+   */
+  private listAllTools(): Promise<ListedTool[]> {
+    if (this.listingPromise === null) {
+      this.listingPromise = this.doListAllTools();
+    }
+    return this.listingPromise;
+  }
+
+  private async doListAllTools(): Promise<ListedTool[]> {
+    const listed: ListedTool[] = [];
     let index = 0;
     for (const serverConfig of this.mcpServers) {
       const serverId = serverConfig.serverId ?? `server${index}`;
@@ -356,20 +409,7 @@ export class MCPMiddleware extends Middleware {
         client = await this.connect(serverConfig);
         const { tools } = await client.listTools();
         for (const mcpTool of tools) {
-          const name = makeUniqueToolName(serverId, mcpTool.name, used);
-          used.add(name);
-          resolved.push({
-            tool: {
-              name,
-              description: mcpTool.description ?? "",
-              parameters: mcpTool.inputSchema ?? {
-                type: "object",
-                properties: {},
-              },
-            },
-            originalName: mcpTool.name,
-            serverConfig,
-          });
+          listed.push({ mcpTool, serverConfig, serverId });
         }
       } catch (error) {
         console.error(
@@ -380,8 +420,7 @@ export class MCPMiddleware extends Middleware {
         await client?.close();
       }
     }
-
-    return resolved;
+    return listed;
   }
 
   /**
@@ -418,13 +457,25 @@ export class MCPMiddleware extends Middleware {
   }
 
   /**
-   * Open a connected MCP client for a server config.
+   * Open a connected MCP client for a server config. If `headers` is set on
+   * the config, they're stamped on every outbound request via the
+   * transport's `requestInit`. This is the seam the runtime uses to forward
+   * per-request auth (e.g. `Authorization: Bearer …`, `X-Cpki-User-Id: …`):
+   * the middleware is constructed per request, so static headers in the
+   * config are effectively per-request.
+   *
+   * Caveat: for the SSE transport, `requestInit.headers` only applies to
+   * the POST channel — the SSE event stream uses `eventSourceInit`. For
+   * streamable HTTP (the typical case) it covers all traffic.
    */
   private async connect(serverConfig: MCPClientConfig): Promise<Client> {
+    const opts = serverConfig.headers
+      ? { requestInit: { headers: serverConfig.headers } }
+      : undefined;
     const transport =
       serverConfig.type === "sse"
-        ? new SSEClientTransport(new URL(serverConfig.url))
-        : new StreamableHTTPClientTransport(new URL(serverConfig.url));
+        ? new SSEClientTransport(new URL(serverConfig.url), opts)
+        : new StreamableHTTPClientTransport(new URL(serverConfig.url), opts);
     const client = new Client({
       name: "ag-ui-mcp-middleware",
       version: "0.0.1",

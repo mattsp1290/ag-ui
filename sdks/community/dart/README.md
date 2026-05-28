@@ -111,6 +111,37 @@ await for (final event in client.runAgent('agentic_chat', input)) {
 }
 ```
 
+### Multimodal Input
+
+A `UserMessage` accepts either plain text or an ordered list of typed parts
+(text, image, audio, video, document). Use `UserMessage.multimodal` for parts:
+
+```dart
+final input = SimpleRunAgentInput(
+  messages: [
+    UserMessage.multimodal(
+      id: 'msg_${DateTime.now().millisecondsSinceEpoch}',
+      parts: [
+        TextInputContent('What is in this image?'),
+        ImageInputContent(
+          source: UrlSource(
+            value: 'https://example.com/photo.png',
+            mimeType: 'image/png',
+          ),
+        ),
+        // Inline data sources require a mimeType:
+        DocumentInputContent(
+          source: DataSource(value: base64Pdf, mimeType: 'application/pdf'),
+        ),
+      ],
+    ),
+  ],
+);
+```
+
+The `content` getter returns the text for text-only messages and `null` for
+multimodal ones; read `messageContent` for the typed union.
+
 ### Tool-Based Interactions
 
 ```dart

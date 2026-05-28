@@ -213,6 +213,8 @@ class InterruptSerializationTest {
         val jsonString = json.encodeToString<BaseEvent>(event)
         val outcomeObj = json.parseToJsonElement(jsonString).jsonObject["outcome"]?.jsonObject
         assertNotNull(outcomeObj)
+        // Schema is exactly `{ type: "success" }` — discriminator only, no extra keys.
+        assertEquals(setOf("type"), outcomeObj.keys)
         assertEquals("success", outcomeObj["type"]?.jsonPrimitive?.content)
 
         val decoded = json.decodeFromString<BaseEvent>(jsonString)

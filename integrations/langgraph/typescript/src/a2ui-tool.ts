@@ -53,7 +53,8 @@ export interface A2UISubagentToolOptions {
   compositionGuide?: string;
   /** Surface id used when the subagent omits `surfaceId`. */
   defaultSurfaceId?: string;
-  /** Catalog id used when the subagent omits `catalogId`. */
+  /** Catalog id assigned to every new surface this factory creates — the
+   *  subagent never picks the catalog. Falls back to the basic v0.9 catalog. */
   defaultCatalogId?: string;
   /** Name advertised to the main agent's planner. */
   toolName?: string;
@@ -90,13 +91,21 @@ export function getA2UITools(
   model: A2UISubagentModel,
   options: A2UISubagentToolOptions = {},
 ) {
+  // Use `||` rather than destructuring defaults so empty-string overrides fall
+  // back to the canonical defaults (matches the Python adapter, which uses
+  // `or` for the same parity). Otherwise an accidental `""` from a caller
+  // would advertise a nameless / empty-description tool to the planner.
   const {
     compositionGuide,
-    defaultSurfaceId = DEFAULT_SURFACE_ID,
-    defaultCatalogId = BASIC_CATALOG_ID,
-    toolName = GENERATE_A2UI_TOOL_NAME,
-    toolDescription = GENERATE_A2UI_TOOL_DESCRIPTION,
+    defaultSurfaceId: defaultSurfaceIdOpt,
+    defaultCatalogId: defaultCatalogIdOpt,
+    toolName: toolNameOpt,
+    toolDescription: toolDescriptionOpt,
   } = options;
+  const defaultSurfaceId = defaultSurfaceIdOpt || DEFAULT_SURFACE_ID;
+  const defaultCatalogId = defaultCatalogIdOpt || BASIC_CATALOG_ID;
+  const toolName = toolNameOpt || GENERATE_A2UI_TOOL_NAME;
+  const toolDescription = toolDescriptionOpt || GENERATE_A2UI_TOOL_DESCRIPTION;
 
   return tool(
     async (

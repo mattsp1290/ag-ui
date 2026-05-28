@@ -69,7 +69,9 @@ def get_a2ui_tools(
         composition_guide: Optional extra rules appended to the subagent's
             system prompt (e.g. project-specific component usage rules).
         default_surface_id: Surface id used when the subagent omits ``surfaceId``.
-        default_catalog_id: Catalog id used when the subagent omits ``catalogId``.
+        default_catalog_id: Catalog id assigned to every new surface this
+            factory creates — the subagent never picks the catalog. Falls back
+            to the basic v0.9 catalog.
         tool_name: Name advertised to the main agent's planner.
         tool_description: Description shown to the main agent's planner.
 
@@ -96,7 +98,10 @@ def get_a2ui_tools(
             changes: Optional natural-language description of the changes to
                 apply when ``intent="update"``.
         """
-        messages = runtime.state["messages"][:-1]
+        # Defensive: a custom state schema may not preseed ``messages``, and
+        # ``state["messages"]`` would then raise KeyError mid-tool — mirror the
+        # TS adapter's `state.messages ?? []` graceful-degrade.
+        messages = runtime.state.get("messages", [])[:-1]
 
         # Shared: decide create/update, find prior surface, build the prompt.
         prep = prepare_a2ui_request(

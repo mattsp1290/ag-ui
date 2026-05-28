@@ -5,7 +5,7 @@ settings:
   excludeLinksFromLockfile: false
 
 overrides:
-  '@ag-ui/a2ui-toolkit': 0.0.1-alpha.0
+  '@ag-ui/a2ui-toolkit': 0.0.1-alpha.2
 
 importers:
 
@@ -54,8 +54,8 @@ importers:
 
 packages:
 
-  '@ag-ui/a2ui-toolkit@0.0.1-alpha.0':
-    resolution: {integrity: sha512-weM0KYJ4WYH2P5MlsqP9khRzhmMRAn1bUmxPcmMcJeoUepGQIUjL9wpd951bRuFdJzKUgv9oXg9NrUbUaooXOA==}
+  '@ag-ui/a2ui-toolkit@0.0.1-alpha.2':
+    resolution: {integrity: sha512-sOFd2qqLYoJowUqrcCTqus5e8xncS4A7xDPZWmVlbIzWsNfDMqRX0Ie4eXo/nfDjR81DMZ8IrFlOLCy0oNuesA==}
 
   '@ag-ui/client@0.0.53':
     resolution: {integrity: sha512-Mkup36KUp0KXy9v89QtAOWDUoh8H1s1Vgl4zvQv9HqXuAK1TkbtpXJHpbgZJXIxTqd54KT6yCurmC2UkOP7FDQ==}
@@ -454,7 +454,7 @@ packages:
 
 snapshots:
 
-  '@ag-ui/a2ui-toolkit@0.0.1-alpha.0': {}
+  '@ag-ui/a2ui-toolkit@0.0.1-alpha.2': {}
 
   '@ag-ui/client@0.0.53':
     dependencies:
@@ -501,7 +501,7 @@ snapshots:
 
   '@ag-ui/langgraph@file:..(@ag-ui/client@0.0.53)(@ag-ui/core@0.0.53)(openai@6.15.0(zod@3.25.76))(zod-to-json-schema@3.24.6(zod@3.25.76))':
     dependencies:
-      '@ag-ui/a2ui-toolkit': 0.0.1-alpha.0
+      '@ag-ui/a2ui-toolkit': 0.0.1-alpha.2
       '@ag-ui/client': 0.0.53
       '@ag-ui/core': 0.0.53
       '@langchain/core': 1.1.46(openai@6.15.0(zod@3.25.76))

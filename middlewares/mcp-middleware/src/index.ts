@@ -239,6 +239,17 @@ export class MCPMiddleware extends Middleware {
       // run. AG-UI's `verifyEvents` enforces this: nothing can come after
       // RUN_FINISHED until a new RUN_STARTED. The continuation run emits
       // its own RUN_STARTED, which verify accepts as a new run.
+      //
+      // Why we sync `next.messages`: `runNextWithState` uses
+      // `defaultApplyEvents`, which seeds its `messages` from
+      // `agent.messages` (the downstream agent's persistent state) — NOT
+      // from `input.messages`. So passing tool results only via
+      // `runInput.messages` makes them visible to the LLM call but
+      // INVISIBLE to the next iteration's apply chain, which then sees the
+      // assistant tool call as still-open and the model re-emits it. The
+      // chained-agent proxy exposes `.messages` as a getter returning the
+      // underlying array reference, so mutating it via `.push` is the way
+      // to keep both the model and the apply chain in sync.
       const runOnce = (
         runInput: RunAgentInput,
         toolMap: Map<string, ResolvedMCPTool>,
@@ -406,6 +417,16 @@ export class MCPMiddleware extends Middleware {
           subscriber.complete();
           return;
         }
+
+        // Sync our tool results into the downstream agent's persistent
+        // message state so the next iteration's `defaultApplyEvents` (which
+        // seeds from `agent.messages`, not `input.messages`) sees the tool
+        // calls as resolved instead of re-emitting them.
+        next.messages.push(...resultMessages);
+        console.error(
+          `[MCPMiddleware] synced ${resultMessages.length} tool result(s) into next.messages ` +
+            `(total=${next.messages.length})`,
+        );
 
         // Scenario 1: everything is resolved — start a brand-new run. Its
         // own RUN_STARTED will be forwarded normally; verify accepts a

@@ -267,7 +267,7 @@ void main() {
     test('multimodal constructor: content getter is null', () {
       final msg = UserMessage.multimodal(
         id: 'u1',
-        parts: [TextInputContent('hi')],
+        parts: [const TextInputContent('hi')],
       );
       expect(msg.content, isNull);
       expect(msg.messageContent, isA<MultimodalContent>());
@@ -299,9 +299,9 @@ void main() {
     });
 
     test('round-trip: multimodal toJson is a List of maps', () {
-      final content = MultimodalContent([
+      const content = MultimodalContent([
         TextInputContent('hi'),
-        const ImageInputContent(
+        ImageInputContent(
           source: UrlSource(value: 'https://example.com/i.png'),
         ),
       ]);
@@ -314,7 +314,7 @@ void main() {
       final msg = UserMessage.multimodal(
         id: 'u1',
         parts: [
-          TextInputContent('look'),
+          const TextInputContent('look'),
           const ImageInputContent(
             source: DataSource(value: 'Zm9v', mimeType: 'image/png'),
             metadata: {'detail': 'high'},

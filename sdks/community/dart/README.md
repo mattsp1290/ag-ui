@@ -117,6 +117,9 @@ A `UserMessage` accepts either plain text or an ordered list of typed parts
 (text, image, audio, video, document). Use `UserMessage.multimodal` for parts:
 
 ```dart
+// A base64-encoded payload for an inline data part.
+const base64Pdf = 'JVBERi0xLjQKJ...';
+
 final input = SimpleRunAgentInput(
   messages: [
     UserMessage.multimodal(
@@ -124,12 +127,12 @@ final input = SimpleRunAgentInput(
       parts: [
         TextInputContent('What is in this image?'),
         ImageInputContent(
+          // UrlSource.mimeType is optional; DataSource requires it.
           source: UrlSource(
             value: 'https://example.com/photo.png',
             mimeType: 'image/png',
           ),
         ),
-        // Inline data sources require a mimeType:
         DocumentInputContent(
           source: DataSource(value: base64Pdf, mimeType: 'application/pdf'),
         ),

@@ -747,6 +747,8 @@ class BinaryInputContent extends InputContent {
 
   factory BinaryInputContent.fromJson(Map<String, dynamic> json) {
     final mimeType = _readMimeType(json);
+    // Non-empty mimeType matches the Go reader (types.go:423, enforced on
+    // unmarshal); intentionally stricter than TS, whose z.string() accepts "".
     if (mimeType == null || mimeType.isEmpty) {
       throw AGUIValidationError(
         message: 'BinaryInputContent requires a non-empty mimeType',
@@ -804,6 +806,9 @@ class BinaryInputContent extends InputContent {
 ///
 /// Mirrors the canonical `string | InputContent[]` shape. [toJson] returns a
 /// `String` for [TextContent] or a `List` for [MultimodalContent].
+///
+/// Unlike the other models this does not extend `AGUIModel`: its [toJson] must
+/// return a bare `String` or `List`, not a `Map<String, dynamic>`.
 sealed class UserMessageContent {
   const UserMessageContent();
 
@@ -836,6 +841,10 @@ sealed class UserMessageContent {
           );
         }
       }
+      // Decode is tolerant: an empty list is a structurally valid
+      // MultimodalContent (mirrors canonical TS `z.array`, which accepts []).
+      // The non-empty invariant is enforced on the send side by
+      // Validators.validateUserMessageContent.
       return MultimodalContent(parts);
     }
     throw AGUIValidationError(

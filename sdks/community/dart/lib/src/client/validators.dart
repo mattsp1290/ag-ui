@@ -140,6 +140,10 @@ class Validators {
     }
   }
 
+  // Release-mode defense-in-depth: BinaryInputContent.fromJson and the
+  // constructor asserts already enforce these rules on every normal path, but
+  // asserts are stripped in release builds where a caller could construct an
+  // invalid part directly.
   static void _validateInputContentPart(InputContent part, int index) {
     if (part is! BinaryInputContent) {
       return;

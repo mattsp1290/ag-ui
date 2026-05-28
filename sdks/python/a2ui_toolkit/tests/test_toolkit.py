@@ -205,11 +205,11 @@ class TestFindPriorSurface(unittest.TestCase):
         self.assertIsNone(find_prior_surface(messages, "s1"))
 
     def test_accepts_dict_style_messages(self):
-        # Dict-style messages with explicit ``type`` should also work via
-        # getattr fallthrough — but the toolkit reads attributes only, so
-        # callers pass dicts wrapped in objects. This covers the attribute path.
-        msg = _ToolMessage(
-            json.dumps(
+        # Plain-dict messages (the shape LangChain produces after a JSON
+        # round-trip) must be honored — the walker can't silently skip them.
+        msg = {
+            "type": "tool",
+            "content": json.dumps(
                 {
                     A2UI_OPERATIONS_KEY: [
                         create_surface("s1", "c"),
@@ -218,10 +218,165 @@ class TestFindPriorSurface(unittest.TestCase):
                         ),
                     ]
                 }
-            )
+            ),
+        }
+        prior = find_prior_surface([msg], "s1")
+        self.assertIsNotNone(prior)
+        self.assertEqual(prior["catalogId"], "c")
+        self.assertEqual(
+            prior["components"], [{"id": "root", "component": "Row"}]
+        )
+
+    def test_within_message_last_op_wins(self):
+        # One envelope emits multiple ops for the same surface. The renderer
+        # applies them in order, so the surface ends at layout-b / {v:2} / cat-B.
+        msg = self._tool(
+            {
+                A2UI_OPERATIONS_KEY: [
+                    create_surface("s1", "cat-A"),
+                    update_components("s1", [{"id": "root", "component": "Row"}]),
+                    update_data_model("s1", {"v": 1}),
+                    create_surface("s1", "cat-B"),
+                    update_components(
+                        "s1", [{"id": "root", "component": "Column"}]
+                    ),
+                    update_data_model("s1", {"v": 2}),
+                ]
+            }
         )
         prior = find_prior_surface([msg], "s1")
-        self.assertEqual(prior["catalogId"], "c")
+        self.assertEqual(
+            prior,
+            {
+                "components": [{"id": "root", "component": "Column"}],
+                "data": {"v": 2},
+                "catalogId": "cat-B",
+            },
+        )
+
+    def test_accumulates_fields_across_walk(self):
+        # Turn 1: full create + components + initial data.
+        # Turn 2: only updateDataModel.
+        # The walker must surface the components + catalogId from turn 1 plus
+        # the updated data from turn 2 — not blank components because the most
+        # recent message happened to omit them.
+        msg1 = self._tool(
+            {
+                A2UI_OPERATIONS_KEY: [
+                    create_surface("s1", "cat://x"),
+                    update_components("s1", [{"id": "root", "component": "Row"}]),
+                    update_data_model("s1", {"items": [1]}),
+                ]
+            }
+        )
+        msg2 = self._tool(
+            {A2UI_OPERATIONS_KEY: [update_data_model("s1", {"items": [1, 2, 3]})]}
+        )
+        prior = find_prior_surface([msg1, msg2], "s1")
+        self.assertEqual(
+            prior,
+            {
+                "components": [{"id": "root", "component": "Row"}],
+                "data": {"items": [1, 2, 3]},
+                "catalogId": "cat://x",
+            },
+        )
+
+    def test_newest_delete_surface_returns_none(self):
+        # Older message populated the surface; newer message deletes it.
+        # The renderer no longer shows it, so find_prior_surface must NOT
+        # resurrect the stale state from the older ops.
+        msg1 = self._tool(
+            {
+                A2UI_OPERATIONS_KEY: [
+                    create_surface("s1", "cat://x"),
+                    update_components("s1", [{"id": "root", "component": "Row"}]),
+                    update_data_model("s1", {"items": [1, 2]}),
+                ]
+            }
+        )
+        msg2 = self._tool(
+            {
+                A2UI_OPERATIONS_KEY: [
+                    {"version": "v0.9", "deleteSurface": {"surfaceId": "s1"}}
+                ]
+            }
+        )
+        self.assertIsNone(find_prior_surface([msg1, msg2], "s1"))
+
+    def test_older_delete_surface_overridden_by_newer_create(self):
+        # Older message deleted the surface; newer message recreates it. The
+        # newer state must be returned — the older delete is dead history.
+        msg1 = self._tool(
+            {
+                A2UI_OPERATIONS_KEY: [
+                    {"version": "v0.9", "deleteSurface": {"surfaceId": "s1"}}
+                ]
+            }
+        )
+        msg2 = self._tool(
+            {
+                A2UI_OPERATIONS_KEY: [
+                    create_surface("s1", "cat://new"),
+                    update_components(
+                        "s1", [{"id": "root", "component": "Column"}]
+                    ),
+                    update_data_model("s1", {"items": [9]}),
+                ]
+            }
+        )
+        prior = find_prior_surface([msg1, msg2], "s1")
+        self.assertEqual(
+            prior,
+            {
+                "components": [{"id": "root", "component": "Column"}],
+                "data": {"items": [9]},
+                "catalogId": "cat://new",
+            },
+        )
+
+    def test_intra_message_delete_then_create_returns_recreated(self):
+        # Within one message, ops apply in order. Delete then create → surface
+        # exists with recreated content at end of message.
+        msg = self._tool(
+            {
+                A2UI_OPERATIONS_KEY: [
+                    {"version": "v0.9", "deleteSurface": {"surfaceId": "s1"}},
+                    create_surface("s1", "cat-recreated"),
+                    update_components("s1", [{"id": "root", "component": "Row"}]),
+                ]
+            }
+        )
+        prior = find_prior_surface([msg], "s1")
+        self.assertEqual(
+            prior,
+            {
+                "components": [{"id": "root", "component": "Row"}],
+                "data": None,
+                "catalogId": "cat-recreated",
+            },
+        )
+
+    def test_intra_message_create_then_delete_returns_none(self):
+        # Within one message, the surface is created then deleted — end state
+        # is deleted, regardless of older accumulated state in prior messages.
+        msg1 = self._tool(
+            {
+                A2UI_OPERATIONS_KEY: [
+                    create_surface("s1", "older-cat"),
+                    update_components("s1", [{"id": "root", "component": "Row"}]),
+                ]
+            }
+        )
+        msg2 = self._tool(
+            {
+                A2UI_OPERATIONS_KEY: [
+                    create_surface("s1", "transient"),
+                    {"version": "v0.9", "deleteSurface": {"surfaceId": "s1"}},
+                ]
+            }
+        )
+        self.assertIsNone(find_prior_surface([msg1, msg2], "s1"))
 
 
 class TestBuildSubagentPrompt(unittest.TestCase):
@@ -438,6 +593,63 @@ class TestBuildA2UIEnvelope(unittest.TestCase):
             env[A2UI_OPERATIONS_KEY][0]["createSurface"]["surfaceId"],
             DEFAULT_SURFACE_ID,
         )
+
+    def test_empty_string_defaults_fall_back_to_canonical(self):
+        # Misconfigured host: both default_surface_id and default_catalog_id are
+        # the empty string. Must NOT propagate "" into the emitted ops — the
+        # renderer would surface as "Catalog not found: " / blank surface id.
+        env = json.loads(
+            build_a2ui_envelope(
+                args={"components": [{"id": "root", "component": "Row"}]},
+                is_update=False,
+                target_surface_id=None,
+                prior=None,
+                default_surface_id="",
+                default_catalog_id="",
+            )
+        )
+        ops = env[A2UI_OPERATIONS_KEY]
+        cs = next(op["createSurface"] for op in ops if "createSurface" in op)
+        self.assertNotEqual(cs["surfaceId"], "")
+        self.assertNotEqual(cs["catalogId"], "")
+        self.assertEqual(cs["surfaceId"], DEFAULT_SURFACE_ID)
+        self.assertEqual(cs["catalogId"], BASIC_CATALOG_ID)
+
+    def test_non_string_arg_surface_id_falls_back_to_default(self):
+        # The model is untrusted — `args["surfaceId"]` may come back as a
+        # number, list, or null. Without narrowing, a non-string value
+        # propagates into createSurface.surfaceId and the renderer crashes
+        # (the renderer expects a string id). The toolkit must coerce to the
+        # default in that case. Mirror of the TS narrow.
+        for bad in [42, ["x"], None, {"a": 1}, True]:
+            env = json.loads(
+                build_a2ui_envelope(
+                    args={"surfaceId": bad, "components": []},
+                    is_update=False,
+                    target_surface_id=None,
+                    prior=None,
+                )
+            )
+            cs = next(op["createSurface"] for op in env[A2UI_OPERATIONS_KEY] if "createSurface" in op)
+            self.assertEqual(cs["surfaceId"], DEFAULT_SURFACE_ID)
+            self.assertIsInstance(cs["surfaceId"], str)
+
+    def test_update_with_empty_target_surface_id_falls_back_to_default(self):
+        # Direct callers of build_a2ui_envelope (bypassing prepare_a2ui_request)
+        # may pass `target_surface_id=""` on the update path. Empty strings
+        # must NOT propagate into updateComponents.surfaceId.
+        env = json.loads(
+            build_a2ui_envelope(
+                args={"components": [{"id": "root", "component": "Row"}]},
+                is_update=True,
+                target_surface_id="",
+                prior={"components": [], "data": None, "catalogId": "cat://prior"},
+            )
+        )
+        ops = env[A2UI_OPERATIONS_KEY]
+        uc = next(op["updateComponents"] for op in ops if "updateComponents" in op)
+        self.assertEqual(uc["surfaceId"], DEFAULT_SURFACE_ID)
+        self.assertNotEqual(uc["surfaceId"], "")
 
     def test_update_skips_create_surface_and_keeps_target(self):
         env = json.loads(

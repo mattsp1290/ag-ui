@@ -142,10 +142,14 @@ def build_context_prompt(state: dict) -> str:
         else:
             desc = getattr(entry, "description", None)
             value = getattr(entry, "value", None)
+        # Mirror the TS toolkit: a null/None value with a description must NOT
+        # leak the literal string "None" into the subagent prompt. f-string
+        # interpolation would do that — coerce to "" first.
+        value_str = "" if value is None else str(value)
         if desc:
-            parts.append(f"## {desc}\n{value}\n")
-        elif value:
-            parts.append(f"{value}\n")
+            parts.append(f"## {desc}\n{value_str}\n")
+        elif value_str:
+            parts.append(f"{value_str}\n")
 
     a2ui_schema = ag_ui.get("a2ui_schema")
     if a2ui_schema:
@@ -165,21 +169,57 @@ class PriorSurface(TypedDict, total=False):
     catalogId: Optional[str]
 
 
+def _message_role_and_content(msg: Any) -> tuple[Optional[str], Any]:
+    """Read a message's role/type and content from either an object or a dict.
+
+    LangChain ToolMessage instances expose ``.type``/``.role``/``.content`` as
+    attributes; messages that round-tripped through JSON arrive as plain dicts.
+    Either shape needs to work — the prior-surface walker must not silently skip
+    dict-shaped history.
+    """
+    if isinstance(msg, dict):
+        role = msg.get("type") or msg.get("role")
+        return role, msg.get("content")
+    return (
+        getattr(msg, "type", None) or getattr(msg, "role", None),
+        getattr(msg, "content", None),
+    )
+
+
 def find_prior_surface(
     messages: list[Any], surface_id: str
 ) -> Optional[PriorSurface]:
     """Locate the most recent rendered state for ``surface_id`` in message history.
 
-    Walks backwards looking for a ``ToolMessage``-shaped entry whose content is
-    a JSON string containing ``a2ui_operations`` for the given surface.
+    Walks backwards over tool messages whose content is a JSON string containing
+    ``a2ui_operations`` for the given surface, accumulating the most recent
+    value of each field (``components``, ``data``, ``catalogId``) across the
+    walk. A late-turn message that only emits ``updateDataModel`` no longer
+    blanks the components / catalogId established by an earlier turn — the
+    function returns the surface's *latest known state*, not just what the most
+    recent matching message happened to carry.
+
+    Accepts both object-shaped and dict-shaped messages.
+
     Returns the reconstructed ``{"components": [...], "data": ..., "catalogId": ...}``
-    or ``None`` if no matching surface is found.
+    or ``None`` if no matching surface is found anywhere in history.
     """
+    # Per-message end-state is computed FORWARD because the renderer applies
+    # ops in document order. The last op affecting the surface in a message
+    # determines that message's contribution — including ``deleteSurface``,
+    # which wipes the surface. If the NEWEST message to mention the surface
+    # ends in delete, return ``None``: older create/update ops are stale and
+    # would resurrect a surface the renderer no longer shows.
+    components: Optional[list[dict[str, Any]]] = None
+    data: Any = None
+    data_seen = False
+    catalog_id: Optional[str] = None
+    matched = False
+
     for msg in reversed(messages):
-        role = getattr(msg, "type", None) or getattr(msg, "role", None)
+        role, content = _message_role_and_content(msg)
         if role not in ("tool", "ToolMessage"):
             continue
-        content = getattr(msg, "content", None)
         if not isinstance(content, str):
             continue
         try:
@@ -192,36 +232,88 @@ def find_prior_surface(
         if not isinstance(ops, list):
             continue
 
-        components: Optional[list[dict[str, Any]]] = None
-        data: Any = None
-        catalog_id: Optional[str] = None
-        matched = False
+        # Compute this message's end state for surface_id by walking ops
+        # forward. ``deleteSurface`` resets the per-message accumulator;
+        # subsequent create / update ops in the same message restore it.
+        msg_mentions = False
+        msg_deleted = False
+        msg_catalog_id: Optional[str] = None
+        msg_components: Optional[list[dict[str, Any]]] = None
+        msg_data: Any = None
+        msg_data_seen = False
+
         for op in ops:
             if not isinstance(op, dict):
                 continue
+            if "deleteSurface" in op:
+                ds = op["deleteSurface"]
+                if isinstance(ds, dict) and ds.get("surfaceId") == surface_id:
+                    msg_mentions = True
+                    msg_deleted = True
+                    msg_catalog_id = None
+                    msg_components = None
+                    msg_data = None
+                    msg_data_seen = False
+                    continue
             if "createSurface" in op:
                 cs = op["createSurface"]
                 if isinstance(cs, dict) and cs.get("surfaceId") == surface_id:
-                    matched = True
-                    catalog_id = cs.get("catalogId") or catalog_id
+                    msg_mentions = True
+                    msg_deleted = False
+                    if isinstance(cs.get("catalogId"), str):
+                        msg_catalog_id = cs["catalogId"]
             if "updateComponents" in op:
                 uc = op["updateComponents"]
                 if isinstance(uc, dict) and uc.get("surfaceId") == surface_id:
-                    matched = True
+                    msg_mentions = True
+                    msg_deleted = False
                     if isinstance(uc.get("components"), list):
-                        components = uc["components"]
+                        msg_components = uc["components"]
             if "updateDataModel" in op:
                 ud = op["updateDataModel"]
                 if isinstance(ud, dict) and ud.get("surfaceId") == surface_id:
-                    matched = True
-                    data = ud.get("value")
-        if matched:
-            return {
-                "components": components or [],
-                "data": data,
-                "catalogId": catalog_id,
-            }
-    return None
+                    msg_mentions = True
+                    msg_deleted = False
+                    msg_data = ud.get("value")
+                    msg_data_seen = True
+
+        if not msg_mentions:
+            continue
+
+        if not matched:
+            # Newest message that mentions the surface — its end state is
+            # authoritative.
+            if msg_deleted:
+                return None
+            matched = True
+            catalog_id = msg_catalog_id
+            components = msg_components
+            data = msg_data
+            data_seen = msg_data_seen
+        else:
+            # Older message: fill in only the fields not yet set. A delete
+            # here is overridden by the newer state already recorded.
+            if msg_deleted:
+                continue
+            if catalog_id is None and msg_catalog_id is not None:
+                catalog_id = msg_catalog_id
+            if components is None and msg_components is not None:
+                components = msg_components
+            if not data_seen and msg_data_seen:
+                data = msg_data
+                data_seen = True
+
+        # Early-exit once every field is populated — nothing older can override.
+        if matched and components is not None and catalog_id is not None and data_seen:
+            return {"components": components, "data": data, "catalogId": catalog_id}
+
+    if not matched:
+        return None
+    return {
+        "components": components or [],
+        "data": data,
+        "catalogId": catalog_id,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -389,17 +481,21 @@ def prepare_a2ui_request(
     resolved_intent = intent or "create"
     is_update = resolved_intent == "update" and bool(target_surface_id)
 
-    prior = (
-        find_prior_surface(messages, target_surface_id)  # type: ignore[arg-type]
-        if is_update
-        else None
-    )
+    # is_update being True already narrows target_surface_id to non-empty str;
+    # assert it explicitly so a type checker sees the same narrowing the runtime
+    # condition guarantees, without resorting to a blanket type: ignore.
+    if is_update:
+        assert target_surface_id is not None
+        prior = find_prior_surface(messages, target_surface_id)
+    else:
+        prior = None
 
     if is_update and prior is None:
+        # Match TS shape: omit ``prior`` from the error branch so presence
+        # checks like ``"prior" in prep`` distinguish success from failure.
         return {
             "prompt": "",
             "is_update": is_update,
-            "prior": None,
             "error": (
                 f"intent='update' requested target_surface_id="
                 f"'{target_surface_id}' but no prior render of that surface "
@@ -417,7 +513,9 @@ def prepare_a2ui_request(
         ),
     )
 
-    return {"prompt": prompt, "is_update": is_update, "prior": prior, "error": None}
+    # Omit ``error`` on success so ``"error" in prep`` is a meaningful presence
+    # check (matches the TS counterpart which only returns the key on failure).
+    return {"prompt": prompt, "is_update": is_update, "prior": prior}
 
 
 def build_a2ui_envelope(
@@ -435,14 +533,35 @@ def build_a2ui_envelope(
     so the id comes from the prior surface (update) or the configured default
     (create) — never from the model's args.
     """
-    surface_id = (
-        target_surface_id
-        if is_update
-        else (args.get("surfaceId") or default_surface_id)
+    # Treat empty-string defaults as unset (mirror the TS guard). Without this,
+    # a misconfigured host passing ``""`` for default_surface_id /
+    # default_catalog_id would propagate the empty string into the emitted ops
+    # and surface as "Catalog not found: " / blank surface ids at render time,
+    # hiding the real cause.
+    safe_default_surface_id = default_surface_id or DEFAULT_SURFACE_ID
+    safe_default_catalog_id = default_catalog_id or BASIC_CATALOG_ID
+
+    # Narrow args["surfaceId"] to a non-empty STRING — the model is untrusted
+    # and may return ``null``, a number, a list, or an empty string. Without
+    # this, those values propagate into ``createSurface.surfaceId`` and the
+    # renderer either crashes or silently mounts to an unreachable surface
+    # id. Mirrors the TS narrow (``typeof === "string" && length > 0``).
+    raw_arg_surface_id = args.get("surfaceId")
+    arg_surface_id = (
+        raw_arg_surface_id
+        if isinstance(raw_arg_surface_id, str) and len(raw_arg_surface_id) > 0
+        else ""
     )
-    catalog_id = (prior or {}).get("catalogId") or default_catalog_id
-    components = args.get("components") or []
-    data = args.get("data") or {}
+    if is_update:
+        surface_id = target_surface_id or safe_default_surface_id
+    else:
+        surface_id = arg_surface_id or safe_default_surface_id
+    catalog_id = (prior or {}).get("catalogId") or safe_default_catalog_id
+    # Narrow to the documented shapes — the model's args are untrusted.
+    raw_components = args.get("components")
+    components = raw_components if isinstance(raw_components, list) else []
+    raw_data = args.get("data")
+    data = raw_data if isinstance(raw_data, dict) else {}
 
     ops = assemble_ops(
         intent="update" if is_update else "create",

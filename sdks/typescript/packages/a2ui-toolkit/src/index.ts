@@ -151,6 +151,23 @@ export function findPriorSurface(
   messages: Array<any>,
   surfaceId: string,
 ): PriorSurface | undefined {
+  // Accumulate the surface's state across the walk, newest-to-oldest. For each
+  // field, the FIRST occurrence we see (newest) wins; older messages only fill
+  // in fields the more recent ones omitted.
+  //
+  // Per-message end-state is computed FORWARD because the renderer applies ops
+  // in document order. The last op affecting the surface in a message
+  // determines that message's contribution — including `deleteSurface`, which
+  // wipes the surface. If the NEWEST message to mention the surface ends in
+  // delete, the surface is gone and we must return undefined; older
+  // create/update ops are stale and would resurrect a surface the renderer no
+  // longer shows.
+  let components: Array<Record<string, unknown>> | undefined;
+  let data: unknown;
+  let dataSeen = false;
+  let catalogId: string | undefined;
+  let matched = false;
+
   for (let i = messages.length - 1; i >= 0; i--) {
     const msg = messages[i];
     if (!msg) continue;
@@ -168,37 +185,93 @@ export function findPriorSurface(
     const ops = (parsed as Record<string, unknown>)[A2UI_OPERATIONS_KEY];
     if (!Array.isArray(ops)) continue;
 
-    let components: Array<Record<string, unknown>> | undefined;
-    let data: unknown;
-    let catalogId: string | undefined;
-    let matched = false;
+    // Compute this message's END STATE for surfaceId by walking ops forward.
+    // `deleteSurface` resets the per-message accumulator; subsequent create /
+    // update ops in the same message restore it.
+    let msgMentions = false;
+    let msgDeleted = false;
+    let msgCatalogId: string | undefined;
+    let msgComponents: Array<Record<string, unknown>> | undefined;
+    let msgData: unknown;
+    let msgDataSeen = false;
 
     for (const op of ops) {
       if (!op || typeof op !== "object") continue;
       const opObj = op as Record<string, unknown>;
+
+      const ds = opObj.deleteSurface as Record<string, unknown> | undefined;
+      if (ds && ds.surfaceId === surfaceId) {
+        msgMentions = true;
+        msgDeleted = true;
+        msgCatalogId = undefined;
+        msgComponents = undefined;
+        msgData = undefined;
+        msgDataSeen = false;
+        continue;
+      }
+
       const cs = opObj.createSurface as Record<string, unknown> | undefined;
       if (cs && cs.surfaceId === surfaceId) {
-        matched = true;
-        if (typeof cs.catalogId === "string") catalogId = cs.catalogId;
+        msgMentions = true;
+        msgDeleted = false;
+        if (typeof cs.catalogId === "string") {
+          msgCatalogId = cs.catalogId;
+        }
       }
       const uc = opObj.updateComponents as Record<string, unknown> | undefined;
       if (uc && uc.surfaceId === surfaceId) {
-        matched = true;
+        msgMentions = true;
+        msgDeleted = false;
         if (Array.isArray(uc.components)) {
-          components = uc.components as Array<Record<string, unknown>>;
+          msgComponents = uc.components as Array<Record<string, unknown>>;
         }
       }
       const ud = opObj.updateDataModel as Record<string, unknown> | undefined;
       if (ud && ud.surfaceId === surfaceId) {
-        matched = true;
-        data = ud.value;
+        msgMentions = true;
+        msgDeleted = false;
+        msgData = ud.value;
+        msgDataSeen = true;
       }
     }
-    if (matched) {
-      return { components: components ?? [], data, catalogId };
+
+    if (!msgMentions) continue;
+
+    if (!matched) {
+      // First (newest) message to mention the surface — its end state is the
+      // authoritative current state.
+      if (msgDeleted) return undefined;
+      matched = true;
+      catalogId = msgCatalogId;
+      components = msgComponents;
+      data = msgData;
+      dataSeen = msgDataSeen;
+    } else {
+      // Older message: only fill in fields not yet set. A delete here is
+      // overridden by the newer creation we already recorded.
+      if (msgDeleted) continue;
+      if (catalogId === undefined && msgCatalogId !== undefined) catalogId = msgCatalogId;
+      if (components === undefined && msgComponents !== undefined) components = msgComponents;
+      if (!dataSeen && msgDataSeen) {
+        data = msgData;
+        dataSeen = true;
+      }
+    }
+
+    // Early-exit once every field has been populated — nothing older can
+    // override what we already have.
+    if (
+      matched &&
+      components !== undefined &&
+      catalogId !== undefined &&
+      dataSeen
+    ) {
+      return { components, data, catalogId };
     }
   }
-  return undefined;
+
+  if (!matched) return undefined;
+  return { components: components ?? [], data, catalogId };
 }
 
 // ---------------------------------------------------------------------------
@@ -422,17 +495,41 @@ export interface BuildA2UIEnvelopeInput {
  * (create) — never from the model's args.
  */
 export function buildA2UIEnvelope(input: BuildA2UIEnvelopeInput): string {
+  // Treat empty-string defaults as unset. `??` alone would propagate "" into
+  // the emitted createSurface / updateComponents ops and surface as
+  // "Catalog not found: " / a blank surface id at render time — hiding the
+  // real cause (host misconfiguration). The middleware streaming path uses
+  // the same guard for symmetry.
+  const safeDefaultSurfaceId =
+    input.defaultSurfaceId && input.defaultSurfaceId.length > 0
+      ? input.defaultSurfaceId
+      : DEFAULT_SURFACE_ID;
+  const safeDefaultCatalogId =
+    input.defaultCatalogId && input.defaultCatalogId.length > 0
+      ? input.defaultCatalogId
+      : BASIC_CATALOG_ID;
+
+  // Narrow ``args.surfaceId`` to a non-empty string before using it — the
+  // model's output is untrusted and could send a number / object / null.
+  const argSurfaceId =
+    typeof input.args.surfaceId === "string" && input.args.surfaceId.length > 0
+      ? input.args.surfaceId
+      : "";
   const surfaceId = input.isUpdate
-    ? (input.targetSurfaceId as string)
-    : (input.args.surfaceId as string) ||
-      (input.defaultSurfaceId ?? DEFAULT_SURFACE_ID);
+    ? (input.targetSurfaceId || safeDefaultSurfaceId)
+    : (argSurfaceId || safeDefaultSurfaceId);
 
-  const catalogId =
-    input.prior?.catalogId || (input.defaultCatalogId ?? BASIC_CATALOG_ID);
+  const catalogId = input.prior?.catalogId || safeDefaultCatalogId;
 
-  const components =
-    (input.args.components as Array<Record<string, unknown>>) || [];
-  const data = (input.args.data as Record<string, unknown>) || {};
+  const rawComponents = input.args.components;
+  const components: Array<Record<string, unknown>> = Array.isArray(rawComponents)
+    ? (rawComponents as Array<Record<string, unknown>>)
+    : [];
+  const rawData = input.args.data;
+  const data: Record<string, unknown> =
+    rawData && typeof rawData === "object" && !Array.isArray(rawData)
+      ? (rawData as Record<string, unknown>)
+      : {};
 
   const ops = assembleOps({
     intent: input.isUpdate ? "update" : "create",

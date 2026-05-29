@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "description": "TypeScript examples for LangGraph agents with CopilotKit integration",
   "type": "module",
+  "packageManager": "pnpm@10.33.4",
   "scripts": {
     "build": "tsc",
     "dev": "pnpx @langchain/langgraph-cli@1.1.13 dev",

@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **FIX**: `adk_events_to_messages` now preserves `file_data` parts on user
+  events (#1771). Previously only the text part was extracted, so image,
+  audio, video, and document attachments were silently dropped from
+  `MESSAGES_SNAPSHOT` and disappeared from chat history after a page
+  refresh. MIME prefix dispatches to `ImageInputContent`, `AudioInputContent`,
+  `VideoInputContent`, or `DocumentInputContent`; `file_data` parts with no
+  `file_uri` are filtered out and text-only events still serialize as a
+  plain string. Thanks to @viktor-matic for the fix.
+
 ## [0.6.5] - 2026-05-28
 
 ### Fixed

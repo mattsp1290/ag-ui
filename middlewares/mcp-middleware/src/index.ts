@@ -213,13 +213,7 @@ export class MCPMiddleware extends Middleware {
   }
 
   run(input: RunAgentInput, next: AbstractAgent): Observable<BaseEvent> {
-    console.error(
-      `[MCPMiddleware] run() called: runId=${input.runId} threadId=${input.threadId} ` +
-        `mcpServers=${this.mcpServers.length} inputTools=${input.tools.length} ` +
-        `messages=${input.messages.length}`,
-    );
     if (this.mcpServers.length === 0) {
-      console.error(`[MCPMiddleware] no MCP servers configured; bypassing`);
       return this.runNext(input, next);
     }
 
@@ -261,50 +255,27 @@ export class MCPMiddleware extends Middleware {
         let errored = false;
         let bufferedRunFinished: BaseEvent | null = null;
 
-        console.error(
-          `[MCPMiddleware] runOnce: round=${toolRounds} runId=${runInput.runId} ` +
-            `tools=${runInput.tools.length} messages=${runInput.messages.length} ` +
-            `isContinuation=${isContinuation}`,
-        );
         activeSub = this.runNextWithState(runInput, next).subscribe({
           next: ({ event, messages }) => {
             latestMessages = messages;
             if (event.type === EventType.RUN_ERROR) {
-              console.error(`[MCPMiddleware] RUN_ERROR runId=${runInput.runId}`);
               errored = true;
               subscriber.next(event);
               return;
             }
             if (event.type === EventType.RUN_FINISHED) {
               // Always buffer; only flushed when the loop truly stops.
-              console.error(
-                `[MCPMiddleware] buffering RUN_FINISHED runId=${runInput.runId}`,
-              );
               bufferedRunFinished = event;
               return;
             }
             if (event.type === EventType.RUN_STARTED && isContinuation) {
               // Hide continuation run boundary — consumer sees one run.
-              console.error(
-                `[MCPMiddleware] suppressing continuation RUN_STARTED runId=${runInput.runId}`,
-              );
               return;
             }
             subscriber.next(event);
           },
-          error: (err) => {
-            console.error(
-              `[MCPMiddleware] inner stream errored runId=${runInput.runId}:`,
-              err,
-            );
-            subscriber.error(err);
-          },
+          error: (err) => subscriber.error(err),
           complete: () => {
-            console.error(
-              `[MCPMiddleware] inner stream complete runId=${runInput.runId} ` +
-                `errored=${errored} hasBuffered=${bufferedRunFinished !== null} ` +
-                `messages=${latestMessages.length}`,
-            );
             void onRunComplete(
               runInput,
               latestMessages,
@@ -323,30 +294,20 @@ export class MCPMiddleware extends Middleware {
         errored: boolean,
         bufferedRunFinished: BaseEvent | null,
       ): Promise<void> => {
-        if (cancelled) {
-          console.error(`[MCPMiddleware] onRunComplete: cancelled, returning`);
-          return;
-        }
+        if (cancelled) return;
 
         // The run errored — do not execute tools or loop; the RUN_ERROR has
         // already been forwarded. There's no RUN_FINISHED to flush.
         if (errored) {
-          console.error(`[MCPMiddleware] onRunComplete: errored, completing`);
           subscriber.complete();
           return;
         }
 
         const openCalls = getOpenToolCalls(messages);
         const ourCalls = openCalls.filter((tc) => toolMap.has(tc.function.name));
-        console.error(
-          `[MCPMiddleware] onRunComplete: openCalls=${openCalls.length} ` +
-            `ourCalls=${ourCalls.length} round=${toolRounds} ` +
-            `ourCallNames=${ourCalls.map((c) => c.function.name).join(",")}`,
-        );
 
         // Nothing for us — flush the buffered RUN_FINISHED untouched and stop.
         if (ourCalls.length === 0) {
-          console.error(`[MCPMiddleware] no ourCalls; flushing RUN_FINISHED and completing`);
           if (bufferedRunFinished) subscriber.next(bufferedRunFinished);
           subscriber.complete();
           return;
@@ -367,10 +328,6 @@ export class MCPMiddleware extends Middleware {
         // Execute our MCP tool calls (in parallel), then emit results in
         // their original order — *before* flushing the held RUN_FINISHED —
         // so the stream stays valid under AG-UI verify.
-        console.error(
-          `[MCPMiddleware] executing ${ourCalls.length} tool call(s) in parallel`,
-        );
-        const execStart = Date.now();
         const executed = await Promise.all(
           ourCalls.map(async (tc) => {
             const resolved = toolMap.get(tc.function.name)!;
@@ -378,13 +335,7 @@ export class MCPMiddleware extends Middleware {
             return { tc, content };
           }),
         );
-        console.error(
-          `[MCPMiddleware] executed ${executed.length} tool call(s) in ${Date.now() - execStart}ms`,
-        );
-        if (cancelled) {
-          console.error(`[MCPMiddleware] cancelled after execution, returning`);
-          return;
-        }
+        if (cancelled) return;
 
         const resultMessages: Message[] = [];
         for (const { tc, content } of executed) {
@@ -396,10 +347,6 @@ export class MCPMiddleware extends Middleware {
             content,
             role: "tool",
           };
-          console.error(
-            `[MCPMiddleware] emitting TOOL_CALL_RESULT toolCallId=${tc.id} ` +
-              `tool=${tc.function.name} contentLen=${content.length}`,
-          );
           subscriber.next(resultEvent);
           resultMessages.push({
             id: messageId,
@@ -416,10 +363,6 @@ export class MCPMiddleware extends Middleware {
         // don't trigger another run. Flush the buffered RUN_FINISHED and
         // hand off to the frontend.
         if (stillOpen.length > 0) {
-          console.error(
-            `[MCPMiddleware] ${stillOpen.length} non-MCP tool call(s) still open; ` +
-              `flushing RUN_FINISHED and letting frontend resolve them`,
-          );
           if (bufferedRunFinished) subscriber.next(bufferedRunFinished);
           subscriber.complete();
           return;
@@ -430,17 +373,12 @@ export class MCPMiddleware extends Middleware {
         // seeds from `agent.messages`, not `input.messages`) sees the tool
         // calls as resolved instead of re-emitting them.
         next.messages.push(...resultMessages);
-        console.error(
-          `[MCPMiddleware] synced ${resultMessages.length} tool result(s) into next.messages ` +
-            `(total=${next.messages.length})`,
-        );
 
         // Scenario 1: everything is resolved — start a continuation run
         // WITHOUT flushing RUN_FINISHED. The continuation's own RUN_STARTED
         // will be suppressed by `runOnce`, and its RUN_FINISHED will be
         // buffered (and only flushed when the loop truly stops). The
         // consumer sees one seamless run.
-        console.error(`[MCPMiddleware] all tool calls resolved; starting continuation run (hidden)`);
         runOnce(
           { ...runInput, runId: crypto.randomUUID(), messages: updatedMessages },
           toolMap,
@@ -451,19 +389,10 @@ export class MCPMiddleware extends Middleware {
       // Bootstrap: list tools once, inject, run.
       void (async () => {
         try {
-          console.error(`[MCPMiddleware] bootstrap: resolving tools`);
-          const resolveStart = Date.now();
           const resolved = await this.resolveTools(
             new Set(input.tools.map((t) => t.name)),
           );
-          console.error(
-            `[MCPMiddleware] resolved ${resolved.length} MCP tool(s) in ${Date.now() - resolveStart}ms: ` +
-              `[${resolved.map((r) => r.tool.name).join(", ")}]`,
-          );
-          if (cancelled) {
-            console.error(`[MCPMiddleware] cancelled during bootstrap`);
-            return;
-          }
+          if (cancelled) return;
           const toolMap = new Map<string, ResolvedMCPTool>(
             resolved.map((r) => [r.tool.name, r]),
           );
@@ -473,7 +402,6 @@ export class MCPMiddleware extends Middleware {
             false,
           );
         } catch (err) {
-          console.error(`[MCPMiddleware] bootstrap error:`, err);
           subscriber.error(err);
         }
       })();
@@ -562,10 +490,6 @@ export class MCPMiddleware extends Middleware {
     resolved: ResolvedMCPTool,
     toolCall: ToolCall,
   ): Promise<string> {
-    console.error(
-      `[MCPMiddleware] executeToolCall: tool=${resolved.originalName} ` +
-        `toolCallId=${toolCall.id} url=${resolved.serverConfig.url}`,
-    );
     let args: Record<string, unknown> = {};
     try {
       args = toolCall.function.arguments
@@ -576,50 +500,17 @@ export class MCPMiddleware extends Middleware {
     }
 
     let client: Client | undefined;
-    const t0 = Date.now();
     try {
-      console.error(
-        `[MCPMiddleware] executeToolCall: connecting (${resolved.originalName})`,
-      );
       client = await this.connect(resolved.serverConfig);
-      console.error(
-        `[MCPMiddleware] executeToolCall: connected in ${Date.now() - t0}ms; calling callTool ` +
-          `(${resolved.originalName})`,
-      );
-      const tCall = Date.now();
       const result = await client.callTool({
         name: resolved.originalName,
         arguments: args,
       });
-      console.error(
-        `[MCPMiddleware] executeToolCall: callTool returned in ${Date.now() - tCall}ms ` +
-          `(${resolved.originalName})`,
-      );
-      const text = extractTextContent(result);
-      console.error(
-        `[MCPMiddleware] executeToolCall: extracted contentLen=${text.length} ` +
-          `(${resolved.originalName})`,
-      );
-      return text;
+      return extractTextContent(result);
     } catch (error) {
-      console.error(
-        `[MCPMiddleware] executeToolCall error (${resolved.originalName}):`,
-        error,
-      );
       return `Error executing tool ${resolved.originalName}: ${String(error)}`;
     } finally {
-      try {
-        await client?.close();
-        console.error(
-          `[MCPMiddleware] executeToolCall: client closed (${resolved.originalName}) ` +
-            `totalMs=${Date.now() - t0}`,
-        );
-      } catch (closeErr) {
-        console.error(
-          `[MCPMiddleware] executeToolCall: client.close() threw (${resolved.originalName}):`,
-          closeErr,
-        );
-      }
+      await client?.close();
     }
   }
 

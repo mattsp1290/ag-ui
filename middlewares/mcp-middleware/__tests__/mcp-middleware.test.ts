@@ -100,16 +100,23 @@ class BatchMockAgent extends AbstractAgent {
   }
 }
 
-/** Always replays the same batch — used to exercise the runaway guard. */
+/**
+ * Emits a fresh batch on every run — the factory receives the run index
+ * so it can mint unique ids per iteration (a real looping agent never
+ * re-emits the same tool-call id, and the middleware now syncs prior
+ * results into `agent.messages`, which would resolve a re-used id). Used
+ * to exercise the runaway guard.
+ */
 class LoopingMockAgent extends AbstractAgent {
   public runCount = 0;
-  constructor(private events: BaseEvent[]) {
+  constructor(private eventsFor: (run: number) => BaseEvent[]) {
     super();
   }
   run(): Observable<BaseEvent> {
+    const events = this.eventsFor(this.runCount);
     this.runCount++;
     return new Observable((subscriber) => {
-      for (const event of this.events) subscriber.next(event);
+      for (const event of events) subscriber.next(event);
       subscriber.complete();
     });
   }
@@ -378,10 +385,10 @@ describe("MCPMiddleware — execution loop", () => {
   it("stops at maxIterations instead of looping forever", async () => {
     mockListTools.mockResolvedValue({ tools: [{ name: "weather", inputSchema: {} }] });
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    // This agent ALWAYS emits an unresolved MCP tool call.
-    const next = new LoopingMockAgent([
+    // This agent ALWAYS emits a fresh unresolved MCP tool call.
+    const next = new LoopingMockAgent((n) => [
       runStarted(),
-      ...toolCall("c1", "mcp__s__weather"),
+      ...toolCall(`c${n}`, "mcp__s__weather"),
       runFinished(),
     ]);
     await collectEvents(
@@ -528,9 +535,11 @@ describe("MCPMiddleware — headers + caching", () => {
 
 // --- Run-lifecycle ordering ---------------------------------------------------
 // AG-UI verify rejects events sent after RUN_FINISHED until a new RUN_STARTED.
-// The middleware must keep TOOL_CALL_RESULTs *inside* the still-active run.
+// The middleware presents the whole tool loop as ONE run: a single
+// RUN_STARTED first, a single RUN_FINISHED last, and every TOOL_CALL_RESULT
+// in between — continuation runs' RUN_STARTED/RUN_FINISHED are hidden.
 describe("MCPMiddleware — RUN_FINISHED ordering", () => {
-  it("emits TOOL_CALL_RESULTs before RUN_FINISHED in scenario 1 (loop)", async () => {
+  it("presents a loop as one run: single STARTED/FINISHED, results inside", async () => {
     mockListTools.mockResolvedValue({ tools: [{ name: "weather", inputSchema: {} }] });
     mockCallTool.mockResolvedValue({ content: [{ type: "text", text: "sunny" }] });
     const next = new BatchMockAgent([
@@ -543,15 +552,17 @@ describe("MCPMiddleware — RUN_FINISHED ordering", () => {
 
     const types = received.map((e) => e.type);
     const idxResult = types.indexOf(EventType.TOOL_CALL_RESULT);
-    const idxFirstFinish = types.indexOf(EventType.RUN_FINISHED);
-    const idxNextStart = types.indexOf(
-      EventType.RUN_STARTED,
-      idxFirstFinish + 1,
-    );
+    const idxFinish = types.indexOf(EventType.RUN_FINISHED);
 
+    // Exactly one RUN_STARTED and one RUN_FINISHED — the continuation's are hidden.
+    expect(types.filter((t) => t === EventType.RUN_STARTED)).toHaveLength(1);
+    expect(types.filter((t) => t === EventType.RUN_FINISHED)).toHaveLength(1);
+    // RUN_STARTED first, RUN_FINISHED last.
+    expect(types[0]).toBe(EventType.RUN_STARTED);
+    expect(types[types.length - 1]).toBe(EventType.RUN_FINISHED);
+    // The tool result lands inside the run, before the single RUN_FINISHED.
     expect(idxResult).toBeGreaterThan(-1);
-    expect(idxFirstFinish).toBeGreaterThan(idxResult); // result before finish
-    expect(idxNextStart).toBeGreaterThan(idxFirstFinish); // new run after finish
+    expect(idxFinish).toBeGreaterThan(idxResult);
   });
 
   it("emits TOOL_CALL_RESULTs before RUN_FINISHED in scenario 2 (stop)", async () => {

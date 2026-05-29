@@ -30,7 +30,7 @@ dependencies = [
 override-dependencies = ["langgraph>=1.1.3,<2"]
 
 [tool.uv.sources]
-ag-ui-langgraph = { path = "../" }
+ag-ui-langgraph = { path = "../", editable = true }
 ag-ui-protocol = { path = "../../../../sdks/python" }
 
 [project.scripts]

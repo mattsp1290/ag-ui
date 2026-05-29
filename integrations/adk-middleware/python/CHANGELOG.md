@@ -7,13 +7,71 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.5] - 2026-05-28
+
+### Fixed
+
+- **FIX**: Revert the `AGUIToolset.bind()` delegation introduced in 0.6.4 (#1746)
+  and restore per-run `ClientProxyToolset` replacement (#1786). Thanks to
+  @jplikesbikes for catching the regression and driving the fix.
+  - **Impact**: 0.6.4 introduced a cross-user data leak under concurrent runs.
+    With `max_concurrent_executions=10` (default) and serialization only per
+    `(thread_id, user_id)`, two overlapping runs would share a single mutable
+    `_delegate` slot on the construction-time `AGUIToolset` placeholder.
+    Run A's `TOOL_CALL_START/ARGS/END` events could be emitted onto Run B's
+    `event_queue` (a confidentiality breach: tool-call arguments generated
+    from one user's conversation/state would land on another user's stream
+    and Run A would stall, never having been told about the call). A
+    secondary failure mode stranded any still-in-flight run with an empty
+    tool list when the first run's `finally` block unbound the shared
+    placeholder. Tool *results* (client → agent) were not affected — they
+    return via a separate `RunAgentInput` matched per `(thread_id, user)`.
+  - **Root cause of the 0.6.4 regression**: The #1746 rationale — that
+    ADK 2.0 `Runner.__init__` eagerly caches `get_tools()` results and
+    therefore the `AGUIToolset` object must be preserved by reference —
+    does not match the GA behavior. Verified against `google-adk` 1.16.0,
+    1.34.1, 2.0.0, and 2.1.0: `Runner.__init__` does *no* tool resolution;
+    `agent.canonical_tools` reads `self.tools` live per invocation
+    (`flows/llm_flows/base_llm_flow.py` caches on the per-`run_async`
+    `InvocationContext`, and the toolset-level cache in
+    `tools/base_toolset.py` is keyed by `invocation_id`). The actual #1389
+    failure mode on the pre-release `google-adk==2.0.0a2` was a separate
+    well-formed-`BaseToolset` issue: a toolset missing
+    `_use_invocation_cache` (i.e. not calling `BaseToolset.__init__`) is
+    silently dropped to `[]` by `llm_agent._convert_tool_union_to_tools`.
+    That fix — `super().__init__()` on `AGUIToolset` — is retained; only
+    the unnecessary `bind()` delegation that introduced the concurrency
+    hazard is reverted.
+  - **Fix**: `_update_agent_tools_recursive` once again replaces the
+    placeholder per-run with a fresh `ClientProxyToolset` inside the
+    per-run shallow-copied agent's own `tools` list. The construction-time
+    placeholder is never mutated; each run carries its own `input.tools`
+    and `event_queue`.
+  - **Tests added** (pass on both `google-adk==1.26.0` and
+    `google-adk==2.1.0`):
+    - `tests/test_agui_toolset_concurrency.py` — three tests asserting
+      per-run isolation, including a real concurrent-`asyncio`
+      reproduction with a barrier.
+    - `tests/test_adk_2_0_compat.py::TestAGUIToolsetReplacement::test_swapped_in_toolset_resolves_nonempty_via_get_tools_with_prefix`
+      — guards the real #1389 silent-drop path (via
+      `_use_invocation_cache`) so it cannot silently regress.
+  - **Compatibility note**: Pre-release `google-adk==2.0.0a2` snapshotted
+    toolset references at `LlmAgent` construction (via `model_post_init` →
+    `_build_nodes`) and would regress to an empty tool list under per-run
+    replacement; the supported install range `>=1.16.0,<3.0.0` never
+    resolves a pre-release.
+
+## [0.6.4] - 2026-05-26
+
 ### Added
 
 - **DEPS**: `google-adk` upper bound lifted from `<2.0.0` to `<3.0.0`. The middleware
   is now compatible with both ADK 1.x and ADK 2.x (GA 2026-05-19). See the two
   paired fixes below for the source changes that enable 2.0 support without
-  regressing 1.x. CI should ideally run the suite under both ADK 1.33 and ADK 2.0
-  to keep the dual-pin invariant honest.
+  regressing 1.x. Verified against `google-adk==1.33.0`, `google-adk==2.0.0`, and
+  `google-adk[a2a]==2.1.0` (the `[a2a]` extra only pulls `a2a-sdk` and does not
+  intersect any middleware code path). CI should ideally run the suite under both
+  ADK 1.33 and the latest 2.x to keep the dual-pin invariant honest.
 
 ### Fixed
 

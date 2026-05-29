@@ -9,7 +9,7 @@
     "start": "node dist/index.js"
   },
   "dependencies": {
-    "@ag-ui/langgraph": "file:..",
+    "@ag-ui/langgraph": "0.0.35",
     "@copilotkit/sdk-js": "1.57.1",
     "@langchain/core": "^1.1.44",
     "@langchain/anthropic": "^0.3.0",
@@ -24,10 +24,5 @@
     "@types/node": "^20.0.0",
     "@types/uuid": "^10.0.0",
     "typescript": "^5.0.0"
-  },
-  "pnpm": {
-    "overrides": {
-      "@ag-ui/a2ui-toolkit": "0.0.1-alpha.3"
-    }
   }
 }

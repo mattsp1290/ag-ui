@@ -51,10 +51,16 @@ on:
   # Version bumps can only live in package.json or pyproject.toml, so we
   # gate the trigger on those paths. Combined with the release.config.json
   # allowlist in detect-ts-version-changes.sh this gives defense in depth:
-  # unrelated PRs don't even start the workflow, and any workflow run that
+  # unrelated pushes don't even start the workflow, and any workflow run that
   # does fire still filters to enrolled packages before touching a registry.
-  pull_request:
-    types: [closed]
+  #
+  # We trigger on push-to-main (NOT pull_request: closed) so the workflow run's
+  # ref is refs/heads/main. The publish job pins `environment: npm`, whose
+  # deployment_branch_policy allows only main; a pull_request-triggered run
+  # executes in the PR merge-ref context (refs/pull/N/merge) and is rejected by
+  # that policy before any step runs. A merged release PR lands a commit on
+  # main, which fires this push trigger — so the automated lane still works.
+  push:
     branches: [main]
     paths:
       - "**/package.json"
@@ -120,16 +126,14 @@ permissions:
 
 jobs:
   build:
-    # Fires on a merged release PR (stable) OR on manual workflow_dispatch
-    # from main (stable retry / prerelease canary). The main-branch guard on
-    # workflow_dispatch prevents republishing from arbitrary branches; the
-    # `environment: npm` protected_branches policy on the publish job is the
-    # defense-in-depth backstop.
+    # Fires on push-to-main (stable; a merged release PR lands a commit here)
+    # OR on manual workflow_dispatch from main (stable retry / prerelease
+    # canary). The main-branch guard on workflow_dispatch prevents republishing
+    # from arbitrary branches; the `environment: npm` protected_branches policy
+    # on the publish job is the defense-in-depth backstop.
     if: >
       (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
-      (github.event_name == 'pull_request' &&
-        github.event.pull_request.merged == true &&
-        github.event.pull_request.base.ref == 'main')
+      github.event_name == 'push'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
@@ -157,10 +161,10 @@ jobs:
         run: |
           set -euo pipefail
           # Default mode to 'stable' when the workflow is invoked from a
-          # pull_request event (where inputs.mode is the empty string). Every
+          # push event (where inputs.mode is the empty string). Every
           # downstream conditional MUST read steps.meta.outputs.mode rather
           # than raw inputs.mode — referencing inputs.mode directly on a
-          # pull_request run yields "" and silently misroutes the build.
+          # push run yields "" and silently misroutes the build.
           MODE="${INPUT_MODE:-stable}"
           SCOPE="${INPUT_SCOPE:-}"
           echo "mode=$MODE" >> "$GITHUB_OUTPUT"
@@ -1029,11 +1033,14 @@ jobs:
           PY_PACKAGES: ${{ needs.build.outputs.py_packages }}
         run: bash scripts/release/reconcile-release.sh python "$PY_PACKAGES"
 
-      - name: Delete release/next if that's what was merged
-        if: >
-          needs.build.outputs.mode != 'prerelease' &&
-          github.event_name == 'pull_request' &&
-          github.event.pull_request.head.ref == 'release/next'
+      # On push-to-main we no longer have the merged PR's head ref on the event
+      # payload, so we can't tell whether release/next is what merged. Instead,
+      # clean up release/next whenever it still exists on origin after a stable
+      # publish — the delete is idempotent (no-op if the branch is already
+      # gone). Skipped on prerelease (canary) runs, which never touch
+      # release/next.
+      - name: Delete release/next if present
+        if: needs.build.outputs.mode != 'prerelease'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |

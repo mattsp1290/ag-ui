@@ -140,6 +140,20 @@ function getOpenToolCalls(messages: Message[]): ToolCall[] {
 }
 
 /**
+ * Close an MCP client without letting a `close()` failure escape — a throw
+ * here would otherwise clobber the value being returned from the enclosing
+ * `try`/`catch` (or abort the listing loop). Best-effort: log and move on.
+ */
+async function safeClose(client: Client | undefined): Promise<void> {
+  if (!client) return;
+  try {
+    await client.close();
+  } catch (error) {
+    console.error("[MCPMiddleware] Failed to close MCP client:", error);
+  }
+}
+
+/**
  * Extract text content from an MCP `callTool` result, falling back to a JSON
  * stringification of the content when it isn't plain text.
  */
@@ -162,6 +176,20 @@ function extractTextContent(mcpResult: unknown): string {
 }
 
 /**
+ * One MCP tool as returned by `listTools`, paired with the server it came
+ * from. Cached on the middleware instance so we only hit the network once.
+ */
+interface ListedTool {
+  mcpTool: {
+    name: string;
+    description?: string;
+    inputSchema?: Record<string, unknown>;
+  };
+  serverConfig: MCPClientConfig;
+  serverId: string;
+}
+
+/**
  * AG-UI middleware that lists tools from one or more MCP servers, injects
  * them into the agent run (namespaced as `mcp__{server}__{tool}`), and
  * executes the resulting MCP tool calls server-side.
@@ -178,20 +206,6 @@ function extractTextContent(mcpResult: unknown): string {
  * If a run produces no open tool calls targeting our MCP tools, the
  * middleware does not interfere at all — every event is forwarded verbatim.
  */
-/**
- * One MCP tool as returned by `listTools`, paired with the server it came
- * from. Cached on the middleware instance so we only hit the network once.
- */
-interface ListedTool {
-  mcpTool: {
-    name: string;
-    description?: string;
-    inputSchema?: Record<string, unknown>;
-  };
-  serverConfig: MCPClientConfig;
-  serverId: string;
-}
-
 export class MCPMiddleware extends Middleware {
   private readonly mcpServers: MCPClientConfig[];
   private readonly maxIterations: number;
@@ -209,7 +223,13 @@ export class MCPMiddleware extends Middleware {
   ) {
     super();
     this.mcpServers = mcpServers;
-    this.maxIterations = options.maxIterations ?? DEFAULT_MAX_ITERATIONS;
+    // Clamp to a positive integer — a 0/negative/NaN cap would otherwise
+    // trip the runaway guard on the first round and silently disable tool
+    // execution entirely.
+    const requested = options.maxIterations ?? DEFAULT_MAX_ITERATIONS;
+    this.maxIterations = Number.isFinite(requested)
+      ? Math.max(1, Math.floor(requested))
+      : DEFAULT_MAX_ITERATIONS;
   }
 
   run(input: RunAgentInput, next: AbstractAgent): Observable<BaseEvent> {
@@ -229,12 +249,12 @@ export class MCPMiddleware extends Middleware {
       //
       // Run-lifecycle policy: from the consumer's perspective, the entire
       // tool-execution loop is presented as a SINGLE run. We forward the
-      // first run's `RUN_STARTED`, then suppress every subsequent
-      // `RUN_STARTED` *and* `RUN_FINISHED` until the loop actually stops —
-      // at which point we flush the last buffered `RUN_FINISHED`. This keeps
-      // any downstream consumer (or persistence layer) that treats
-      // `RUN_FINISHED` as "the assistant turn is over" from prematurely
-      // closing things between iterations.
+      // first run's `RUN_STARTED` and suppress every subsequent
+      // `RUN_STARTED`. We buffer *every* run's `RUN_FINISHED` (each one
+      // replacing the prior) and flush only the final one when the loop
+      // actually stops. This keeps any downstream consumer (or persistence
+      // layer) that treats `RUN_FINISHED` as "the assistant turn is over"
+      // from prematurely closing things between iterations.
       //
       // Why we sync `next.messages`: `runNextWithState` uses
       // `defaultApplyEvents`, which seeds its `messages` from
@@ -276,13 +296,16 @@ export class MCPMiddleware extends Middleware {
           },
           error: (err) => subscriber.error(err),
           complete: () => {
-            void onRunComplete(
+            // Route any rejection from the async continuation back onto the
+            // stream — otherwise it becomes an unhandled rejection and the
+            // observable silently never completes.
+            onRunComplete(
               runInput,
               latestMessages,
               toolMap,
               errored,
               bufferedRunFinished,
-            );
+            ).catch((err) => subscriber.error(err));
           },
         });
       };
@@ -475,7 +498,7 @@ export class MCPMiddleware extends Middleware {
           error,
         );
       } finally {
-        await client?.close();
+        await safeClose(client);
       }
     }
     return listed;
@@ -496,7 +519,12 @@ export class MCPMiddleware extends Middleware {
         ? (JSON.parse(toolCall.function.arguments) as Record<string, unknown>)
         : {};
     } catch {
-      // Leave args empty if the model emitted malformed JSON.
+      // Leave args empty if the model emitted malformed JSON, but surface it
+      // — running a tool with no arguments is rarely what the model intended.
+      console.warn(
+        `[MCPMiddleware] Malformed JSON arguments for ${resolved.originalName}; ` +
+          `executing with empty arguments.`,
+      );
     }
 
     let client: Client | undefined;
@@ -508,9 +536,16 @@ export class MCPMiddleware extends Middleware {
       });
       return extractTextContent(result);
     } catch (error) {
+      // The error is returned as the tool result so the agentic loop can
+      // react; also log it server-side so an operator has observability
+      // (the model-facing string is the only other trace of the failure).
+      console.error(
+        `[MCPMiddleware] Tool execution failed for ${resolved.originalName}:`,
+        error,
+      );
       return `Error executing tool ${resolved.originalName}: ${String(error)}`;
     } finally {
-      await client?.close();
+      await safeClose(client);
     }
   }
 

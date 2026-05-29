@@ -122,6 +122,35 @@ class LoopingMockAgent extends AbstractAgent {
   }
 }
 
+/**
+ * Decides what to emit based on its OWN `this.messages` (the downstream
+ * agent's persistent state) — mirroring how `defaultApplyEvents` seeds the
+ * apply chain from `agent.messages`, not from `input.messages`. While a
+ * matching tool call sits unresolved in `this.messages` it keeps re-emitting
+ * it; once a `role: "tool"` result is present it produces a final text
+ * answer. This is the only mock that reproduces the coupling the middleware's
+ * `next.messages.push(...)` defends against: if that sync is removed, the
+ * result never lands in `this.messages` and this agent loops forever
+ * (re-emitting the same call) instead of terminating after one execution.
+ */
+class StatefulMockAgent extends AbstractAgent {
+  public runCount = 0;
+  constructor(private toolCallName: string) {
+    super();
+  }
+  run(): Observable<BaseEvent> {
+    this.runCount++;
+    const resolved = this.messages.some((m) => m.role === "tool");
+    const events = resolved
+      ? [runStarted(`r${this.runCount}`), ...textMessage("m", "done"), runFinished(`r${this.runCount}`)]
+      : [runStarted(`r${this.runCount}`), ...toolCall("c1", this.toolCallName), runFinished(`r${this.runCount}`)];
+    return new Observable((subscriber) => {
+      for (const event of events) subscriber.next(event);
+      subscriber.complete();
+    });
+  }
+}
+
 function createRunAgentInput(
   overrides: Partial<RunAgentInput> = {},
 ): RunAgentInput {
@@ -333,11 +362,45 @@ describe("MCPMiddleware — execution loop", () => {
       [runStarted("r2"), ...toolCall("c2", "mcp__s__weather"), runFinished("r2")],
       [runStarted("r3"), ...textMessage("m3", "finally done"), runFinished("r3")],
     ]);
-    await collectEvents(
+    const received = await collectEvents(
       new MCPMiddleware([weatherServer()]).run(createRunAgentInput(), next),
     );
     expect(mockCallTool).toHaveBeenCalledTimes(2);
     expect(next.runCalls).toHaveLength(3);
+
+    // Single-run presentation must hold across TWO hops (3 inner runs): the
+    // consumer sees exactly one RUN_STARTED and one RUN_FINISHED, and both
+    // tool results land before that single terminal RUN_FINISHED.
+    const types = received.map((e) => e.type);
+    expect(types.filter((t) => t === EventType.RUN_STARTED)).toHaveLength(1);
+    expect(types.filter((t) => t === EventType.RUN_FINISHED)).toHaveLength(1);
+    expect(types[0]).toBe(EventType.RUN_STARTED);
+    expect(types[types.length - 1]).toBe(EventType.RUN_FINISHED);
+    const lastResult = types.lastIndexOf(EventType.TOOL_CALL_RESULT);
+    expect(lastResult).toBeGreaterThan(-1);
+    expect(lastResult).toBeLessThan(types.length - 1); // before the RUN_FINISHED
+  });
+
+  it("syncs tool results into agent.messages so a state-seeded agent terminates", async () => {
+    // StatefulMockAgent emits based on its own `this.messages` (like the real
+    // apply chain). It only stops re-emitting the tool call once a tool result
+    // is present in those messages — which only happens because the middleware
+    // pushes results into `next.messages`. If that sync regresses, this agent
+    // loops to maxIterations instead of executing exactly once.
+    mockListTools.mockResolvedValue({ tools: [{ name: "weather", inputSchema: {} }] });
+    mockCallTool.mockResolvedValue({ content: [{ type: "text", text: "sunny" }] });
+    const next = new StatefulMockAgent("mcp__s__weather");
+    const received = await collectEvents(
+      new MCPMiddleware([weatherServer()], { maxIterations: 10 }).run(
+        createRunAgentInput(),
+        next,
+      ),
+    );
+    expect(mockCallTool).toHaveBeenCalledTimes(1); // not maxIterations
+    expect(next.runCount).toBe(2); // tool round + final text round
+    const types = received.map((e) => e.type);
+    expect(types.filter((t) => t === EventType.RUN_FINISHED)).toHaveLength(1);
+    expect(received.some((e) => e.type === EventType.TEXT_MESSAGE_CONTENT)).toBe(true);
   });
 
   it("executes multiple MCP calls in one round, surfacing per-call failures", async () => {
@@ -391,7 +454,7 @@ describe("MCPMiddleware — execution loop", () => {
       ...toolCall(`c${n}`, "mcp__s__weather"),
       runFinished(),
     ]);
-    await collectEvents(
+    const received = await collectEvents(
       new MCPMiddleware([weatherServer()], { maxIterations: 3 }).run(
         createRunAgentInput(),
         next,
@@ -401,6 +464,11 @@ describe("MCPMiddleware — execution loop", () => {
     // 3 execution rounds → 4 agent runs (the 4th detects the cap and stops).
     expect(next.runCount).toBe(4);
     expect(warn).toHaveBeenCalled();
+    // Hitting the cap must still flush a terminal RUN_FINISHED — a consumer
+    // waiting on it would otherwise hang.
+    const types = received.map((e) => e.type);
+    expect(types.filter((t) => t === EventType.RUN_FINISHED)).toHaveLength(1);
+    expect(types[types.length - 1]).toBe(EventType.RUN_FINISHED);
     warn.mockRestore();
   });
 

@@ -24,6 +24,25 @@ import {
 } from "./types";
 import { RENDER_A2UI_TOOL, RENDER_A2UI_TOOL_NAME, RENDER_A2UI_TOOL_GUIDELINES, LOG_A2UI_EVENT_TOOL_NAME } from "./tools";
 import { getOperationSurfaceId, tryParseA2UIOperations, A2UI_OPERATIONS_KEY, extractCompleteItemsWithStatus, extractCompleteObject, extractDataArrayItems, extractStringField } from "./schema";
+import { validateA2UIComponents, A2UI_RECOVERY_ACTIVITY_TYPE, type A2UIValidationCatalog } from "@ag-ui/a2ui-toolkit";
+
+/**
+ * Detect a structured hard-failure envelope produced by the toolkit's recovery
+ * loop when it exhausts its retries, so the middleware can surface a (client-
+ * rendered) failure instead of silently dropping it.
+ */
+function tryParseRecoveryFailure(content: unknown): { error: string; attempts: unknown } | null {
+  if (typeof content !== "string") return null;
+  try {
+    const parsed = JSON.parse(content);
+    if (parsed && typeof parsed === "object" && (parsed as any).code === "a2ui_recovery_exhausted") {
+      return { error: String((parsed as any).error ?? "A2UI generation failed"), attempts: (parsed as any).attempts ?? [] };
+    }
+  } catch {
+    // not JSON — nothing to surface
+  }
+  return null;
+}
 
 // Re-exports
 export * from "./types";
@@ -86,6 +105,40 @@ export class A2UIMiddleware extends Middleware {
   constructor(config: A2UIMiddlewareConfig = {}) {
     super();
     this.config = config;
+  }
+
+  /**
+   * Extract the inline catalog (component name → JSON Schema with `required`)
+   * for semantic validation, when one is configured. Returns undefined for the
+   * legacy array form or no schema — validation then degrades to structural-only.
+   */
+  private getValidationCatalog(): A2UIValidationCatalog | undefined {
+    const schema = this.config.schema;
+    if (
+      schema &&
+      !Array.isArray(schema) &&
+      schema.components &&
+      Object.keys(schema.components).length > 0
+    ) {
+      return { components: schema.components as A2UIValidationCatalog["components"] };
+    }
+    return undefined;
+  }
+
+  /**
+   * Build a recovery-status activity (OSS-162). Client-only: it carries the
+   * `status` ("retrying" | "failed") + errors/attempts as a data contract; the
+   * client decides when/whether to surface it (per its `showRetryUIAfter`).
+   * Keyed by the outer call so successive attempts coalesce via `replace`.
+   */
+  private buildRecoveryActivity(key: string, content: Record<string, unknown>): ActivitySnapshotEvent {
+    return {
+      type: EventType.ACTIVITY_SNAPSHOT,
+      messageId: `a2ui-recovery-${key}`,
+      activityType: A2UI_RECOVERY_ACTIVITY_TYPE,
+      content,
+      replace: true,
+    };
   }
 
   /**
@@ -314,6 +367,7 @@ export class A2UIMiddleware extends Middleware {
         args: string;
         outerCallId: string | null; // the outer tool call this streaming inner was started inside (null if direct)
         componentsEmitted: boolean; // updateComponents sent (atomic)
+        componentsRejected: boolean; // components closed but failed semantic validation (OSS-162) — never paint
         dataItemsKey: string;      // repeated-array key derived from components
         dataItemsCount: number;    // number of data items emitted so far
         dataComplete: boolean;     // full (closed) data model emitted
@@ -351,6 +405,7 @@ export class A2UIMiddleware extends Middleware {
                 schema: null, args: "",
                 outerCallId: currentOuterCallId,
                 componentsEmitted: false,
+                componentsRejected: false,
                 dataItemsKey: "items", dataItemsCount: 0, dataComplete: false,
               });
             } else if (!nonOuterToolNames.has(startEvent.toolCallName)) {
@@ -410,7 +465,7 @@ export class A2UIMiddleware extends Middleware {
                   // (2) Components — emit ONCE, only when the array is fully
                   // closed and every component has a `component` type. Partial
                   // or type-less components would throw in @a2ui/web_core.
-                  if (!streaming.componentsEmitted) {
+                  if (!streaming.componentsEmitted && !streaming.componentsRejected) {
                     const result = extractCompleteItemsWithStatus(streaming.args, "components");
                     if (
                       result &&
@@ -421,8 +476,35 @@ export class A2UIMiddleware extends Middleware {
                       )
                     ) {
                       const components = result.items as Array<Record<string, unknown>>;
-                      streaming.schema = { surfaceId, catalogId, components };
-                      streaming.dataItemsKey = deriveRepeatedDataKey(components) ?? "items";
+                      // Semantic gate (OSS-162): never paint an UNVALIDATED
+                      // component tree. The structural check above only proves
+                      // the array closed with typed items; here we enforce
+                      // root/catalog/required-prop/child-ref validity against the
+                      // catalog. Bindings are DEFERRED (validateBindings: false) —
+                      // the data model has not streamed yet, so resolving them
+                      // would false-positive; the adapter re-validates with
+                      // bindings on the full args to drive the retry decision.
+                      const validation = validateA2UIComponents({
+                        components,
+                        catalog: this.getValidationCatalog(),
+                        validateBindings: false,
+                      });
+                      if (validation.valid) {
+                        streaming.schema = { surfaceId, catalogId, components };
+                        streaming.dataItemsKey = deriveRepeatedDataKey(components) ?? "items";
+                      } else {
+                        // Suppress: the faulty attempt never reaches the surface
+                        // (no wipe). Surface a client-gated "retrying" status; the
+                        // adapter's recovery loop regenerates and a later valid
+                        // attempt supersedes via the outer-call-keyed messageId.
+                        streaming.componentsRejected = true;
+                        subscriber.next(
+                          this.buildRecoveryActivity(streaming.outerCallId ?? argsEvent.toolCallId, {
+                            status: "retrying",
+                            errors: validation.errors,
+                          }),
+                        );
+                      }
                     }
                   }
 
@@ -562,6 +644,21 @@ export class A2UIMiddleware extends Middleware {
                     currentOuterCallId ?? resultEvent.toolCallId,
                   )) {
                     subscriber.next(activityEvent);
+                  }
+                } else {
+                  // Hard-failure path (OSS-162): an exhausted recovery loop
+                  // returns a structured error envelope (no a2ui_operations).
+                  // Surface it as a client-rendered failure rather than dropping
+                  // it silently — the conversation stays usable.
+                  const failure = tryParseRecoveryFailure(resultEvent.content);
+                  if (failure) {
+                    subscriber.next(
+                      this.buildRecoveryActivity(currentOuterCallId ?? resultEvent.toolCallId, {
+                        status: "failed",
+                        error: failure.error,
+                        attempts: failure.attempts,
+                      }),
+                    );
                   }
                 }
               }

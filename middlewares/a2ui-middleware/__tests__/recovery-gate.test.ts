@@ -82,6 +82,35 @@ describe("A2UI middleware — semantic-validation gate (OSS-162)", () => {
     expect(surfaceSnapshots(events).length).toBeGreaterThanOrEqual(1);
   });
 
+  it("clears the retrying status with a resolved status once a later attempt paints", async () => {
+    const mw = new A2UIMiddleware({ schema: CATALOG });
+    const badArgs = JSON.stringify({ surfaceId: "hotels", components: [ROOT, BAD_CARD], data: DATA });
+    const goodArgs = JSON.stringify({ surfaceId: "hotels", components: [ROOT, GOOD_CARD], data: DATA });
+    const events = await collect(
+      mw.run(
+        input(),
+        new MockAgent([
+          { type: EventType.RUN_STARTED, runId: "r", threadId: "t" },
+          // Outer generate_a2ui wraps two inner render_a2ui attempts.
+          { type: EventType.TOOL_CALL_START, toolCallId: "outer1", toolCallName: "generate_a2ui" },
+          { type: EventType.TOOL_CALL_ARGS, toolCallId: "outer1", delta: '{"intent":"create"}' },
+          { type: EventType.TOOL_CALL_START, toolCallId: "tc1", toolCallName: "render_a2ui" },
+          { type: EventType.TOOL_CALL_ARGS, toolCallId: "tc1", delta: badArgs },
+          { type: EventType.TOOL_CALL_END, toolCallId: "tc1" },
+          { type: EventType.TOOL_CALL_START, toolCallId: "tc2", toolCallName: "render_a2ui" },
+          { type: EventType.TOOL_CALL_ARGS, toolCallId: "tc2", delta: goodArgs },
+          { type: EventType.TOOL_CALL_END, toolCallId: "tc2" },
+          { type: EventType.RUN_FINISHED, runId: "r", threadId: "t" },
+        ] as BaseEvent[]),
+      ),
+    );
+    const recovery = recoveryActivities(events);
+    expect(recovery.some((e) => (e as any).content.status === "retrying")).toBe(true);
+    expect(recovery.some((e) => (e as any).content.status === "resolved")).toBe(true);
+    // The valid (second) attempt painted a surface.
+    expect(surfaceSnapshots(events).length).toBeGreaterThanOrEqual(1);
+  });
+
   it("emits a hard-failure recovery activity when the tool result is an exhausted envelope", async () => {
     const mw = new A2UIMiddleware({ schema: CATALOG });
     const errorEnvelope = JSON.stringify({ error: "Failed to generate valid A2UI after 3 attempt(s)", code: "a2ui_recovery_exhausted", attempts: [{ attempt: 1, ok: false }] });

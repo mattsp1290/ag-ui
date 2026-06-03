@@ -373,6 +373,11 @@ export class A2UIMiddleware extends Middleware {
         dataComplete: boolean;     // full (closed) data model emitted
       }>();
 
+      // OSS-162: outer-call recovery keys that have emitted a "retrying" status,
+      // so a later attempt that paints can clear it with a "resolved" status
+      // (otherwise a slow retry's hint would linger under the successful surface).
+      const retriedOuterKeys = new Set<string>();
+
       // Outer tool call context. Any non-A2UI tool call (e.g. ``generate_a2ui``
       // wrapping a subagent that emits ``render_a2ui`` calls) is treated as
       // the "outer" call. The outer id becomes the activity messageId
@@ -498,8 +503,10 @@ export class A2UIMiddleware extends Middleware {
                         // adapter's recovery loop regenerates and a later valid
                         // attempt supersedes via the outer-call-keyed messageId.
                         streaming.componentsRejected = true;
+                        const recoveryKey = streaming.outerCallId ?? argsEvent.toolCallId;
+                        retriedOuterKeys.add(recoveryKey);
                         subscriber.next(
-                          this.buildRecoveryActivity(streaming.outerCallId ?? argsEvent.toolCallId, {
+                          this.buildRecoveryActivity(recoveryKey, {
                             status: "retrying",
                             errors: validation.errors,
                           }),
@@ -559,6 +566,16 @@ export class A2UIMiddleware extends Middleware {
                       replace: true,
                     };
                     subscriber.next(snapshotEvent);
+
+                    // OSS-162: a valid surface painted for this outer call — clear
+                    // any prior "retrying" status (emitted once, then forgotten).
+                    const recoveryKey = streaming.outerCallId ?? argsEvent.toolCallId;
+                    if (retriedOuterKeys.has(recoveryKey)) {
+                      retriedOuterKeys.delete(recoveryKey);
+                      subscriber.next(
+                        this.buildRecoveryActivity(recoveryKey, { status: "resolved" }),
+                      );
+                    }
                   }
 
                   // Final authoritative data emit once the whole data object

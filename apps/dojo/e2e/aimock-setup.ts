@@ -1,5 +1,6 @@
 import { LLMock, type ChatMessage } from "@copilotkit/aimock";
 import * as path from "node:path";
+import { registerA2UIRecoveryFixtures } from "./a2ui-recovery-fixtures";
 
 const MOCK_PORT = 5555;
 const FIXTURES_DIR = path.join(import.meta.dirname, "fixtures", "openai");
@@ -13,6 +14,10 @@ export async function setupLLMock(): Promise<void> {
   // getting congested by zero-latency streaming (real OpenAI has natural
   // network delays between chunks; LLMock needs to simulate this).
   mockServer = new LLMock({ port: MOCK_PORT, latency: 5 });
+
+  // OSS-162 A2UI recovery showcase fixtures (predicate fixtures, must precede
+  // the generic loadFixtureFile below).
+  registerA2UIRecoveryFixtures(mockServer);
 
   // Extract text from message content — handles both string and array-of-parts
   // (Strands SDK sends content as [{type: "text", text: "..."}])

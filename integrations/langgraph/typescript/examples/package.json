@@ -9,8 +9,9 @@
     "dev": "pnpx @langchain/langgraph-cli@1.2.3 dev",
     "start": "node dist/index.js"
   },
+  "//oss-162-temp": "TEMPORARY (OSS-162): '@ag-ui/langgraph' is pinned to workspace:* (instead of a published version like 0.0.35) ONLY so the dojo runs the LOCAL adapter, which carries the A2UI recovery loop. REVERT to a published version once @ag-ui/langgraph ships the recovery loop, and remove this package from pnpm-workspace.yaml. langgraph-cli deploys read published versions, so do NOT leave workspace:* here. See memory: project_oss-162-examples-workspace-temp.",
   "dependencies": {
-    "@ag-ui/langgraph": "0.0.35",
+    "@ag-ui/langgraph": "workspace:*",
     "@copilotkit/sdk-js": "1.57.1",
     "@langchain/core": "^1.1.44",
     "@langchain/anthropic": "^0.3.0",

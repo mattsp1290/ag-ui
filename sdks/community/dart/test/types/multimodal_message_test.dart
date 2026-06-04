@@ -320,17 +320,37 @@ void main() {
             metadata: {'detail': 'high'},
           ),
           const BinaryInputContent(mimeType: 'application/pdf', data: 'YmFy'),
+          const AudioInputContent(
+            source: DataSource(value: 'YXVk', mimeType: 'audio/wav'),
+            metadata: {'duration': '3s'},
+          ),
+          const VideoInputContent(
+            source: UrlSource(value: 'https://example.com/video.mp4'),
+          ),
+          const DocumentInputContent(
+            source: DataSource(value: 'ZG9j', mimeType: 'application/pdf'),
+            metadata: {'pages': '5'},
+          ),
         ],
       );
 
       final decoded = UserMessage.fromJson(msg.toJson());
       final parts = (decoded.messageContent as MultimodalContent).parts;
-      expect(parts.map((p) => p.type).toList(), ['text', 'image', 'binary']);
+      expect(parts.map((p) => p.type).toList(),
+          ['text', 'image', 'binary', 'audio', 'video', 'document']);
       expect((parts[0] as TextInputContent).text, 'look');
       final imageSource = (parts[1] as ImageInputContent).source;
       expect((imageSource as DataSource).mimeType, 'image/png');
       expect((parts[1] as ImageInputContent).metadata, {'detail': 'high'});
       expect((parts[2] as BinaryInputContent).data, 'YmFy');
+      final audioSource = (parts[3] as AudioInputContent).source;
+      expect((audioSource as DataSource).mimeType, 'audio/wav');
+      expect((parts[3] as AudioInputContent).metadata, {'duration': '3s'});
+      final videoSource = (parts[4] as VideoInputContent).source;
+      expect((videoSource as UrlSource).value, 'https://example.com/video.mp4');
+      final docSource = (parts[5] as DocumentInputContent).source;
+      expect((docSource as DataSource).mimeType, 'application/pdf');
+      expect((parts[5] as DocumentInputContent).metadata, {'pages': '5'});
     });
   });
 

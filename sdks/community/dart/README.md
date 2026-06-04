@@ -145,6 +145,22 @@ final input = SimpleRunAgentInput(
 The `content` getter returns the text for text-only messages and `null` for
 multimodal ones; read `messageContent` for the typed union.
 
+The default `UserMessage({content})` constructor is not `const` because it
+wraps the string in `TextContent` at runtime. Use `UserMessage.fromContent` to
+keep a compile-time constant — this is also the migration path if you
+previously used `const UserMessage(content: '...')`:
+
+```dart
+// Before (no longer const):
+// UserMessage(id: 'u-1', content: 'Hello')
+
+// After — const-friendly:
+const msg = UserMessage.fromContent(
+  id: 'u-1',
+  messageContent: TextContent('Hello'),
+);
+```
+
 ### Tool-Based Interactions
 
 ```dart

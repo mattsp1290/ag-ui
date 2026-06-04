@@ -406,6 +406,82 @@ void main() {
     });
   });
 
+  group('copyWith can clear optional fields', () {
+    test('ImageInputContent.copyWith(metadata: null) clears metadata', () {
+      final part = ImageInputContent(
+        source: UrlSource(value: 'https://example.com/img.png'),
+        metadata: {'key': 'value'},
+      );
+      expect(part.copyWith(metadata: null).metadata, isNull);
+    });
+
+    test('ImageInputContent.copyWith() without metadata preserves it', () {
+      final part = ImageInputContent(
+        source: UrlSource(value: 'https://example.com/img.png'),
+        metadata: {'key': 'value'},
+      );
+      expect(part.copyWith().metadata, {'key': 'value'});
+    });
+
+    test('AudioInputContent.copyWith(metadata: null) clears metadata', () {
+      final part = AudioInputContent(
+        source: DataSource(value: 'base64data', mimeType: 'audio/mp3'),
+        metadata: {'duration': 42},
+      );
+      expect(part.copyWith(metadata: null).metadata, isNull);
+    });
+
+    test('VideoInputContent.copyWith(metadata: null) clears metadata', () {
+      final part = VideoInputContent(
+        source: DataSource(value: 'base64data', mimeType: 'video/mp4'),
+        metadata: {'fps': 30},
+      );
+      expect(part.copyWith(metadata: null).metadata, isNull);
+    });
+
+    test('DocumentInputContent.copyWith(metadata: null) clears metadata', () {
+      final part = DocumentInputContent(
+        source: DataSource(value: 'base64data', mimeType: 'application/pdf'),
+        metadata: {'pages': 10},
+      );
+      expect(part.copyWith(metadata: null).metadata, isNull);
+    });
+
+    test('UrlSource.copyWith(mimeType: null) clears mimeType', () {
+      final src = UrlSource(
+        value: 'https://example.com/img.png',
+        mimeType: 'image/png',
+      );
+      expect(src.copyWith(mimeType: null).mimeType, isNull);
+    });
+
+    test('UrlSource.copyWith() without mimeType preserves it', () {
+      final src = UrlSource(
+        value: 'https://example.com/img.png',
+        mimeType: 'image/png',
+      );
+      expect(src.copyWith().mimeType, 'image/png');
+    });
+
+    test('BinaryInputContent.copyWith(id: null) clears id', () {
+      final part = BinaryInputContent(
+        mimeType: 'image/png',
+        id: 'bin_1',
+        data: 'base64data',
+      );
+      expect(part.copyWith(id: null).id, isNull);
+    });
+
+    test('BinaryInputContent.copyWith() without id preserves it', () {
+      final part = BinaryInputContent(
+        mimeType: 'image/png',
+        id: 'bin_1',
+        data: 'base64data',
+      );
+      expect(part.copyWith().id, 'bin_1');
+    });
+  });
+
   group('snake_case mime_type tolerance', () {
     test('data source accepts mime_type', () {
       final source = InputContentSource.fromJson({

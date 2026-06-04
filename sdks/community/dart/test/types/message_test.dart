@@ -247,11 +247,152 @@ void main() {
         final message = UserMessage.fromJson(json);
         expect(message.id, 'msg_unknown');
         expect(message.content, 'User message');
-        
-        // Verify unknown fields are not included in serialized output
+
         final serialized = message.toJson();
         expect(serialized.containsKey('unknown_field'), false);
         expect(serialized.containsKey('another_unknown'), false);
+      });
+    });
+
+    group('ReasoningMessage', () {
+      test('Message.fromJson routes role=reasoning to ReasoningMessage', () {
+        final msg = Message.fromJson({
+          'id': 'r1',
+          'role': 'reasoning',
+          'content': 'I reasoned about X',
+          'thinking': 'step-by-step...',
+        });
+        expect(msg, isA<ReasoningMessage>());
+        expect(msg.role, MessageRole.reasoning);
+      });
+
+      test('round-trips all fields', () {
+        final msg = ReasoningMessage(
+          id: 'r1',
+          content: 'conclusion',
+          thinking: 'step-by-step',
+          encryptedValue: 'ENC==',
+        );
+        final json = msg.toJson();
+        expect(json['role'], 'reasoning');
+        expect(json['content'], 'conclusion');
+        expect(json['thinking'], 'step-by-step');
+        expect(json['encryptedValue'], 'ENC==');
+
+        final decoded = ReasoningMessage.fromJson(json);
+        expect(decoded.id, 'r1');
+        expect(decoded.content, 'conclusion');
+        expect(decoded.thinking, 'step-by-step');
+        expect(decoded.encryptedValue, 'ENC==');
+      });
+
+      test('accepts absent optional fields', () {
+        final msg = ReasoningMessage.fromJson({'role': 'reasoning'});
+        expect(msg.id, isNull);
+        expect(msg.content, isNull);
+        expect(msg.thinking, isNull);
+        expect(msg.encryptedValue, isNull);
+        expect(msg.toJson().containsKey('thinking'), false);
+        expect(msg.toJson().containsKey('encryptedValue'), false);
+      });
+
+      test('reads snake_case encrypted_value', () {
+        final msg = ReasoningMessage.fromJson({
+          'role': 'reasoning',
+          'encrypted_value': 'SNAKE_ENC',
+        });
+        expect(msg.encryptedValue, 'SNAKE_ENC');
+      });
+
+      test('copyWith overrides fields', () {
+        final original = ReasoningMessage(
+          id: 'r1',
+          content: 'old',
+          thinking: 'think',
+          encryptedValue: 'ENC',
+        );
+        final copy = original.copyWith(content: 'new', encryptedValue: 'ENC2');
+        expect(copy.id, 'r1');
+        expect(copy.content, 'new');
+        expect(copy.thinking, 'think');
+        expect(copy.encryptedValue, 'ENC2');
+      });
+
+      test('MESSAGES_SNAPSHOT list containing reasoning message decodes without throwing', () {
+        final snapshot = [
+          {'id': '1', 'role': 'user', 'content': 'hi'},
+          {'id': '2', 'role': 'assistant', 'content': 'thinking...'},
+          {'id': '3', 'role': 'reasoning', 'thinking': 'step 1', 'content': 'answer'},
+          {'id': '4', 'role': 'assistant', 'content': 'done'},
+        ];
+        final messages = snapshot.map((j) => Message.fromJson(j)).toList();
+        expect(messages[2], isA<ReasoningMessage>());
+        expect((messages[2] as ReasoningMessage).thinking, 'step 1');
+      });
+    });
+
+    group('encryptedValue on Message types', () {
+      test('AssistantMessage round-trips encryptedValue', () {
+        final msg = AssistantMessage(
+          id: 'a1',
+          content: 'hello',
+          encryptedValue: 'ENC==',
+        );
+        final json = msg.toJson();
+        expect(json['encryptedValue'], 'ENC==');
+
+        final decoded = AssistantMessage.fromJson(json);
+        expect(decoded.encryptedValue, 'ENC==');
+      });
+
+      test('UserMessage round-trips encryptedValue', () {
+        final msg = UserMessage.fromJson({
+          'id': 'u1',
+          'role': 'user',
+          'content': 'hi',
+          'encryptedValue': 'EU==',
+        });
+        expect(msg.encryptedValue, 'EU==');
+        expect(msg.toJson()['encryptedValue'], 'EU==');
+      });
+
+      test('ToolMessage round-trips encryptedValue', () {
+        final msg = ToolMessage(
+          id: 't1',
+          content: 'result',
+          toolCallId: 'call_1',
+          encryptedValue: 'ET==',
+        );
+        final decoded = ToolMessage.fromJson(msg.toJson());
+        expect(decoded.encryptedValue, 'ET==');
+      });
+
+      test('reads snake_case encrypted_value on AssistantMessage', () {
+        final msg = AssistantMessage.fromJson({
+          'id': 'a2',
+          'role': 'assistant',
+          'content': 'hi',
+          'encrypted_value': 'SNAKE_ENC',
+        });
+        expect(msg.encryptedValue, 'SNAKE_ENC');
+      });
+
+      test('omits encryptedValue from toJson when null', () {
+        final msg = AssistantMessage(id: 'a3', content: 'hi');
+        expect(msg.toJson().containsKey('encryptedValue'), false);
+      });
+
+      test('copyWith threads encryptedValue through AssistantMessage', () {
+        final original = AssistantMessage(
+          id: 'a4',
+          content: 'original',
+          encryptedValue: 'ENC',
+        );
+        final copy = original.copyWith(content: 'updated');
+        expect(copy.encryptedValue, 'ENC');
+
+        final cleared = original.copyWith(encryptedValue: 'NEW');
+        expect(cleared.encryptedValue, 'NEW');
       });
     });
   });

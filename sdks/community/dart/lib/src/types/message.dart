@@ -291,6 +291,7 @@ class UserMessage extends Message {
         'role': role.value,
         'content': messageContent.toJson(),
         if (name != null) 'name': name,
+        if (encryptedValue != null) 'encryptedValue': encryptedValue,
       };
 
   @override

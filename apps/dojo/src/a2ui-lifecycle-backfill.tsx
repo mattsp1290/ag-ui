@@ -131,8 +131,13 @@ export function createA2UISurfaceLifecycleRenderer(
       };
 
       // Keep showing the last pre-paint snapshot during the hand-off below.
+      // Track from CONTENT (not the lagging operations state) so a paint snapshot
+      // never clobbers the last genuine pre-paint snapshot.
       const lastLoaderContentRef = useRef<any>(null);
-      if (!hasOps) lastLoaderContentRef.current = content;
+      const contentHasOps =
+        Array.isArray(content?.[A2UI_OPERATIONS_KEY]) &&
+        content[A2UI_OPERATIONS_KEY].length > 0;
+      if (!contentHasOps) lastLoaderContentRef.current = content;
 
       // Cross-over (OSS-162): hold the skeleton in-flow while the surface mounts +
       // paints OFFSCREEN, then swap — so the first card replaces the skeleton with
@@ -167,17 +172,24 @@ export function createA2UISurfaceLifecycleRenderer(
         </div>
       );
 
-      if (surfaceReady) return surfaces;
-
+      // Stable tree: ReactSurfaceHost stays MOUNTED in the same position across
+      // the hold→ready swap (only its wrapper styling toggles), so the surface
+      // painted OFFSCREEN during the hold is preserved — not remounted (which
+      // would reintroduce the gap). The loader sits on top until ready.
       return (
         <div style={{ position: "relative" }}>
           <div
-            aria-hidden
-            style={{ position: "absolute", inset: 0, opacity: 0, pointerEvents: "none" }}
+            aria-hidden={!surfaceReady}
+            style={
+              surfaceReady
+                ? undefined
+                : { position: "absolute", inset: 0, opacity: 0, pointerEvents: "none" }
+            }
           >
             {surfaces}
           </div>
-          {renderLifecycle(lastLoaderContentRef.current ?? content)}
+          {!surfaceReady &&
+            renderLifecycle(lastLoaderContentRef.current ?? content)}
         </div>
       );
     },

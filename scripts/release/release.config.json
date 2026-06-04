@@ -69,6 +69,13 @@
         { "name": "@ag-ui/claude-agent-sdk", "path": "integrations/claude-agent-sdk/typescript", "ecosystem": "typescript" }
       ]
     },
+    "integration-cloudflare-agents": {
+      "description": "Cloudflare Agents integration (community, TypeScript)",
+      "sharedVersion": false,
+      "packages": [
+        { "name": "@ag-ui/cloudflare-agents", "path": "integrations/community/cloudflare-agents/typescript", "ecosystem": "typescript" }
+      ]
+    },
     "integration-crewai-ts": {
       "description": "CrewAI integration (TypeScript)",
       "sharedVersion": false,

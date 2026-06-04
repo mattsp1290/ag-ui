@@ -109,27 +109,49 @@ export function createA2UISurfaceLifecycleRenderer(
         return groups;
       }, [operations]);
 
-      if (!groupedOperations.size) {
-        const status = content?.status;
-        const debugExposure: DebugExposure =
-          content?.debugExposure ?? optionDebugExposure;
+      const hasOps = groupedOperations.size > 0;
+
+      const renderLifecycle = (c: any) => {
+        const status = c?.status;
+        const debugExposure: DebugExposure = c?.debugExposure ?? optionDebugExposure;
         if (status === "failed") {
-          return <A2UIRecoveryFailure content={content} debugExposure={debugExposure} />;
+          return <A2UIRecoveryFailure content={c} debugExposure={debugExposure} />;
         }
         if (status === "retrying") {
           return (
             <A2UIRetryingState
-              content={content}
+              content={c}
               showAfterMs={showAfterMs}
               showAfterAttempts={showAfterAttempts}
               debugExposure={debugExposure}
             />
           );
         }
-        return <A2UIBuildingState content={content} />;
+        return <A2UIBuildingState content={c} />;
+      };
+
+      // Keep showing the last pre-paint snapshot during the hand-off below.
+      const lastLoaderContentRef = useRef<any>(null);
+      if (!hasOps) lastLoaderContentRef.current = content;
+
+      // Cross-over (OSS-162): hold the skeleton in-flow while the surface mounts +
+      // paints OFFSCREEN, then swap — so the first card replaces the skeleton with
+      // no empty gap (the A2UIProvider needs a couple ticks to paint after mount).
+      const [surfaceReady, setSurfaceReady] = useState(false);
+      useEffect(() => {
+        if (!hasOps) {
+          setSurfaceReady(false);
+          return;
+        }
+        const t = setTimeout(() => setSurfaceReady(true), 220);
+        return () => clearTimeout(t);
+      }, [hasOps]);
+
+      if (!hasOps) {
+        return renderLifecycle(content);
       }
 
-      return (
+      const surfaces = (
         <div className="cpk:flex cpk:min-h-0 cpk:flex-1 cpk:flex-col cpk:gap-6 cpk:overflow-auto cpk:py-6">
           {Array.from(groupedOperations.entries()).map(([surfaceId, ops]) => (
             <ReactSurfaceHost
@@ -142,6 +164,20 @@ export function createA2UISurfaceLifecycleRenderer(
               catalog={catalog}
             />
           ))}
+        </div>
+      );
+
+      if (surfaceReady) return surfaces;
+
+      return (
+        <div style={{ position: "relative" }}>
+          <div
+            aria-hidden
+            style={{ position: "absolute", inset: 0, opacity: 0, pointerEvents: "none" }}
+          >
+            {surfaces}
+          </div>
+          {renderLifecycle(lastLoaderContentRef.current ?? content)}
         </div>
       );
     },

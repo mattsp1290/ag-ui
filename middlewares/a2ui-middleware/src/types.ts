@@ -41,6 +41,22 @@ export interface A2UIMiddlewareConfig {
   schema?: A2UIInlineCatalogSchema | A2UIComponentSchema[];
 
   /**
+   * A2UI error-recovery options (OSS-162). A server-side knob applied to every
+   * agent this middleware wraps — Python and TypeScript alike, since the
+   * middleware is the single emitter of the `a2ui_recovery` activity for all of
+   * them. Values here are stamped into that activity's data contract so the
+   * client recovery renderer honors them.
+   *
+   * - `debugExposure` — how much retry/error detail the renderer surfaces:
+   *   `"hidden"` (no expander), `"collapsed"` (expander present, closed), or
+   *   `"verbose"` (expander open). When unset, the client default (`"collapsed"`)
+   *   applies.
+   */
+  recovery?: {
+    debugExposure?: "hidden" | "collapsed" | "verbose";
+  };
+
+  /**
    * Controls whether the middleware injects an A2UI rendering tool into
    * the agent's tool list.
    *

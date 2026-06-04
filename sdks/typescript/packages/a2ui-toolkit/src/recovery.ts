@@ -32,8 +32,10 @@ export interface A2UIRecoveryConfig {
   maxAttempts?: number;
   /** When the (client-side) "Retrying UI generation…" status may appear. */
   showRetryUIAfter?: { ms?: number; attempts?: number };
-  /** How much retry/debug state to surface. Default `"collapsed"`. */
-  debugExposure?: "hidden" | "collapsed" | "verbose";
+  // NOTE: debugExposure is NOT here — how much retry/error detail the renderer
+  // surfaces is a presentation concern configured server-side via the
+  // A2UIMiddleware's `recovery.debugExposure` (stamped into the a2ui_recovery
+  // activity), not on this generation-loop config. (OSS-162)
 }
 
 /** One attempt's outcome — surfaced to the adapter via `onAttempt` for status + dev traces. */

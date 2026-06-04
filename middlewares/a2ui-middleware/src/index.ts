@@ -132,11 +132,16 @@ export class A2UIMiddleware extends Middleware {
    * Keyed by the outer call so successive attempts coalesce via `replace`.
    */
   private buildRecoveryActivity(key: string, content: Record<string, unknown>): ActivitySnapshotEvent {
+    // Stamp the server-configured debugExposure (OSS-162) into every recovery
+    // activity (retrying / resolved / failed) so the client renderer honors it.
+    // Applies to all wrapped agents — Python and TS — since this middleware is
+    // the single emitter. Omitted when unset so the client default applies.
+    const debugExposure = this.config.recovery?.debugExposure;
     return {
       type: EventType.ACTIVITY_SNAPSHOT,
       messageId: `a2ui-recovery-${key}`,
       activityType: A2UI_RECOVERY_ACTIVITY_TYPE,
-      content,
+      content: debugExposure ? { ...content, debugExposure } : content,
       replace: true,
     };
   }

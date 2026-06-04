@@ -133,4 +133,22 @@ describe("A2UI middleware — semantic-validation gate (OSS-162)", () => {
     expect((recovery[0] as any).content.status).toBe("failed");
     expect((recovery[0] as any).content.error).toContain("Failed to generate");
   });
+
+  it("stamps server-configured recovery.debugExposure onto the recovery activity (OSS-162)", async () => {
+    // Server-side knob, applied to every wrapped agent (Python + TS) since this
+    // middleware is the single emitter of a2ui_recovery.
+    const mw = new A2UIMiddleware({ schema: CATALOG, recovery: { debugExposure: "hidden" } });
+    const events = await collect(mw.run(input(), new MockAgent(streamRender([ROOT, BAD_CARD]))));
+    const recovery = recoveryActivities(events);
+    expect(recovery.length).toBeGreaterThanOrEqual(1);
+    expect((recovery[0] as any).content.debugExposure).toBe("hidden");
+  });
+
+  it("omits debugExposure when unconfigured, so the client default applies (OSS-162)", async () => {
+    const mw = new A2UIMiddleware({ schema: CATALOG });
+    const events = await collect(mw.run(input(), new MockAgent(streamRender([ROOT, BAD_CARD]))));
+    const recovery = recoveryActivities(events);
+    expect(recovery.length).toBeGreaterThanOrEqual(1);
+    expect((recovery[0] as any).content.debugExposure).toBeUndefined();
+  });
 });

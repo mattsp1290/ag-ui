@@ -30,13 +30,16 @@ const RecoveryContentSchema = z
 export function createA2UIRecoveryRenderer(options: A2UIRecoveryRendererOptions = {}) {
   const showAfterMs = options.showAfterMs ?? 2000;
   const showAfterAttempts = options.showAfterAttempts ?? 2;
-  const debugExposure = options.debugExposure ?? "collapsed";
+  const optionDebugExposure = options.debugExposure ?? "collapsed";
 
   return {
     activityType: "a2ui_recovery",
     content: RecoveryContentSchema,
     render: ({ content }: { content: any }) => {
       const status = content?.status;
+      // Server (middleware recovery.debugExposure, stamped onto the activity) wins;
+      // else fall back to the client option / "collapsed" default. (OSS-162)
+      const debugExposure = content?.debugExposure ?? optionDebugExposure;
       if (status === "failed") {
         return <A2UIRecoveryFailure content={content} debugExposure={debugExposure} />;
       }

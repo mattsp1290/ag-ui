@@ -8,12 +8,22 @@ import {
 } from "@copilotkit/react-core/v2";
 import { CopilotKit } from "@copilotkit/react-core";
 import { dynamicSchemaCatalog } from "@/a2ui-catalog";
+// TEMPORARY (OSS-162): register the recovery renderer locally so the failure/retrying UI
+// works with the PUBLISHED @copilotkit/react-core. Remove once react-core ships the built-in.
+import { createA2UIRecoveryRenderer } from "./recovery-renderer";
 
 export const dynamic = "force-dynamic";
 
 interface PageProps {
   params: Promise<{ integrationId: string }>;
 }
+
+// aimock attempts are instant, so reveal the "Retrying…" hint immediately / after the
+// first retry for the demo (the production default delays it ~2s).
+const recoveryRenderer = createA2UIRecoveryRenderer({
+  showAfterMs: 0,
+  showAfterAttempts: 1,
+});
 
 function Chat() {
   useConfigureSuggestions({
@@ -46,10 +56,11 @@ export default function Page({ params }: PageProps) {
       runtimeUrl={`/api/copilotkit/${integrationId}`}
       showDevConsole={false}
       agent="a2ui_recovery"
+      // TEMPORARY (OSS-162): see recovery-renderer.tsx. Drop once published react-core
+      // ships the built-in createA2UIRecoveryRenderer.
+      renderActivityMessages={[recoveryRenderer] as any}
       a2ui={{
         catalog: dynamicSchemaCatalog,
-        // aimock attempts are instant, so reveal the "Retrying…" hint
-        // immediately/after the first retry for the demo (default would hide it).
         recovery: { showAfterMs: 0, showAfterAttempts: 1 },
       }}
     >

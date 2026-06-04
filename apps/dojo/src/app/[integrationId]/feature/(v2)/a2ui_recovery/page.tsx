@@ -18,12 +18,12 @@ interface PageProps {
   params: Promise<{ integrationId: string }>;
 }
 
-// aimock attempts are instant, so reveal the "Retrying…" hint immediately / after the
-// first retry for the demo (the production default delays it ~2s).
-const recoveryRenderer = createA2UIRecoveryRenderer({
-  showAfterMs: 0,
-  showAfterAttempts: 1,
-});
+// Module-level (stable reference): CopilotKit's renderActivityMessages prop is guarded by
+// useStableArrayProp, so this MUST be a constant array, not an inline literal. aimock attempts
+// are instant, so reveal the "Retrying…" hint immediately for the demo (prod default delays ~2s).
+const recoveryRenderers = [
+  createA2UIRecoveryRenderer({ showAfterMs: 0, showAfterAttempts: 1 }),
+];
 
 function Chat() {
   useConfigureSuggestions({
@@ -58,7 +58,7 @@ export default function Page({ params }: PageProps) {
       agent="a2ui_recovery"
       // TEMPORARY (OSS-162): see recovery-renderer.tsx. Drop once published react-core
       // ships the built-in createA2UIRecoveryRenderer.
-      renderActivityMessages={[recoveryRenderer] as any}
+      renderActivityMessages={recoveryRenderers as any}
       a2ui={{
         catalog: dynamicSchemaCatalog,
         recovery: { showAfterMs: 0, showAfterAttempts: 1 },

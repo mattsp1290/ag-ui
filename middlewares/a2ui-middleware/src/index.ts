@@ -470,23 +470,29 @@ export class A2UIMiddleware extends Middleware {
             if (streaming) {
               streaming.args += argsEvent.delta;
 
-              // OSS-162: throttled live token estimate on the building/retrying
-              // skeleton (only while pre-paint). Emitted on the surface activity's
-              // stable messageId so it refreshes the skeleton in place. Throttled
-              // by token growth so a flood of arg deltas can't flood the stream.
-              if (showProgressTokens && !streaming.componentsEmitted && !streaming.dataComplete) {
-                const tokenKey = streaming.outerCallId ?? argsEvent.toolCallId;
+              // OSS-162: throttled live token estimate on the BUILDING skeleton.
+              // Only while still building this call's first attempt — once a prior
+              // attempt has been rejected (retrying) we must NOT emit here: doing so
+              // would overwrite the reject's rich "retrying" snapshot (correct
+              // attempt number + validation errors) with a counter-only one, which
+              // both reset the count to the wrong attempt and flickered the dev
+              // detail away. The retry snapshot owns the screen until paint / next
+              // reject / hard-failure. Throttled by token growth to avoid flooding.
+              const tokenKey = streaming.outerCallId ?? argsEvent.toolCallId;
+              if (
+                showProgressTokens &&
+                !streaming.componentsEmitted &&
+                !streaming.componentsRejected &&
+                !streaming.dataComplete &&
+                !retriedOuterKeys.has(tokenKey)
+              ) {
                 const tokens = estimateTokens(streaming.args);
                 if (tokens - (lastTokenEmitByKey.get(tokenKey) ?? 0) >= TOKEN_EMIT_STEP) {
                   lastTokenEmitByKey.set(tokenKey, tokens);
-                  const retrying = retriedOuterKeys.has(tokenKey);
                   subscriber.next(
                     this.buildLifecycleActivity(tokenKey, {
-                      status: retrying ? "retrying" : "building",
+                      status: "building",
                       progressTokens: tokens,
-                      ...(retrying
-                        ? { attempt: attemptCountByKey.get(tokenKey), maxAttempts }
-                        : {}),
                     }),
                   );
                 }

@@ -140,6 +140,40 @@ describe("A2UI middleware — unified generation lifecycle gate (OSS-162)", () =
     expect((retrying[0] as any).content.maxAttempts).toBe(3);
   });
 
+  it("keeps the retry snapshot stable as the rejected attempt keeps streaming (no 1/N, errors persist)", async () => {
+    // Chunk the args so the components array closes (→ reject) and MORE deltas
+    // (the data tail) follow. Regression: those trailing deltas used to emit a
+    // counter-only "retrying" snapshot with the stale attempt (1) and no errors,
+    // which showed "1/3" and flickered the validation-issues detail away.
+    const mw = new A2UIMiddleware({ schema: CATALOG });
+    const fullArgs = JSON.stringify({ surfaceId: "hotels", components: [ROOT, BAD_CARD], data: DATA });
+    const deltas: BaseEvent[] = [];
+    for (let i = 0; i < fullArgs.length; i += 8) {
+      deltas.push({ type: EventType.TOOL_CALL_ARGS, toolCallId: "tc1", delta: fullArgs.substring(i, i + 8) } as BaseEvent);
+    }
+    const events = await collect(
+      mw.run(
+        input(),
+        new MockAgent([
+          { type: EventType.RUN_STARTED, runId: "r", threadId: "t" },
+          { type: EventType.TOOL_CALL_START, toolCallId: "tc1", toolCallName: "render_a2ui" },
+          ...deltas,
+          { type: EventType.TOOL_CALL_END, toolCallId: "tc1" },
+          { type: EventType.RUN_FINISHED, runId: "r", threadId: "t" },
+        ] as BaseEvent[]),
+      ),
+    );
+    const retrying = withStatus(events, "retrying");
+    expect(retrying.length).toBeGreaterThanOrEqual(1);
+    for (const r of retrying) {
+      // The first retry is attempt 2 — attempt 1 is the initial try, never a retry.
+      expect((r as any).content.attempt).toBe(2);
+      // The dev detail (validation errors) persists on every retry snapshot.
+      expect(Array.isArray((r as any).content.errors)).toBe(true);
+      expect((r as any).content.errors.length).toBeGreaterThan(0);
+    }
+  });
+
   it("emits a hard-failure lifecycle snapshot when the tool result is an exhausted envelope", async () => {
     const mw = new A2UIMiddleware({ schema: CATALOG });
     const errorEnvelope = JSON.stringify({ error: "Failed to generate valid A2UI after 3 attempt(s)", code: "a2ui_recovery_exhausted", attempts: [{ attempt: 1, ok: false }] });

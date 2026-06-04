@@ -101,6 +101,7 @@ on:
           - integration-watsonx-ts
           - middleware-a2a
           - middleware-a2ui
+          - middleware-mcp
           - middleware-mcp-apps
           - sdk-py
           - sdk-ts
@@ -373,6 +374,7 @@ jobs:
           path: |
             sdks/typescript/packages/*/dist/
             integrations/*/typescript/dist/
+            integrations/**/typescript/dist/
             middlewares/*/dist/
           retention-days: 1
 
@@ -507,9 +509,11 @@ jobs:
           path: |
             sdks/typescript/packages/*/dist/
             integrations/*/typescript/dist/
+            integrations/**/typescript/dist/
             middlewares/*/dist/
             sdks/typescript/packages/*/package.json
             integrations/*/typescript/package.json
+            integrations/**/typescript/package.json
             middlewares/*/package.json
           retention-days: 1
 

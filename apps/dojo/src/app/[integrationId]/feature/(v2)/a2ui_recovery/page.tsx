@@ -21,6 +21,8 @@ interface PageProps {
 // Module-level (stable reference): CopilotKit's renderActivityMessages prop is guarded by
 // useStableArrayProp, so this MUST be a constant array, not an inline literal. aimock attempts
 // are instant, so reveal the "Retrying…" hint immediately for the demo (prod default delays ~2s).
+// (Timing lives on the renderer here, not on `a2ui.recovery` — that config key only exists on
+// the unpublished react-core build, and this dojo runs the published package.)
 const recoveryRenderers = [
   createA2UIRecoveryRenderer({ showAfterMs: 0, showAfterAttempts: 1 }),
 ];
@@ -61,7 +63,6 @@ export default function Page({ params }: PageProps) {
       renderActivityMessages={recoveryRenderers as any}
       a2ui={{
         catalog: dynamicSchemaCatalog,
-        recovery: { showAfterMs: 0, showAfterAttempts: 1 },
       }}
     >
       <div className="flex justify-center items-center h-full w-full">

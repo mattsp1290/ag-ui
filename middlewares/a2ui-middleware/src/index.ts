@@ -24,7 +24,7 @@ import {
 } from "./types";
 import { RENDER_A2UI_TOOL, RENDER_A2UI_TOOL_NAME, RENDER_A2UI_TOOL_GUIDELINES, LOG_A2UI_EVENT_TOOL_NAME } from "./tools";
 import { getOperationSurfaceId, tryParseA2UIOperations, A2UI_OPERATIONS_KEY, extractCompleteItemsWithStatus, extractCompleteObject, extractDataArrayItems, extractStringField } from "./schema";
-import { validateA2UIComponents, A2UI_RECOVERY_ACTIVITY_TYPE, type A2UIValidationCatalog } from "@ag-ui/a2ui-toolkit";
+import { validateA2UIComponents, MAX_A2UI_ATTEMPTS, type A2UIValidationCatalog } from "@ag-ui/a2ui-toolkit";
 
 /**
  * Detect a structured hard-failure envelope produced by the toolkit's recovery
@@ -126,21 +126,28 @@ export class A2UIMiddleware extends Middleware {
   }
 
   /**
-   * Build a recovery-status activity (OSS-162). Client-only: it carries the
-   * `status` ("retrying" | "failed") + errors/attempts as a data contract; the
-   * client decides when/whether to surface it (per its `showRetryUIAfter`).
-   * Keyed by the outer call so successive attempts coalesce via `replace`.
+   * Build a pre-paint lifecycle snapshot for the `a2ui-surface` activity (OSS-162).
+   *
+   * The WHOLE generative-UI lifecycle rides ONE stable messageId
+   * (`a2ui-surface-${key}`, key = outer call): `status: "building" | "retrying" |
+   * "failed"` pre-paint, then `a2ui_operations` on paint. Because every state
+   * `replace`s the same messageId, the painted surface supersedes the skeleton in
+   * place — no separate "resolved" signal, and never more than one loader.
+   *
+   * The lifecycle metadata lives on the AG-UI activity-content WRAPPER, never
+   * inside an A2UI envelope (the `a2ui_operations` elements stay strictly
+   * `{ version, <one op> }`, per the v0.9 envelope spec).
+   *
+   * `debugExposure` is stamped from server config so the client renderer honors
+   * it; applies to all wrapped agents (Python + TS) since this middleware is the
+   * single emitter.
    */
-  private buildRecoveryActivity(key: string, content: Record<string, unknown>): ActivitySnapshotEvent {
-    // Stamp the server-configured debugExposure (OSS-162) into every recovery
-    // activity (retrying / resolved / failed) so the client renderer honors it.
-    // Applies to all wrapped agents — Python and TS — since this middleware is
-    // the single emitter. Omitted when unset so the client default applies.
+  private buildLifecycleActivity(key: string, content: Record<string, unknown>): ActivitySnapshotEvent {
     const debugExposure = this.config.recovery?.debugExposure;
     return {
       type: EventType.ACTIVITY_SNAPSHOT,
-      messageId: `a2ui-recovery-${key}`,
-      activityType: A2UI_RECOVERY_ACTIVITY_TYPE,
+      messageId: `a2ui-surface-${key}`,
+      activityType: A2UIActivityType,
       content: debugExposure ? { ...content, debugExposure } : content,
       replace: true,
     };
@@ -382,10 +389,22 @@ export class A2UIMiddleware extends Middleware {
         dataComplete: boolean;     // full (closed) data model emitted
       }>();
 
-      // OSS-162: outer-call recovery keys that have emitted a "retrying" status,
-      // so a later attempt that paints can clear it with a "resolved" status
-      // (otherwise a slow retry's hint would linger under the successful surface).
+      // OSS-162 generation-lifecycle config (server-side; covers Python + TS).
+      const showProgressTokens = this.config.recovery?.showProgressTokens !== false; // default true
+      const maxAttempts = this.config.recovery?.maxAttempts ?? MAX_A2UI_ATTEMPTS;
+      const TOKEN_EMIT_STEP = 20; // throttle: re-emit progressTokens per ~20 tokens of growth
+
+      // Per outer-call lifecycle bookkeeping, keyed by `outerCallId ?? toolCallId`
+      // (the same key the surface messageId uses, so states swap in place):
+      //  - retriedOuterKeys: keys that have entered "retrying" (a prior attempt's
+      //    components were rejected) — so the building skeleton becomes the
+      //    retrying skeleton and stays there until paint or hard-failure.
+      //  - attemptCountByKey: number of render attempts seen (1 per render_a2ui call).
+      //  - lastTokenEmitByKey: token count at the last throttled progress emit.
       const retriedOuterKeys = new Set<string>();
+      const attemptCountByKey = new Map<string, number>();
+      const lastTokenEmitByKey = new Map<string, number>();
+      const estimateTokens = (args: string) => Math.round(args.length / 4);
 
       // Outer tool call context. Any non-A2UI tool call (e.g. ``generate_a2ui``
       // wrapping a subagent that emits ``render_a2ui`` calls) is treated as
@@ -422,6 +441,19 @@ export class A2UIMiddleware extends Middleware {
                 componentsRejected: false,
                 dataItemsKey: "items", dataItemsCount: 0, dataComplete: false,
               });
+
+              // OSS-162: this render attempt begins. Emit the pre-paint state on
+              // the surface activity so the skeleton shows immediately (the
+              // per-tool-call skeleton was retired). The FIRST attempt is
+              // "building"; a subsequent attempt means we're already "retrying"
+              // (a prior attempt's components were rejected), so keep that state.
+              const key = currentOuterCallId ?? startEvent.toolCallId;
+              const attempt = (attemptCountByKey.get(key) ?? 0) + 1;
+              attemptCountByKey.set(key, attempt);
+              lastTokenEmitByKey.set(key, 0);
+              if (!retriedOuterKeys.has(key)) {
+                subscriber.next(this.buildLifecycleActivity(key, { status: "building" }));
+              }
             } else if (!nonOuterToolNames.has(startEvent.toolCallName)) {
               // Any other tool call becomes the active outer-call context.
               // ``render_a2ui`` events that follow will dedup against this id.
@@ -437,6 +469,28 @@ export class A2UIMiddleware extends Middleware {
             const streaming = streamingToolCalls.get(argsEvent.toolCallId);
             if (streaming) {
               streaming.args += argsEvent.delta;
+
+              // OSS-162: throttled live token estimate on the building/retrying
+              // skeleton (only while pre-paint). Emitted on the surface activity's
+              // stable messageId so it refreshes the skeleton in place. Throttled
+              // by token growth so a flood of arg deltas can't flood the stream.
+              if (showProgressTokens && !streaming.componentsEmitted && !streaming.dataComplete) {
+                const tokenKey = streaming.outerCallId ?? argsEvent.toolCallId;
+                const tokens = estimateTokens(streaming.args);
+                if (tokens - (lastTokenEmitByKey.get(tokenKey) ?? 0) >= TOKEN_EMIT_STEP) {
+                  lastTokenEmitByKey.set(tokenKey, tokens);
+                  const retrying = retriedOuterKeys.has(tokenKey);
+                  subscriber.next(
+                    this.buildLifecycleActivity(tokenKey, {
+                      status: retrying ? "retrying" : "building",
+                      progressTokens: tokens,
+                      ...(retrying
+                        ? { attempt: attemptCountByKey.get(tokenKey), maxAttempts }
+                        : {}),
+                    }),
+                  );
+                }
+              }
 
               // Performance: only attempt extraction when the delta contains
               // characters that could complete a JSON structure. Most deltas
@@ -514,9 +568,20 @@ export class A2UIMiddleware extends Middleware {
                         streaming.componentsRejected = true;
                         const recoveryKey = streaming.outerCallId ?? argsEvent.toolCallId;
                         retriedOuterKeys.add(recoveryKey);
+                        // Show the attempt we're about to retry into (the failed
+                        // one + 1), capped at the configured cap. Folds onto the
+                        // surface activity so it replaces the building skeleton in
+                        // place (same messageId) — no separate recovery activity.
+                        const nextAttempt = Math.min(
+                          (attemptCountByKey.get(recoveryKey) ?? 1) + 1,
+                          maxAttempts,
+                        );
+                        lastTokenEmitByKey.set(recoveryKey, 0);
                         subscriber.next(
-                          this.buildRecoveryActivity(recoveryKey, {
+                          this.buildLifecycleActivity(recoveryKey, {
                             status: "retrying",
+                            attempt: nextAttempt,
+                            maxAttempts,
                             errors: validation.errors,
                           }),
                         );
@@ -567,24 +632,21 @@ export class A2UIMiddleware extends Middleware {
                     }
 
                     const content: Record<string, unknown> = { [A2UI_OPERATIONS_KEY]: ops };
+                    // OSS-162: key by the outer call only (no surfaceId), so this
+                    // painted surface shares the messageId of the building/retrying
+                    // skeleton and REPLACES it in place. The client groups ops by
+                    // surfaceId from the content, so dropping it from the id is safe.
                     const snapshotEvent: ActivitySnapshotEvent = {
                       type: EventType.ACTIVITY_SNAPSHOT,
-                      messageId: `a2ui-surface-${surfaceId}-${streaming.outerCallId ?? argsEvent.toolCallId}`,
+                      messageId: `a2ui-surface-${streaming.outerCallId ?? argsEvent.toolCallId}`,
                       activityType: A2UIActivityType,
                       content,
                       replace: true,
                     };
                     subscriber.next(snapshotEvent);
-
-                    // OSS-162: a valid surface painted for this outer call — clear
-                    // any prior "retrying" status (emitted once, then forgotten).
-                    const recoveryKey = streaming.outerCallId ?? argsEvent.toolCallId;
-                    if (retriedOuterKeys.has(recoveryKey)) {
-                      retriedOuterKeys.delete(recoveryKey);
-                      subscriber.next(
-                        this.buildRecoveryActivity(recoveryKey, { status: "resolved" }),
-                      );
-                    }
+                    // A valid surface painted → it supersedes any building/retrying
+                    // skeleton on this same messageId. No separate "resolved" needed.
+                    retriedOuterKeys.delete(streaming.outerCallId ?? argsEvent.toolCallId);
                   }
 
                   // Final authoritative data emit once the whole data object
@@ -602,7 +664,7 @@ export class A2UIMiddleware extends Middleware {
                       const content: Record<string, unknown> = { [A2UI_OPERATIONS_KEY]: ops };
                       const snapshotEvent: ActivitySnapshotEvent = {
                         type: EventType.ACTIVITY_SNAPSHOT,
-                        messageId: `a2ui-surface-${surfaceId}-${streaming.outerCallId ?? argsEvent.toolCallId}`,
+                        messageId: `a2ui-surface-${streaming.outerCallId ?? argsEvent.toolCallId}`,
                         activityType: A2UIActivityType,
                         content,
                         replace: true,
@@ -678,13 +740,21 @@ export class A2UIMiddleware extends Middleware {
                   // it silently — the conversation stays usable.
                   const failure = tryParseRecoveryFailure(resultEvent.content);
                   if (failure) {
+                    // Hard failure replaces the building/retrying skeleton in
+                    // place (same surface messageId). `attempts.length` is the
+                    // true cap reached; fall back to the configured cap.
+                    const failKey = currentOuterCallId ?? resultEvent.toolCallId;
                     subscriber.next(
-                      this.buildRecoveryActivity(currentOuterCallId ?? resultEvent.toolCallId, {
+                      this.buildLifecycleActivity(failKey, {
                         status: "failed",
                         error: failure.error,
                         attempts: failure.attempts,
+                        maxAttempts: Array.isArray(failure.attempts)
+                          ? failure.attempts.length || maxAttempts
+                          : maxAttempts,
                       }),
                     );
+                    retriedOuterKeys.delete(failKey);
                   }
                 }
               }
@@ -789,9 +859,16 @@ export class A2UIMiddleware extends Middleware {
     // with partial operations that can break data binding resolution.
     for (const [surfaceId, surfaceOps] of operationsBySurface) {
       // Include toolCallId in messageId to ensure each tool invocation
-      // creates a distinct activity message, even for the same surfaceId
+      // creates a distinct activity message, even for the same surfaceId.
+      // OSS-162: for the common single-surface case, key by the outer call ONLY
+      // (no surfaceId) so this paint shares the messageId of any building/retrying
+      // skeleton emitted for the same call and replaces it in place. Multi-surface
+      // results keep the per-surface id (they never had a single lifecycle slot).
+      const singleSurface = operationsBySurface.size === 1;
       const messageId = toolCallId
-        ? `a2ui-surface-${surfaceId}-${toolCallId}`
+        ? singleSurface
+          ? `a2ui-surface-${toolCallId}`
+          : `a2ui-surface-${surfaceId}-${toolCallId}`
         : `a2ui-surface-${surfaceId}`;
 
       const content: Record<string, unknown> = { [A2UI_OPERATIONS_KEY]: surfaceOps };

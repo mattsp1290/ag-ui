@@ -48,30 +48,46 @@ function streamRender(components: unknown[]) {
   ] as BaseEvent[];
 }
 
+// The A2UI generation lifecycle now rides ONE `a2ui-surface` activity (OSS-162):
+// pre-paint snapshots carry a `status`; the painted surface carries `a2ui_operations`.
 const surfaceSnapshots = (events: BaseEvent[]) =>
   events.filter((e) => e.type === EventType.ACTIVITY_SNAPSHOT && (e as any).activityType === A2UIActivityType);
-const recoveryActivities = (events: BaseEvent[]) =>
-  events.filter((e) => e.type === EventType.ACTIVITY_SNAPSHOT && (e as any).activityType === "a2ui_recovery");
+const paints = (events: BaseEvent[]) =>
+  surfaceSnapshots(events).filter((e) => Array.isArray((e as any).content?.a2ui_operations));
+const lifecycle = (events: BaseEvent[]) =>
+  surfaceSnapshots(events).filter((e) => typeof (e as any).content?.status === "string");
+const withStatus = (events: BaseEvent[], status: string) =>
+  lifecycle(events).filter((e) => (e as any).content.status === status);
 
-describe("A2UI middleware — semantic-validation gate (OSS-162)", () => {
+describe("A2UI middleware — unified generation lifecycle gate (OSS-162)", () => {
   it("suppresses a semantically-invalid streamed component tree (no faulty paint)", async () => {
     const mw = new A2UIMiddleware({ schema: CATALOG });
     const events = await collect(mw.run(input(), new MockAgent(streamRender([ROOT, BAD_CARD]))));
     // No surface painted for the invalid attempt...
-    expect(surfaceSnapshots(events)).toHaveLength(0);
-    // ...and a recovery "retrying" status is surfaced (client decides when to show it).
-    const recovery = recoveryActivities(events);
-    expect(recovery.length).toBeGreaterThanOrEqual(1);
-    expect((recovery[0] as any).content.status).toBe("retrying");
+    expect(paints(events)).toHaveLength(0);
+    // ...and a "retrying" lifecycle status is surfaced on the surface activity.
+    expect(withStatus(events, "retrying").length).toBeGreaterThanOrEqual(1);
   });
 
   it("emits a surface for a valid streamed tree (existing behavior preserved)", async () => {
     const mw = new A2UIMiddleware({ schema: CATALOG });
     const events = await collect(mw.run(input(), new MockAgent(streamRender([ROOT, GOOD_CARD]))));
-    const snaps = surfaceSnapshots(events);
-    expect(snaps.length).toBeGreaterThanOrEqual(1);
-    expect((snaps[0] as any).content.a2ui_operations.length).toBeGreaterThanOrEqual(2);
-    expect(recoveryActivities(events)).toHaveLength(0);
+    const p = paints(events);
+    expect(p.length).toBeGreaterThanOrEqual(1);
+    expect((p[0] as any).content.a2ui_operations.length).toBeGreaterThanOrEqual(2);
+    // A valid tree never retries.
+    expect(withStatus(events, "retrying")).toHaveLength(0);
+  });
+
+  it("emits a 'building' skeleton when generation starts, sharing the paint's messageId", async () => {
+    const mw = new A2UIMiddleware({ schema: CATALOG });
+    const events = await collect(mw.run(input(), new MockAgent(streamRender([ROOT, GOOD_CARD]))));
+    const building = withStatus(events, "building");
+    expect(building.length).toBeGreaterThanOrEqual(1);
+    // In-place: the building skeleton and the painted surface share one messageId,
+    // so the surface replaces the skeleton rather than stacking beneath it.
+    const buildingId = (building[0] as any).messageId;
+    expect(paints(events).some((e) => (e as any).messageId === buildingId)).toBe(true);
   });
 
   it("does NOT over-suppress when no catalog is configured (structural-only)", async () => {
@@ -79,10 +95,10 @@ describe("A2UI middleware — semantic-validation gate (OSS-162)", () => {
     const mw = new A2UIMiddleware();
     const unknown = [{ id: "root", component: "MysteryCard", children: { componentId: "card", path: "/items" } }, { id: "card", component: "MysteryCard", name: { path: "name" } }];
     const events = await collect(mw.run(input(), new MockAgent(streamRender(unknown))));
-    expect(surfaceSnapshots(events).length).toBeGreaterThanOrEqual(1);
+    expect(paints(events).length).toBeGreaterThanOrEqual(1);
   });
 
-  it("clears the retrying status with a resolved status once a later attempt paints", async () => {
+  it("a valid later attempt replaces the retrying skeleton in place (same messageId)", async () => {
     const mw = new A2UIMiddleware({ schema: CATALOG });
     const badArgs = JSON.stringify({ surfaceId: "hotels", components: [ROOT, BAD_CARD], data: DATA });
     const goodArgs = JSON.stringify({ surfaceId: "hotels", components: [ROOT, GOOD_CARD], data: DATA });
@@ -104,14 +120,27 @@ describe("A2UI middleware — semantic-validation gate (OSS-162)", () => {
         ] as BaseEvent[]),
       ),
     );
-    const recovery = recoveryActivities(events);
-    expect(recovery.some((e) => (e as any).content.status === "retrying")).toBe(true);
-    expect(recovery.some((e) => (e as any).content.status === "resolved")).toBe(true);
-    // The valid (second) attempt painted a surface.
-    expect(surfaceSnapshots(events).length).toBeGreaterThanOrEqual(1);
+    const retrying = withStatus(events, "retrying");
+    expect(retrying.length).toBeGreaterThanOrEqual(1);
+    const painted = paints(events);
+    expect(painted.length).toBeGreaterThanOrEqual(1);
+    // In-place replacement: the retrying skeleton and the painted surface share the
+    // one outer-call messageId (no leftover skeleton beneath the surface).
+    const retryId = (retrying[0] as any).messageId;
+    expect(painted.some((e) => (e as any).messageId === retryId)).toBe(true);
   });
 
-  it("emits a hard-failure recovery activity when the tool result is an exhausted envelope", async () => {
+  it("the retrying status carries the attempt count and the configured cap", async () => {
+    const mw = new A2UIMiddleware({ schema: CATALOG });
+    const events = await collect(mw.run(input(), new MockAgent(streamRender([ROOT, BAD_CARD]))));
+    const retrying = withStatus(events, "retrying");
+    expect(retrying.length).toBeGreaterThanOrEqual(1);
+    // First failure → we're heading into attempt 2 of the default 3.
+    expect((retrying[0] as any).content.attempt).toBe(2);
+    expect((retrying[0] as any).content.maxAttempts).toBe(3);
+  });
+
+  it("emits a hard-failure lifecycle snapshot when the tool result is an exhausted envelope", async () => {
     const mw = new A2UIMiddleware({ schema: CATALOG });
     const errorEnvelope = JSON.stringify({ error: "Failed to generate valid A2UI after 3 attempt(s)", code: "a2ui_recovery_exhausted", attempts: [{ attempt: 1, ok: false }] });
     const events = await collect(
@@ -127,28 +156,41 @@ describe("A2UI middleware — semantic-validation gate (OSS-162)", () => {
         ]),
       ),
     );
-    expect(surfaceSnapshots(events)).toHaveLength(0);
-    const recovery = recoveryActivities(events);
-    expect(recovery.length).toBe(1);
-    expect((recovery[0] as any).content.status).toBe("failed");
-    expect((recovery[0] as any).content.error).toContain("Failed to generate");
+    expect(paints(events)).toHaveLength(0);
+    const failed = withStatus(events, "failed");
+    expect(failed.length).toBe(1);
+    expect((failed[0] as any).content.error).toContain("Failed to generate");
   });
 
-  it("stamps server-configured recovery.debugExposure onto the recovery activity (OSS-162)", async () => {
+  it("stamps server-configured recovery.debugExposure onto the lifecycle snapshot (OSS-162)", async () => {
     // Server-side knob, applied to every wrapped agent (Python + TS) since this
-    // middleware is the single emitter of a2ui_recovery.
+    // middleware is the single emitter of the generation lifecycle.
     const mw = new A2UIMiddleware({ schema: CATALOG, recovery: { debugExposure: "hidden" } });
     const events = await collect(mw.run(input(), new MockAgent(streamRender([ROOT, BAD_CARD]))));
-    const recovery = recoveryActivities(events);
-    expect(recovery.length).toBeGreaterThanOrEqual(1);
-    expect((recovery[0] as any).content.debugExposure).toBe("hidden");
+    const retrying = withStatus(events, "retrying");
+    expect(retrying.length).toBeGreaterThanOrEqual(1);
+    expect((retrying[0] as any).content.debugExposure).toBe("hidden");
   });
 
   it("omits debugExposure when unconfigured, so the client default applies (OSS-162)", async () => {
     const mw = new A2UIMiddleware({ schema: CATALOG });
     const events = await collect(mw.run(input(), new MockAgent(streamRender([ROOT, BAD_CARD]))));
-    const recovery = recoveryActivities(events);
-    expect(recovery.length).toBeGreaterThanOrEqual(1);
-    expect((recovery[0] as any).content.debugExposure).toBeUndefined();
+    const retrying = withStatus(events, "retrying");
+    expect(retrying.length).toBeGreaterThanOrEqual(1);
+    expect((retrying[0] as any).content.debugExposure).toBeUndefined();
+  });
+
+  it("carries a live progressTokens by default but omits it when showProgressTokens is false", async () => {
+    const on = new A2UIMiddleware({ schema: CATALOG });
+    const onEvents = await collect(on.run(input(), new MockAgent(streamRender([ROOT, GOOD_CARD]))));
+    expect(
+      lifecycle(onEvents).some((e) => typeof (e as any).content.progressTokens === "number"),
+    ).toBe(true);
+
+    const off = new A2UIMiddleware({ schema: CATALOG, recovery: { showProgressTokens: false } });
+    const offEvents = await collect(off.run(input(), new MockAgent(streamRender([ROOT, GOOD_CARD]))));
+    expect(
+      lifecycle(offEvents).every((e) => (e as any).content.progressTokens === undefined),
+    ).toBe(true);
   });
 });

@@ -41,19 +41,29 @@ export interface A2UIMiddlewareConfig {
   schema?: A2UIInlineCatalogSchema | A2UIComponentSchema[];
 
   /**
-   * A2UI error-recovery options (OSS-162). A server-side knob applied to every
-   * agent this middleware wraps — Python and TypeScript alike, since the
-   * middleware is the single emitter of the `a2ui_recovery` activity for all of
-   * them. Values here are stamped into that activity's data contract so the
-   * client recovery renderer honors them.
+   * A2UI generation-lifecycle options (OSS-162). A server-side knob applied to
+   * every agent this middleware wraps — Python and TypeScript alike, since the
+   * middleware is the single emitter of the generation lifecycle for all of them.
+   * Values are stamped onto the `a2ui-surface` activity's pre-paint content
+   * (`status: "building" | "retrying" | "failed"`) so the client renderer honors
+   * them. The whole lifecycle rides one stable messageId and is replaced in place
+   * by the painted surface.
    *
    * - `debugExposure` — how much retry/error detail the renderer surfaces:
    *   `"hidden"` (no expander), `"collapsed"` (expander present, closed), or
    *   `"verbose"` (expander open). When unset, the client default (`"collapsed"`)
    *   applies.
+   * - `showProgressTokens` — when `true` (default), the building skeleton carries
+   *   a throttled live token estimate of the streamed UI spec. Set `false` for a
+   *   countless skeleton (the CSS animation is unaffected either way).
+   * - `maxAttempts` — the retry cap shown in the "Retrying… (N/M attempts)" label.
+   *   Defaults to the toolkit's `MAX_A2UI_ATTEMPTS`; set it to match the adapter's
+   *   recovery cap if you override that.
    */
   recovery?: {
     debugExposure?: "hidden" | "collapsed" | "verbose";
+    showProgressTokens?: boolean;
+    maxAttempts?: number;
   };
 
   /**

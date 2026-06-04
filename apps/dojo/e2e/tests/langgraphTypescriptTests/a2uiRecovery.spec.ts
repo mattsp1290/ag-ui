@@ -40,20 +40,9 @@ test("[LangGraph TS] A2UI recovery — exhaustion never paints a faulty surface,
   await a2ui.sendMessage("Thanks anyway.");
 });
 
-// TEMPORARY GATE (OSS-162): the tasteful hard-failure MESSAGE is rendered by
-// createA2UIRecoveryRenderer in @copilotkit/react-core. Until that ships in a published
-// release, the dojo runs the published renderer (which lacks it), so this assertion can't
-// pass here. It runs only when the dojo is linked against a local CopilotKit build that
-// includes the renderer (set A2UI_LOCAL_RENDERER=1).
-// REMOVE this skip once @copilotkit/react-core publishes the recovery renderer.
-test("[LangGraph TS] A2UI recovery — exhaustion shows the hard-failure UI (needs local @copilotkit renderer)", async ({
+test("[LangGraph TS] A2UI recovery — exhaustion shows the hard-failure UI", async ({
   page,
 }) => {
-  test.skip(
-    !process.env.A2UI_LOCAL_RENDERER,
-    "requires the local @copilotkit recovery renderer; set A2UI_LOCAL_RENDERER=1 when the dojo is linked against a local CopilotKit build",
-  );
-
   await page.goto("/langgraph-typescript/feature/a2ui_recovery");
 
   const a2ui = new A2UIPage(page);
@@ -62,8 +51,14 @@ test("[LangGraph TS] A2UI recovery — exhaustion shows the hard-failure UI (nee
 
   // No faulty surface ever paints...
   await expect(a2ui.surface("hotel-comparison")).toHaveCount(0);
-  // ...and the tasteful hard-failure message is shown.
-  await expect(page.getByText(/Couldn't generate|went wrong/i)).toBeVisible({ timeout: 30_000 });
+  // ...and the tasteful hard-failure message is shown to the user. The renderer is
+  // registered by the dojo's a2ui_recovery page via renderActivityMessages (TEMP — see
+  // recovery-renderer.tsx — until @copilotkit/react-core publishes the built-in). Target
+  // the title specifically: the panel also has a "Something went wrong…" subtitle, so a
+  // broad /went wrong/ regex would match two elements and trip Playwright strict mode.
+  await expect(
+    page.getByText("Couldn't generate the UI").first(),
+  ).toBeVisible({ timeout: 30_000 });
 
   // Conversation remains usable after the hard failure.
   await a2ui.sendMessage("Thanks anyway.");

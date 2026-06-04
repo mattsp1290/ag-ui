@@ -1,15 +1,21 @@
 /**
- * aimock fixtures for the A2UI recovery showcase (OSS-162) — DRAFT, verify before wiring.
+ * aimock fixtures for the A2UI recovery showcase (OSS-162).
  *
  * Forces a STRUCTURAL error (no catalog needed — caught by structural validation
  * in both the adapter loop and the middleware gate), so it rides the existing
  * runtime A2UI wiring with no schema:
- *   - "compare hotels" demo → FIRST render_a2ui is a Row whose repeated child
+ *   - "luxury hotels" demo → FIRST render_a2ui is a Row whose repeated child
  *     references a `card` component the model forgot to include ("unresolved
  *     child"); once the error is fed back, it emits a valid surface (recovery
  *     succeeds → no wipe, brief "Retrying…", final surface).
  *   - "broken hotels" demo → ALWAYS the dangling-reference surface → recovery
  *     exhausts → tasteful hard-failure (conversation stays usable).
+ *
+ * IMPORTANT: every predicate is scoped to the recovery demo's own prompts
+ * ("luxury" / "broken"). The other A2UI demos (dynamic/fixed/advanced, incl.
+ * fixed_schema's "Find hotels") must fall through to their generic fixtures —
+ * an over-broad render_a2ui matcher here would hijack them and return THIS
+ * surface, breaking every other A2UI test.
  *
  * Wire by calling `registerA2UIRecoveryFixtures(mockServer)` from aimock-setup.ts
  * BEFORE the generic fixture loader (predicate fixtures must come first).
@@ -30,6 +36,11 @@ const userText = (messages: ChatMessage[] = []): string =>
 // Marker the toolkit appends to the sub-agent prompt on retry
 // (augmentPromptWithValidationErrors). Presence ⇒ this is a retry.
 const RETRY_MARKER = "Previous attempt was invalid";
+
+// Only THIS demo's prompts. Keep these distinct from the other A2UI demos so the
+// fixtures below never intercept them.
+const RECOVER = /luxury/i; // "Compare 3 luxury hotels…"  → recover-then-succeed
+const EXHAUST = /broken/i; // "Compare 3 broken hotels…"  → always invalid → exhaust
 
 // A Row that repeats a "card" template over /items.
 const ROOT = { id: "root", component: "Row", children: { componentId: "card", path: "/items" }, gap: 16 };
@@ -56,28 +67,37 @@ const renderArgs = (valid: boolean) =>
 export function registerA2UIRecoveryFixtures(mockServer: LLMock): void {
   const hasTool = (req: any, name: string) => req.tools?.some((t: any) => t.function.name === name);
 
-  // 1) Main agent: any hotel/recovery prompt → call the generate_a2ui sub-agent tool.
+  // 1) Main agent: recovery prompt → call the generate_a2ui sub-agent tool.
   mockServer.addFixture({
-    match: { predicate: (req: any) => hasTool(req, "generate_a2ui") && /hotel/i.test(userText(req.messages)) },
+    match: {
+      predicate: (req: any) =>
+        hasTool(req, "generate_a2ui") && (RECOVER.test(userText(req.messages)) || EXHAUST.test(userText(req.messages))),
+    },
     response: { toolCalls: [{ name: "generate_a2ui", arguments: JSON.stringify({ intent: "create" }) }] },
   });
 
   // 2) Sub-agent — EXHAUSTION demo ("broken hotels"): always the dangling-ref surface.
+  //    Checked before the recover fixtures so a "broken" retry stays invalid.
   mockServer.addFixture({
-    match: { predicate: (req: any) => hasTool(req, "render_a2ui") && /broken/i.test(allText(req.messages)) },
+    match: { predicate: (req: any) => hasTool(req, "render_a2ui") && EXHAUST.test(allText(req.messages)) },
     response: { toolCalls: [{ name: "render_a2ui", arguments: renderArgs(false) }] },
   });
 
-  // 3) Sub-agent — RECOVERY demo, RETRY (errors fed back) → valid. Registered
-  //    before the first-attempt fixture so it matches first.
+  // 3) Sub-agent — RECOVER demo ("luxury hotels"), RETRY (errors fed back) → valid.
   mockServer.addFixture({
-    match: { predicate: (req: any) => hasTool(req, "render_a2ui") && allText(req.messages).includes(RETRY_MARKER) },
+    match: {
+      predicate: (req: any) =>
+        hasTool(req, "render_a2ui") && RECOVER.test(allText(req.messages)) && allText(req.messages).includes(RETRY_MARKER),
+    },
     response: { toolCalls: [{ name: "render_a2ui", arguments: renderArgs(true) }] },
   });
 
-  // 4) Sub-agent — RECOVERY demo, FIRST attempt (no marker yet) → invalid (dangling ref).
+  // 4) Sub-agent — RECOVER demo ("luxury hotels"), FIRST attempt (no marker) → invalid.
   mockServer.addFixture({
-    match: { predicate: (req: any) => hasTool(req, "render_a2ui") && !allText(req.messages).includes(RETRY_MARKER) },
+    match: {
+      predicate: (req: any) =>
+        hasTool(req, "render_a2ui") && RECOVER.test(allText(req.messages)) && !allText(req.messages).includes(RETRY_MARKER),
+    },
     response: { toolCalls: [{ name: "render_a2ui", arguments: renderArgs(false) }] },
   });
 }

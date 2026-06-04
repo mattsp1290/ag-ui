@@ -16,7 +16,8 @@ enum MessageRole {
   assistant('assistant'),
   user('user'),
   tool('tool'),
-  activity('activity');
+  activity('activity'),
+  reasoning('reasoning');
 
   final String value;
   const MessageRole(this.value);
@@ -44,12 +45,14 @@ sealed class Message extends AGUIModel with TypeDiscriminator {
   final MessageRole role;
   final String? content;
   final String? name;
+  final String? encryptedValue;
 
   const Message({
     this.id,
     required this.role,
     this.content,
     this.name,
+    this.encryptedValue,
   });
 
   @override
@@ -73,6 +76,8 @@ sealed class Message extends AGUIModel with TypeDiscriminator {
         return ToolMessage.fromJson(json);
       case MessageRole.activity:
         return ActivityMessage.fromJson(json);
+      case MessageRole.reasoning:
+        return ReasoningMessage.fromJson(json);
     }
   }
 
@@ -82,6 +87,7 @@ sealed class Message extends AGUIModel with TypeDiscriminator {
     'role': role.value,
     if (content != null) 'content': content,
     if (name != null) 'name': name,
+    if (encryptedValue != null) 'encryptedValue': encryptedValue,
   };
 }
 
@@ -96,6 +102,7 @@ class DeveloperMessage extends Message {
     required super.id,
     required this.content,
     super.name,
+    super.encryptedValue,
   }) : super(role: MessageRole.developer);
 
   factory DeveloperMessage.fromJson(Map<String, dynamic> json) {
@@ -103,6 +110,8 @@ class DeveloperMessage extends Message {
       id: JsonDecoder.requireField<String>(json, 'id'),
       content: JsonDecoder.requireField<String>(json, 'content'),
       name: JsonDecoder.optionalField<String>(json, 'name'),
+      encryptedValue: JsonDecoder.optionalField<String>(json, 'encryptedValue') ??
+          JsonDecoder.optionalField<String>(json, 'encrypted_value'),
     );
   }
 
@@ -111,11 +120,13 @@ class DeveloperMessage extends Message {
     String? id,
     String? content,
     String? name,
+    String? encryptedValue,
   }) {
     return DeveloperMessage(
       id: id ?? this.id,
       content: content ?? this.content,
       name: name ?? this.name,
+      encryptedValue: encryptedValue ?? this.encryptedValue,
     );
   }
 }
@@ -131,6 +142,7 @@ class SystemMessage extends Message {
     required super.id,
     required this.content,
     super.name,
+    super.encryptedValue,
   }) : super(role: MessageRole.system);
 
   factory SystemMessage.fromJson(Map<String, dynamic> json) {
@@ -138,6 +150,8 @@ class SystemMessage extends Message {
       id: JsonDecoder.requireField<String>(json, 'id'),
       content: JsonDecoder.requireField<String>(json, 'content'),
       name: JsonDecoder.optionalField<String>(json, 'name'),
+      encryptedValue: JsonDecoder.optionalField<String>(json, 'encryptedValue') ??
+          JsonDecoder.optionalField<String>(json, 'encrypted_value'),
     );
   }
 
@@ -146,11 +160,13 @@ class SystemMessage extends Message {
     String? id,
     String? content,
     String? name,
+    String? encryptedValue,
   }) {
     return SystemMessage(
       id: id ?? this.id,
       content: content ?? this.content,
       name: name ?? this.name,
+      encryptedValue: encryptedValue ?? this.encryptedValue,
     );
   }
 }
@@ -166,6 +182,7 @@ class AssistantMessage extends Message {
     required super.id,
     super.content,
     super.name,
+    super.encryptedValue,
     this.toolCalls,
   }) : super(role: MessageRole.assistant);
 
@@ -174,6 +191,8 @@ class AssistantMessage extends Message {
       id: JsonDecoder.requireField<String>(json, 'id'),
       content: JsonDecoder.optionalField<String>(json, 'content'),
       name: JsonDecoder.optionalField<String>(json, 'name'),
+      encryptedValue: JsonDecoder.optionalField<String>(json, 'encryptedValue') ??
+          JsonDecoder.optionalField<String>(json, 'encrypted_value'),
       toolCalls: JsonDecoder.optionalListField<Map<String, dynamic>>(
         json,
         'toolCalls',
@@ -188,7 +207,7 @@ class AssistantMessage extends Message {
   @override
   Map<String, dynamic> toJson() => {
     ...super.toJson(),
-    if (toolCalls != null && toolCalls!.isNotEmpty) 
+    if (toolCalls != null && toolCalls!.isNotEmpty)
       'toolCalls': toolCalls!.map((tc) => tc.toJson()).toList(),
   };
 
@@ -197,12 +216,14 @@ class AssistantMessage extends Message {
     String? id,
     String? content,
     String? name,
+    String? encryptedValue,
     List<ToolCall>? toolCalls,
   }) {
     return AssistantMessage(
       id: id ?? this.id,
       content: content ?? this.content,
       name: name ?? this.name,
+      encryptedValue: encryptedValue ?? this.encryptedValue,
       toolCalls: toolCalls ?? this.toolCalls,
     );
   }
@@ -242,6 +263,7 @@ class UserMessage extends Message {
     required super.id,
     required this.messageContent,
     super.name,
+    super.encryptedValue,
   }) : super(role: MessageRole.user);
 
   factory UserMessage.fromJson(Map<String, dynamic> json) {
@@ -249,6 +271,8 @@ class UserMessage extends Message {
       id: JsonDecoder.requireField<String>(json, 'id'),
       messageContent: UserMessageContent.fromJson(json['content']),
       name: JsonDecoder.optionalField<String>(json, 'name'),
+      encryptedValue: JsonDecoder.optionalField<String>(json, 'encryptedValue') ??
+          JsonDecoder.optionalField<String>(json, 'encrypted_value'),
     );
   }
 
@@ -274,11 +298,13 @@ class UserMessage extends Message {
     String? id,
     UserMessageContent? messageContent,
     String? name,
+    String? encryptedValue,
   }) {
     return UserMessage.fromContent(
       id: id ?? this.id,
       messageContent: messageContent ?? this.messageContent,
       name: name ?? this.name,
+      encryptedValue: encryptedValue ?? this.encryptedValue,
     );
   }
 }
@@ -298,12 +324,13 @@ class ToolMessage extends Message {
     required this.content,
     required this.toolCallId,
     this.error,
+    super.encryptedValue,
   }) : super(role: MessageRole.tool);
 
   factory ToolMessage.fromJson(Map<String, dynamic> json) {
     final toolCallId = JsonDecoder.optionalField<String>(json, 'toolCallId') ??
         JsonDecoder.optionalField<String>(json, 'tool_call_id');
-    
+
     if (toolCallId == null) {
       throw AGUIValidationError(
         message: 'Missing required field: toolCallId or tool_call_id',
@@ -311,12 +338,14 @@ class ToolMessage extends Message {
         json: json,
       );
     }
-    
+
     return ToolMessage(
       id: JsonDecoder.optionalField<String>(json, 'id'),
       content: JsonDecoder.requireField<String>(json, 'content'),
       toolCallId: toolCallId,
       error: JsonDecoder.optionalField<String>(json, 'error'),
+      encryptedValue: JsonDecoder.optionalField<String>(json, 'encryptedValue') ??
+          JsonDecoder.optionalField<String>(json, 'encrypted_value'),
     );
   }
 
@@ -333,12 +362,14 @@ class ToolMessage extends Message {
     String? content,
     String? toolCallId,
     String? error,
+    String? encryptedValue,
   }) {
     return ToolMessage(
       id: id ?? this.id,
       content: content ?? this.content,
       toolCallId: toolCallId ?? this.toolCallId,
       error: error ?? this.error,
+      encryptedValue: encryptedValue ?? this.encryptedValue,
     );
   }
 }
@@ -357,6 +388,7 @@ class ActivityMessage extends Message {
     required super.id,
     required this.activityType,
     required this.activityContent,
+    super.encryptedValue,
   }) : super(role: MessageRole.activity);
 
   factory ActivityMessage.fromJson(Map<String, dynamic> json) {
@@ -365,6 +397,8 @@ class ActivityMessage extends Message {
       activityType: JsonDecoder.requireField<String>(json, 'activityType'),
       activityContent:
           JsonDecoder.requireField<Map<String, dynamic>>(json, 'content'),
+      encryptedValue: JsonDecoder.optionalField<String>(json, 'encryptedValue') ??
+          JsonDecoder.optionalField<String>(json, 'encrypted_value'),
     );
   }
 
@@ -374,6 +408,7 @@ class ActivityMessage extends Message {
     'role': role.value,
     'activityType': activityType,
     'content': activityContent,
+    if (encryptedValue != null) 'encryptedValue': encryptedValue,
   };
 
   @override
@@ -381,11 +416,66 @@ class ActivityMessage extends Message {
     String? id,
     String? activityType,
     Map<String, dynamic>? activityContent,
+    String? encryptedValue,
   }) {
     return ActivityMessage(
       id: id ?? this.id,
       activityType: activityType ?? this.activityType,
       activityContent: activityContent ?? this.activityContent,
+      encryptedValue: encryptedValue ?? this.encryptedValue,
+    );
+  }
+}
+
+/// Reasoning message emitted by models that expose their chain-of-thought.
+///
+/// Mirrors `ReasoningMessage` in the Python and TypeScript reference SDKs.
+/// [content] is the visible reasoning text; [thinking] is an opaque
+/// extended-thinking blob; [encryptedValue] carries the encrypted thinking
+/// payload when the server uses encrypted extended thinking.
+class ReasoningMessage extends Message {
+  /// Optional visible reasoning / chain-of-thought text.
+  @override
+  final String? content;
+
+  /// Optional opaque extended-thinking blob.
+  final String? thinking;
+
+  const ReasoningMessage({
+    super.id,
+    this.content,
+    this.thinking,
+    super.encryptedValue,
+  }) : super(role: MessageRole.reasoning);
+
+  factory ReasoningMessage.fromJson(Map<String, dynamic> json) {
+    return ReasoningMessage(
+      id: JsonDecoder.optionalField<String>(json, 'id'),
+      content: JsonDecoder.optionalField<String>(json, 'content'),
+      thinking: JsonDecoder.optionalField<String>(json, 'thinking'),
+      encryptedValue: JsonDecoder.optionalField<String>(json, 'encryptedValue') ??
+          JsonDecoder.optionalField<String>(json, 'encrypted_value'),
+    );
+  }
+
+  @override
+  Map<String, dynamic> toJson() => {
+    ...super.toJson(),
+    if (thinking != null) 'thinking': thinking,
+  };
+
+  @override
+  ReasoningMessage copyWith({
+    String? id,
+    String? content,
+    String? thinking,
+    String? encryptedValue,
+  }) {
+    return ReasoningMessage(
+      id: id ?? this.id,
+      content: content ?? this.content,
+      thinking: thinking ?? this.thinking,
+      encryptedValue: encryptedValue ?? this.encryptedValue,
     );
   }
 }
@@ -496,9 +586,9 @@ class UrlSource extends InputContentSource {
       };
 
   @override
-  UrlSource copyWith({String? value, String? mimeType}) => UrlSource(
+  UrlSource copyWith({String? value, Object? mimeType = _absent}) => UrlSource(
         value: value ?? this.value,
-        mimeType: mimeType ?? this.mimeType,
+        mimeType: identical(mimeType, _absent) ? this.mimeType : mimeType as String?,
       );
 }
 
@@ -532,6 +622,10 @@ Map<String, dynamic> _mediaToJson(
       'source': source.toJson(),
       if (metadata != null) 'metadata': metadata,
     };
+
+/// Sentinel value used in [copyWith] methods to distinguish "not provided"
+/// from `null`, allowing callers to clear optional fields by passing `null`.
+const _absent = Object();
 
 /// A single typed part of a multimodal [UserMessage].
 ///
@@ -611,10 +705,13 @@ class ImageInputContent extends InputContent {
   Map<String, dynamic> toJson() => _mediaToJson(type, source, metadata);
 
   @override
-  ImageInputContent copyWith({InputContentSource? source, Object? metadata}) =>
+  ImageInputContent copyWith({
+    InputContentSource? source,
+    Object? metadata = _absent,
+  }) =>
       ImageInputContent(
         source: source ?? this.source,
-        metadata: metadata ?? this.metadata,
+        metadata: identical(metadata, _absent) ? this.metadata : metadata,
       );
 }
 
@@ -640,10 +737,13 @@ class AudioInputContent extends InputContent {
   Map<String, dynamic> toJson() => _mediaToJson(type, source, metadata);
 
   @override
-  AudioInputContent copyWith({InputContentSource? source, Object? metadata}) =>
+  AudioInputContent copyWith({
+    InputContentSource? source,
+    Object? metadata = _absent,
+  }) =>
       AudioInputContent(
         source: source ?? this.source,
-        metadata: metadata ?? this.metadata,
+        metadata: identical(metadata, _absent) ? this.metadata : metadata,
       );
 }
 
@@ -669,10 +769,13 @@ class VideoInputContent extends InputContent {
   Map<String, dynamic> toJson() => _mediaToJson(type, source, metadata);
 
   @override
-  VideoInputContent copyWith({InputContentSource? source, Object? metadata}) =>
+  VideoInputContent copyWith({
+    InputContentSource? source,
+    Object? metadata = _absent,
+  }) =>
       VideoInputContent(
         source: source ?? this.source,
-        metadata: metadata ?? this.metadata,
+        metadata: identical(metadata, _absent) ? this.metadata : metadata,
       );
 }
 
@@ -703,11 +806,11 @@ class DocumentInputContent extends InputContent {
   @override
   DocumentInputContent copyWith({
     InputContentSource? source,
-    Object? metadata,
+    Object? metadata = _absent,
   }) =>
       DocumentInputContent(
         source: source ?? this.source,
-        metadata: metadata ?? this.metadata,
+        metadata: identical(metadata, _absent) ? this.metadata : metadata,
       );
 }
 
@@ -788,17 +891,17 @@ class BinaryInputContent extends InputContent {
   @override
   BinaryInputContent copyWith({
     String? mimeType,
-    String? id,
-    String? url,
-    String? data,
-    String? filename,
+    Object? id = _absent,
+    Object? url = _absent,
+    Object? data = _absent,
+    Object? filename = _absent,
   }) =>
       BinaryInputContent(
         mimeType: mimeType ?? this.mimeType,
-        id: id ?? this.id,
-        url: url ?? this.url,
-        data: data ?? this.data,
-        filename: filename ?? this.filename,
+        id: identical(id, _absent) ? this.id : id as String?,
+        url: identical(url, _absent) ? this.url : url as String?,
+        data: identical(data, _absent) ? this.data : data as String?,
+        filename: identical(filename, _absent) ? this.filename : filename as String?,
       );
 }
 

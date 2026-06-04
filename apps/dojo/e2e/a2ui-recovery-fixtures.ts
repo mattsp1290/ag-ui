@@ -39,8 +39,15 @@ const RETRY_MARKER = "Previous attempt was invalid";
 
 // Only THIS demo's prompts. Keep these distinct from the other A2UI demos so the
 // fixtures below never intercept them.
-const RECOVER = /luxury/i; // "Compare 3 luxury hotels…"  → recover-then-succeed
-const EXHAUST = /broken/i; // "Compare 3 broken hotels…"  → always invalid → exhaust
+//
+// The dynamic_schema "Hotel comparison" prompt — "Compare 3 luxury hotels IN
+// DIFFERENT CITIES with ratings and prices." — must SUCCEED with no retries, so
+// `isRecover` requires "luxury" but EXCLUDES that "different cities" variant. The
+// recovery demo's own prompt ("Compare 3 luxury hotels with ratings and prices.")
+// has no "different cities", so only it triggers the recover-then-succeed flow;
+// the dynamic_schema prompt falls through to its generic (valid) hotel fixture.
+const isRecover = (text: string) => /luxury/i.test(text) && !/different cities/i.test(text);
+const isExhaust = (text: string) => /broken/i.test(text); // "Compare 3 broken hotels…" → always invalid → exhaust
 
 // A Row that repeats a "card" template over /items.
 const ROOT = { id: "root", component: "Row", children: { componentId: "card", path: "/items" }, gap: 16 };
@@ -71,7 +78,7 @@ export function registerA2UIRecoveryFixtures(mockServer: LLMock): void {
   mockServer.addFixture({
     match: {
       predicate: (req: any) =>
-        hasTool(req, "generate_a2ui") && (RECOVER.test(userText(req.messages)) || EXHAUST.test(userText(req.messages))),
+        hasTool(req, "generate_a2ui") && (isRecover(userText(req.messages)) || isExhaust(userText(req.messages))),
     },
     response: { toolCalls: [{ name: "generate_a2ui", arguments: JSON.stringify({ intent: "create" }) }] },
   });
@@ -79,7 +86,7 @@ export function registerA2UIRecoveryFixtures(mockServer: LLMock): void {
   // 2) Sub-agent — EXHAUSTION demo ("broken hotels"): always the dangling-ref surface.
   //    Checked before the recover fixtures so a "broken" retry stays invalid.
   mockServer.addFixture({
-    match: { predicate: (req: any) => hasTool(req, "render_a2ui") && EXHAUST.test(allText(req.messages)) },
+    match: { predicate: (req: any) => hasTool(req, "render_a2ui") && isExhaust(allText(req.messages)) },
     response: { toolCalls: [{ name: "render_a2ui", arguments: renderArgs(false) }] },
   });
 
@@ -87,7 +94,7 @@ export function registerA2UIRecoveryFixtures(mockServer: LLMock): void {
   mockServer.addFixture({
     match: {
       predicate: (req: any) =>
-        hasTool(req, "render_a2ui") && RECOVER.test(allText(req.messages)) && allText(req.messages).includes(RETRY_MARKER),
+        hasTool(req, "render_a2ui") && isRecover(allText(req.messages)) && allText(req.messages).includes(RETRY_MARKER),
     },
     response: { toolCalls: [{ name: "render_a2ui", arguments: renderArgs(true) }] },
   });
@@ -96,7 +103,7 @@ export function registerA2UIRecoveryFixtures(mockServer: LLMock): void {
   mockServer.addFixture({
     match: {
       predicate: (req: any) =>
-        hasTool(req, "render_a2ui") && RECOVER.test(allText(req.messages)) && !allText(req.messages).includes(RETRY_MARKER),
+        hasTool(req, "render_a2ui") && isRecover(allText(req.messages)) && !allText(req.messages).includes(RETRY_MARKER),
     },
     response: { toolCalls: [{ name: "render_a2ui", arguments: renderArgs(false) }] },
   });

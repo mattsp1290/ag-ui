@@ -6,13 +6,6 @@ packages:
   - integrations/community/*/typescript
   - integrations/aws-strands/typescript/examples
   - integrations/mastra/typescript/examples
-  # TEMPORARY (OSS-162): makes the LangGraph TS examples a workspace member so the
-  # dojo's langgraph agent server resolves the LOCAL @ag-ui/langgraph (which carries
-  # the A2UI recovery loop) instead of the published 0.0.35 (which does not). Paired
-  # with "@ag-ui/langgraph": "workspace:*" in that package's package.json.
-  # REMOVE both once @ag-ui/langgraph is published WITH the recovery loop.
-  # See memory: project_oss-162-examples-workspace-temp.
-  - integrations/langgraph/typescript/examples
 
 ignoredBuiltDependencies:
   - nx

@@ -13,6 +13,13 @@
         { "name": "create-ag-ui-app", "path": "sdks/typescript/packages/cli", "ecosystem": "typescript" }
       ]
     },
+    "sdk-ts-a2ui-toolkit": {
+      "description": "A2UI Toolkit (standalone TypeScript SDK package, independently versioned)",
+      "sharedVersion": false,
+      "packages": [
+        { "name": "@ag-ui/a2ui-toolkit", "path": "sdks/typescript/packages/a2ui-toolkit", "ecosystem": "typescript" }
+      ]
+    },
     "sdk-py": {
       "description": "Python SDK",
       "sharedVersion": false,
@@ -55,7 +62,14 @@
         { "name": "@ag-ui/agno", "path": "integrations/agno/typescript", "ecosystem": "typescript" }
       ]
     },
-    "integration-aws-strands": {
+    "integration-aws-strands-ts": {
+      "description": "AWS Strands integration (TypeScript)",
+      "sharedVersion": false,
+      "packages": [
+        { "name": "@ag-ui/aws-strands", "path": "integrations/aws-strands/typescript", "ecosystem": "typescript" }
+      ]
+    },
+    "integration-aws-strands-py": {
       "description": "AWS Strands integration (Python)",
       "sharedVersion": false,
       "packages": [

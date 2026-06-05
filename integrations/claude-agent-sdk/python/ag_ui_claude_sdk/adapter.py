@@ -94,7 +94,7 @@ class ClaudeAgentAdapter:
         self._max_workers = max_workers
         self._worker_ttl_seconds = worker_ttl_seconds
         self._query_timeout_seconds = query_timeout_seconds
-        # thread_id -> {"worker": SessionWorker, "last_used": datetime, "active": bool}
+        # thread_id -> {"worker": SessionWorker, "last_used": datetime, "active": bool, "active_runs": int}
         self._workers: Dict[str, Dict] = {}
         self._state_locks: Dict[str, asyncio.Lock] = {}
         self._per_thread_state: Dict[str, Any] = {}  # thread_id -> current state
@@ -309,7 +309,7 @@ class ClaudeAgentAdapter:
             # item-7 invariant: a peer run is never evicted mid-stream). (Item 7a)
             entry = self._workers.get(thread_id)
             if entry is not None and entry.get("active_runs", 1) > 1:
-                logger.debug(
+                logger.warning(
                     f"Run errored but a peer run is still active on thread={thread_id}; "
                     f"keeping shared worker (active_runs={entry.get('active_runs')})"
                 )

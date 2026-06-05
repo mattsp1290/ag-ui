@@ -31,28 +31,32 @@ async def handle_tool_use_block(
     thread_id: str,
     run_id: str,
     current_state: Optional[Any],
+    parent_message_id: Optional[str] = None,
 ) -> tuple[Optional[Any], AsyncIterator[BaseEvent]]:
     """
     Handle ToolUseBlock from Claude SDK.
-    
+
     Intercepts state management tool calls and emits STATE_SNAPSHOT.
     For regular tools, emits TOOL_CALL_START/ARGS events.
-    
+
     Args:
         block: ToolUseBlock from Claude SDK
         message: Parent message containing the block
         thread_id: Thread identifier
         run_id: Run identifier
         current_state: Current state for state management tools
-        
+        parent_message_id: ID of the assistant message that owns this tool
+            call. The streaming path uses the current assistant message id for
+            ``ToolCallStartEvent.parent_message_id``; this mirrors that
+            semantics on the non-streaming fallback path.
+
     Returns:
         Tuple of (updated_state, event_generator)
     """
     tool_name = getattr(block, 'name', '') or 'unknown'
     tool_input = getattr(block, 'input', {}) or {}
     tool_id = getattr(block, 'id', None) or str(uuid.uuid4())
-    parent_tool_use_id = getattr(message, 'parent_tool_use_id', None)
-    
+
     # Strip MCP prefix for client matching (same as streaming path)
     tool_display_name = strip_mcp_prefix(tool_name)
     if tool_display_name != tool_name:
@@ -77,13 +81,16 @@ async def handle_tool_use_block(
                     logger.debug("Parsed state_updates from JSON string")
                 except json.JSONDecodeError as e:
                     logger.warning(f"Failed to parse state_updates JSON: {e}")
-                    state_updates = {}
                     yield CustomEvent(
                         type=EventType.CUSTOM,
                         name="state_update_error",
                         value={"error": str(e)},
                     )
-            
+                    # Emit ONLY the error event — do not fall through and emit a
+                    # spurious STATE_SNAPSHOT with un-updated state. Mirrors the
+                    # streaming path (adapter.py), which emits the error alone.
+                    return
+
             # Update current state
             if isinstance(current_state, dict) and isinstance(state_updates, dict):
                 current_state = {**current_state, **state_updates}
@@ -109,7 +116,7 @@ async def handle_tool_use_block(
             run_id=run_id,
             tool_call_id=tool_id,
             tool_call_name=tool_display_name,  # Use unprefixed name
-            parent_message_id=parent_tool_use_id,
+            parent_message_id=parent_message_id,
         )
         
         if tool_input:
@@ -192,6 +199,16 @@ async def handle_tool_result_block(
             result_str = str(content)
 
     result_str = fix_surrogates(result_str)
+
+    # Propagate the SDK's error indication. AG-UI's ToolCallResultEvent has no
+    # dedicated error field, so a failed tool result would otherwise look
+    # identical to a successful one. Wrap the payload in an explicit error
+    # envelope (and log it) so downstream consumers can distinguish failures.
+    if is_error:
+        logger.warning(
+            f"Tool result for tool_use_id={tool_use_id} reported is_error=True"
+        )
+        result_str = json.dumps({"error": True, "content": result_str})
 
     if tool_use_id:
         # NOTE: Do NOT emit TOOL_CALL_END here — it was already emitted

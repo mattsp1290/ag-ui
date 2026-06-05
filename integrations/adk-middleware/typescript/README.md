@@ -1,4 +1,77 @@
-# ADK Middleware for AG-UI Protocol
+# @ag-ui/adk
+
+AG-UI integration for [Google ADK](https://google.github.io/adk-docs/) (Agent Development Kit). This package ships a thin TypeScript client, `ADKAgent`, that connects an AG-UI front end to an ADK-backed agent endpoint served by the companion Python middleware (`ag_ui_adk`).
+
+`ADKAgent` extends `HttpAgent` from `@ag-ui/client`, so it speaks the full AG-UI protocol over HTTP/SSE out of the box. On top of that it adds a `getCapabilities()` method that fetches and validates the agent's advertised capabilities.
+
+## Installation
+
+```bash
+npm install @ag-ui/adk
+# or
+pnpm add @ag-ui/adk
+```
+
+### Peer Dependencies
+
+- `@ag-ui/client` (>=0.0.37)
+- `@ag-ui/core` (>=0.0.37)
+- `rxjs` (7.8.1)
+
+## TypeScript Client Usage
+
+### Connect to an ADK-backed agent
+
+```typescript
+import { ADKAgent } from "@ag-ui/adk";
+
+const agent = new ADKAgent({
+  url: "http://localhost:8000/chat",
+});
+
+agent
+  .runAgent({
+    threadId: "thread-123",
+    runId: "run-456",
+    messages: [{ id: "1", role: "user", content: "Hello!" }],
+  })
+  .subscribe({
+    next: (event) => {
+      switch (event.type) {
+        case "TEXT_MESSAGE_CONTENT":
+          process.stdout.write(event.delta);
+          break;
+        case "TOOL_CALL_START":
+          console.log("Calling tool:", event.toolCallName);
+          break;
+      }
+    },
+    complete: () => console.log("Done"),
+  });
+```
+
+`ADKAgent` accepts the same configuration as `HttpAgent` (`url`, `headers`, `agentId`, etc.) and exposes the standard `runAgent(...)` / `run(...)` Observable API.
+
+### Discover agent capabilities
+
+`getCapabilities()` issues a `GET` against the agent's `/capabilities` endpoint (derived from the configured `url`), parses the JSON response, and validates it against the AG-UI `AgentCapabilitiesSchema`. It rejects on HTTP errors, unparseable bodies, or schema-invalid responses.
+
+```typescript
+import { ADKAgent } from "@ag-ui/adk";
+
+const agent = new ADKAgent({ url: "http://localhost:8000/chat" });
+
+const capabilities = await agent.getCapabilities();
+console.log(capabilities);
+```
+
+To customize how capabilities are fetched (auth, headers, credentials, or the URL itself), subclass `ADKAgent` and override the protected `capabilitiesUrl()` and/or `capabilitiesRequestInit()` methods.
+
+---
+
+The remainder of this document covers the companion **Python middleware** (`ag_ui_adk`) that serves the ADK agent endpoint the TypeScript client above connects to.
+
+## Python Middleware
 
 This Python middleware enables [Google ADK](https://google.github.io/adk-docs/) agents to be used with the AG-UI Protocol, providing a bridge between the two frameworks.
 

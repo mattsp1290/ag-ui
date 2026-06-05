@@ -27,7 +27,14 @@
         { "name": "@ag-ui/a2a", "path": "integrations/a2a/typescript", "ecosystem": "typescript" }
       ]
     },
-    "integration-adk": {
+    "integration-adk-ts": {
+      "description": "ADK integration (TypeScript)",
+      "sharedVersion": false,
+      "packages": [
+        { "name": "@ag-ui/adk", "path": "integrations/adk-middleware/typescript", "ecosystem": "typescript" }
+      ]
+    },
+    "integration-adk-py": {
       "description": "ADK Middleware integration (Python)",
       "sharedVersion": false,
       "packages": [

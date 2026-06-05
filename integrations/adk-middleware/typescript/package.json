@@ -1,13 +1,22 @@
 {
   "name": "@ag-ui/adk",
-  "author": "Mark Fogle <mark@contextable.com>",
   "version": "0.0.1",
+  "description": "AG-UI integration for Google ADK (Agent Development Kit) - thin TypeScript client for ADK-backed AG-UI agents",
   "main": "./dist/index.js",
   "module": "./dist/index.mjs",
   "types": "./dist/index.d.ts",
   "sideEffects": false,
   "files": [
-    "dist/**"
+    "dist/**",
+    "README.md"
+  ],
+  "keywords": [
+    "ag-ui",
+    "adk",
+    "google",
+    "agent-development-kit",
+    "agents",
+    "ai"
   ],
   "scripts": {
     "build": "tsdown",
@@ -35,6 +44,17 @@
     "tsdown": "^0.20.1",
     "typescript": "^5.3.3",
     "vitest": "^4.0.18"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ag-ui-protocol/ag-ui.git",
+    "directory": "integrations/adk-middleware/typescript"
+  },
+  "author": "Mark Fogle <mark@contextable.com>",
+  "license": "MIT",
+  "private": false,
+  "publishConfig": {
+    "access": "public"
   },
   "exports": {
     ".": {

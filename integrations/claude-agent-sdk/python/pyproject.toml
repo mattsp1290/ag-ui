@@ -35,3 +35,6 @@ testpaths = ["tests"]
 requires = ["setuptools>=77.0.0"]
 build-backend = "setuptools.build_meta"
 
+[tool.setuptools.packages.find]
+include = ["ag_ui_claude_sdk*"]
+

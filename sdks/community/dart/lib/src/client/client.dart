@@ -540,8 +540,8 @@ class AgUiClient {
           );
         }
         switch (message) {
-          case UserMessage(:final content):
-            Validators.validateMessageContent(content);
+          case UserMessage():
+            Validators.validateUserMessageContent(message.messageContent);
           case AssistantMessage(:final content, :final toolCalls):
             // content is String? on AssistantMessage (all other subtypes have
             // non-nullable content) — guard avoids passing null to
@@ -567,7 +567,8 @@ class AgUiClient {
           case ToolMessage(:final content):
             Validators.validateMessageContent(content);
           case ReasoningMessage(:final content):
-            Validators.validateMessageContent(content);
+            // content is String? on ReasoningMessage (optional reasoning text)
+            if (content != null) Validators.validateMessageContent(content);
           case ActivityMessage():
             // ActivityMessage carries structured activityContent (Map), not
             // a string content field — nothing to validate here.

@@ -98,19 +98,35 @@ void main() {
             .map((e) => decoder.decodeJson(e as Map<String, dynamic>))
             .toList();
 
-        final snapshot = decodedEvents.whereType<MessagesSnapshotEvent>().first;
-        expect(snapshot.messages.length, equals(3));
+        final snapshot = decodedEvents
+            .whereType<MessagesSnapshotEvent>()
+            .first;
+        expect(snapshot.messages.length, equals(4));
 
         // Check message types
         expect(snapshot.messages[0], isA<UserMessage>());
         expect(snapshot.messages[1], isA<AssistantMessage>());
         expect(snapshot.messages[2], isA<ToolMessage>());
+        expect(snapshot.messages[3], isA<UserMessage>());
 
         // Check assistant message has tool calls
         final assistantMsg = snapshot.messages[1] as AssistantMessage;
         expect(assistantMsg.toolCalls, isNotNull);
         expect(assistantMsg.toolCalls!.length, equals(1));
         expect(assistantMsg.toolCalls![0].function.name, equals('get_weather'));
+
+        // The multimodal user message decodes end-to-end into typed parts.
+        final multimodalMsg = snapshot.messages[3] as UserMessage;
+        final body = multimodalMsg.messageContent;
+        expect(body, isA<MultimodalContent>());
+        final parts = (body as MultimodalContent).parts;
+        expect(parts.length, equals(2));
+        expect(parts[0], isA<TextInputContent>());
+        expect((parts[0] as TextInputContent).text, equals('Describe this image'));
+        expect(parts[1], isA<ImageInputContent>());
+        expect((parts[1] as ImageInputContent).source, isA<UrlSource>());
+        // Plain-text projection getter is null for multimodal content.
+        expect(multimodalMsg.content, isNull);
       });
 
       test('processes messages snapshot with activity and reasoning roles', () {

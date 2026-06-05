@@ -5,7 +5,7 @@ All notable changes to the AG-UI Dart SDK will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.3.0]
 
 ### Breaking Changes (review-fix pass)
 - **`StateDeltaEvent.delta` and `ActivityDeltaEvent.patch` are now
@@ -438,9 +438,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   producing wire output for external TS/Python clients should treat an empty
   list and an absent key as equivalent.
 
-## [0.2.0] - 2026-04-30
-
-### Breaking Changes
+### Breaking Changes (activity/reasoning events — 2026-04-30)
 - `ToolCallResultEvent.role` is now typed `ToolCallResultRole?` instead of
   `String?`. Callers constructing the event directly must use the enum
   (e.g. `ToolCallResultRole.tool`) instead of a raw string. Wire decoding
@@ -556,6 +554,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   is unaffected. Consumers relying on byte-for-byte round-trip fidelity
   should read `rawEvent` instead of re-serializing.
 
+## [0.2.0] - 2026-05-28
+
+### Added
+- Multimodal `UserMessage` content. `UserMessage.content` now accepts either a
+  plain string or an ordered list of typed parts, matching the canonical
+  protocol (`string | InputContent[]`).
+- New content types: `UserMessageContent` (`TextContent`, `MultimodalContent`),
+  `InputContent` (`TextInputContent`, `ImageInputContent`, `AudioInputContent`,
+  `VideoInputContent`, `DocumentInputContent`, legacy `BinaryInputContent`), and
+  `InputContentSource` (`DataSource`, `UrlSource`).
+- `UserMessage.multimodal(...)` and `UserMessage.fromContent(...)` constructors.
+- `Validators.validateUserMessageContent(...)`.
+
+### Changed
+- **Breaking:** `UserMessage.content` getter is now `String?` (was non-null
+  `String`) and returns `null` for multimodal messages. Read
+  `UserMessage.messageContent` for the typed union.
+- **Breaking:** `UserMessage.copyWith` now takes `messageContent` instead of
+  `content`.
+- **Breaking:** the default `UserMessage({required id, required content})`
+  constructor is no longer `const` (it wraps the string into `TextContent` at
+  runtime). Use `UserMessage.fromContent(id:, messageContent: const TextContent(...))`
+  for a compile-time constant.
+
 ## [0.1.0] - 2025-01-21
 
 ### Added
@@ -586,5 +608,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Advanced retry strategies planned for future release
 - Event caching and offline support planned for future release
 
+[0.3.0]: https://github.com/ag-ui-protocol/ag-ui/releases/tag/dart-v0.3.0
 [0.2.0]: https://github.com/ag-ui-protocol/ag-ui/releases/tag/dart-v0.2.0
 [0.1.0]: https://github.com/ag-ui-protocol/ag-ui/releases/tag/dart-v0.1.0

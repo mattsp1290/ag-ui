@@ -172,6 +172,21 @@
           "role": "tool",
           "content": "72°F and sunny",
           "toolCallId": "call_01"
+        },
+        {
+          "id": "msg_09",
+          "role": "user",
+          "content": [
+            { "type": "text", "text": "Describe this image" },
+            {
+              "type": "image",
+              "source": {
+                "type": "url",
+                "value": "https://example.com/image.png",
+                "mimeType": "image/png"
+              }
+            }
+          ]
         }
       ]
     },

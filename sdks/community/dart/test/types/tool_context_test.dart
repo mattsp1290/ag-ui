@@ -110,6 +110,52 @@ void main() {
       final result = ToolResult.fromJson(json);
       expect(result.toolCallId, 'call_002');
     });
+
+    group('ToolCall encryptedValue', () {
+      test('round-trips encryptedValue', () {
+        final call = ToolCall(
+          id: 'call_enc',
+          function: FunctionCall(name: 'fn', arguments: '{}'),
+          encryptedValue: 'ENC==',
+        );
+        final json = call.toJson();
+        expect(json['encryptedValue'], 'ENC==');
+
+        final decoded = ToolCall.fromJson(json);
+        expect(decoded.encryptedValue, 'ENC==');
+      });
+
+      test('reads snake_case encrypted_value', () {
+        final call = ToolCall.fromJson({
+          'id': 'call_snake',
+          'type': 'function',
+          'function': {'name': 'fn', 'arguments': '{}'},
+          'encrypted_value': 'SNAKE_ENC',
+        });
+        expect(call.encryptedValue, 'SNAKE_ENC');
+      });
+
+      test('omits encryptedValue from toJson when null', () {
+        final call = ToolCall(
+          id: 'call_no_enc',
+          function: FunctionCall(name: 'fn', arguments: '{}'),
+        );
+        expect(call.toJson().containsKey('encryptedValue'), false);
+      });
+
+      test('copyWith threads encryptedValue', () {
+        final original = ToolCall(
+          id: 'call_1',
+          function: FunctionCall(name: 'fn', arguments: '{}'),
+          encryptedValue: 'ENC',
+        );
+        final copy = original.copyWith(id: 'call_2');
+        expect(copy.encryptedValue, 'ENC');
+
+        final updated = original.copyWith(encryptedValue: 'NEW_ENC');
+        expect(updated.encryptedValue, 'NEW_ENC');
+      });
+    });
   });
 
   group('Context Types', () {

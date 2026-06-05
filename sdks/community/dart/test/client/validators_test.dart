@@ -1,6 +1,7 @@
 import 'package:test/test.dart';
 import 'package:ag_ui/src/client/errors.dart';
 import 'package:ag_ui/src/client/validators.dart';
+import 'package:ag_ui/src/types/message.dart';
 
 void main() {
   group('Validators.requireNonEmpty', () {
@@ -194,29 +195,39 @@ void main() {
     });
   });
 
-  group('Validators.validateMessageContent', () {
-    test('accepts string content (canonical schema)', () {
-      // Tightened in 0.2.0 to match canonical
-      // `BaseMessage.content: Optional[str]`. The pre-0.2.0 permissive
-      // Map/List branches were dead code — no caller in the SDK passed
-      // those types — and disagreed with the protocol. Multimodal
-      // `UserMessage.content` (string-or-list-of-InputContent) is
-      // tracked as a "Known parity gap" in the CHANGELOG.
-      expect(() => Validators.validateMessageContent('Hello world'),
-          returnsNormally);
-    });
-
-    test('rejects null content', () {
+  group('Validators.validateUserMessageContent', () {
+    test('accepts text content', () {
       expect(
-        () => Validators.validateMessageContent(null),
-        throwsA(isA<ValidationError>()
-            .having((e) => e.field, 'field', 'content')
-            .having((e) => e.constraint, 'constraint', 'non-null')),
+        () => Validators.validateUserMessageContent(const TextContent('Hello')),
+        returnsNormally,
       );
     });
 
-    // Non-String values are rejected at compile time by the `String?` parameter
-    // type — no runtime `is! String` check is needed or present.
+    test('accepts multimodal content with valid parts', () {
+      // Regression: multimodal content must validate, not throw on a null
+      // `content` getter as the retired validateMessageContent did.
+      final content = MultimodalContent([
+        TextInputContent('look'),
+        const ImageInputContent(
+          source: UrlSource(value: 'https://example.com/i.png'),
+        ),
+      ]);
+      expect(
+        () => Validators.validateUserMessageContent(content),
+        returnsNormally,
+      );
+    });
+
+    test('rejects empty parts list', () {
+      expect(
+        () => Validators.validateUserMessageContent(
+          const MultimodalContent([]),
+        ),
+        throwsA(isA<ValidationError>()
+            .having((e) => e.field, 'field', 'content')
+            .having((e) => e.constraint, 'constraint', 'non-empty')),
+      );
+    });
   });
 
   group('Validators.validateTimeout', () {

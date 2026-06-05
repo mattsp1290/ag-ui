@@ -14,8 +14,8 @@ pnpm add @ag-ui/adk
 
 ### Peer Dependencies
 
-- `@ag-ui/client` (>=0.0.37)
-- `@ag-ui/core` (>=0.0.37)
+- `@ag-ui/client` (>=0.0.55)
+- `@ag-ui/core` (>=0.0.55)
 - `rxjs` (7.8.1)
 
 ## TypeScript Client Usage
@@ -25,15 +25,26 @@ pnpm add @ag-ui/adk
 ```typescript
 import { ADKAgent } from "@ag-ui/adk";
 
+// `threadId` and `initialMessages` are constructor options (AgentConfig),
+// not run-time parameters.
 const agent = new ADKAgent({
   url: "http://localhost:8000/chat",
+  threadId: "thread-123",
+  initialMessages: [{ id: "1", role: "user", content: "Hello!" }],
 });
 
+// `run(input)` returns an RxJS Observable of AG-UI events. It takes a full
+// `RunAgentInput`, so reuse the agent's `threadId`/`messages`/`state` and
+// supply the remaining required fields.
 agent
-  .runAgent({
-    threadId: "thread-123",
+  .run({
+    threadId: agent.threadId,
     runId: "run-456",
-    messages: [{ id: "1", role: "user", content: "Hello!" }],
+    messages: agent.messages,
+    state: agent.state,
+    tools: [],
+    context: [],
+    forwardedProps: {},
   })
   .subscribe({
     next: (event) => {
@@ -46,11 +57,12 @@ agent
           break;
       }
     },
+    error: (err) => console.error("Run failed:", err),
     complete: () => console.log("Done"),
   });
 ```
 
-`ADKAgent` accepts the same configuration as `HttpAgent` (`url`, `headers`, `agentId`, etc.) and exposes the standard `runAgent(...)` / `run(...)` Observable API.
+`ADKAgent` accepts the same configuration as `HttpAgent` (`url`, `headers`, `agentId`, `threadId`, `initialMessages`, etc.). Only `run(input)` is the Observable API — it takes a full `RunAgentInput` and returns an `Observable<BaseEvent>`. The Promise-based `runAgent(parameters?, subscriber?)` is the alternative: it manages `threadId`/`messages`/`state` for you, accepts only `runId`/`tools`/`context`/`forwardedProps`/`resume`, and resolves to a `RunAgentResult` (it is not subscribable).
 
 ### Discover agent capabilities
 

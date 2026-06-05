@@ -1181,8 +1181,14 @@ jobs:
               # cover the PyPI scopes that do NOT end in -py. Everything else is
               # npm. This only affects FAILURE paging — success arms use the
               # real published-package sets, not this heuristic.
+              #
+              # This step runs BEFORE checkout (see the job comment above), so
+              # release.config.json is NOT on disk here and cannot be consulted
+              # at runtime — the python scopes are projected statically below.
+              # verify-release-scope-dropdowns.sh asserts this list maps every
+              # config scope to the correct ecosystem, so it cannot drift.
               case "$SCOPE" in
-                integration-adk|integration-agent-spec|integration-aws-strands|integration-langroid)
+                integration-agent-spec|integration-langroid|sdk-py-a2ui-toolkit)
                   PY_INTENDED=true ;;
                 *-py)
                   PY_INTENDED=true ;;

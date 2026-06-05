@@ -82,6 +82,10 @@ class TestHandleToolUseBlock:
         # Only a STATE_SNAPSHOT, no TOOL_CALL_* events
         assert [e.type for e in events] == [EventType.STATE_SNAPSHOT]
         assert events[0].snapshot == {"count": 5, "name": "a"}
+        # The RETURNED state must equal the merged snapshot, not the pre-merge
+        # state. The adapter persists this dict on the non-streaming path, so a
+        # pre-merge return regresses thread state.
+        assert new_state == {"count": 5, "name": "a"}
 
     @pytest.mark.asyncio
     async def test_state_management_tool_json_string_updates(self):
@@ -90,9 +94,14 @@ class TestHandleToolUseBlock:
             name=STATE_MANAGEMENT_TOOL_FULL_NAME,
             input={"state_updates": json.dumps({"count": 9})},
         )
-        _, gen = await handle_tool_use_block(block, _Msg(), "th", "run", {"count": 1})
+        new_state, gen = await handle_tool_use_block(
+            block, _Msg(), "th", "run", {"count": 1}
+        )
         events = await collect(gen)
         assert events[0].snapshot == {"count": 9}
+        # The returned state must equal the merged snapshot (pins the return on
+        # the JSON-string variant too).
+        assert new_state == {"count": 9}
 
     @pytest.mark.asyncio
     async def test_state_management_invalid_json_emits_custom_error(self):
@@ -104,17 +113,30 @@ class TestHandleToolUseBlock:
         _, gen = await handle_tool_use_block(block, _Msg(), "th", "run", {})
         events = await collect(gen)
         types = [e.type for e in events]
-        # Exact current sequence: the parse error emits a CUSTOM event, then the
-        # handler STILL emits a STATE_SNAPSHOT (with the un-updated state). That
-        # trailing STATE_SNAPSHOT-after-error is a known handler bug deferred to
-        # the follow-up PR; we assert reality precisely here so the test is not
-        # vacuous (do NOT fix the handler logic in this PR).
-        assert types == [EventType.CUSTOM, EventType.STATE_SNAPSHOT]
+        # Invalid JSON emits ONLY a CUSTOM error event and returns early — no
+        # spurious STATE_SNAPSHOT with un-updated state (mirrors the streaming
+        # path in adapter.py).
+        assert types == [EventType.CUSTOM]
         custom = events[0]
         assert custom.name == "state_update_error"
         assert "error" in custom.value
-        # Invalid JSON -> updates discarded -> snapshot reflects the original {} state.
-        assert events[1].snapshot == {}
+
+
+class TestToolUseBlockParentMessageId:
+    @pytest.mark.asyncio
+    async def test_parent_message_id_uses_passed_assistant_message_id(self):
+        # The streaming path sets ToolCallStartEvent.parent_message_id to the
+        # current assistant message id. The non-streaming handler must mirror
+        # that — NOT the SDK's parent_tool_use_id (which lives on the message).
+        block = ToolUseBlock(id="tc1", name="get_weather", input={"city": "NYC"})
+        msg = _Msg(parent_tool_use_id="SHOULD_NOT_BE_USED")
+        _, gen = await handle_tool_use_block(
+            block, msg, "th", "run", None, parent_message_id="assistant-msg-1"
+        )
+        events = await collect(gen)
+        start = next(e for e in events if e.type == EventType.TOOL_CALL_START)
+        assert start.parent_message_id == "assistant-msg-1"
+        assert start.parent_message_id != "SHOULD_NOT_BE_USED"
 
 
 class TestHandleToolResultBlock:
@@ -129,6 +151,87 @@ class TestHandleToolResultBlock:
         assert events[0].type == EventType.TOOL_CALL_RESULT
         assert events[0].tool_call_id == "tc1"
         assert events[0].message_id == "tc1-result"
+        assert json.loads(events[0].content) == {"ok": True}
+
+    @pytest.mark.asyncio
+    async def test_is_error_propagated_into_result_content(self):
+        # A failed tool result (is_error=True) must not look identical to a
+        # successful one. AG-UI's ToolCallResultEvent has no error field, so the
+        # error indication is surfaced inside the content envelope.
+        block = ToolResultBlock(
+            tool_use_id="tc1",
+            content=[{"type": "text", "text": "boom"}],
+            is_error=True,
+        )
+        events = await collect(handle_tool_result_block(block, "th", "run"))
+        assert len(events) == 1
+        payload = json.loads(events[0].content)
+        assert payload["error"] is True
+        assert payload["content"] == "boom"
+
+    @pytest.mark.asyncio
+    async def test_is_error_with_json_object_content_is_single_encoded(self):
+        # When the tool result content is itself a JSON object, the error path
+        # must stay consistent with the success shape: a single-encoded JSON
+        # object carrying an "error": true marker — NOT a double-encoded string
+        # nested under "content".
+        block = ToolResultBlock(
+            tool_use_id="tc1",
+            content=[{"type": "text", "text": '{"detail": "nope", "code": 42}'}],
+            is_error=True,
+        )
+        events = await collect(handle_tool_result_block(block, "th", "run"))
+        assert len(events) == 1
+        payload = json.loads(events[0].content)
+        # Single-encoded object: the original fields are top-level dict members,
+        # not a re-escaped JSON string under "content".
+        assert payload["detail"] == "nope"
+        assert payload["code"] == 42
+        assert payload["error"] is True
+        # Guard against the double-encode regression: "content" must not hold a
+        # stringified copy of the JSON object.
+        assert not isinstance(payload.get("content"), str)
+
+    @pytest.mark.asyncio
+    async def test_is_error_with_surrogate_content_is_repaired(self):
+        # A split UTF-16 surrogate pair in error content must be repaired in the
+        # emitted payload. The old envelope ran json.dumps over a string that
+        # already contained surrogates escaped to literal "\ud83c" text — so
+        # fix_surrogates (a UTF-16 round-trip) could not repair it, AND the
+        # whole thing got double-encoded under "content". Use JSON-object
+        # content carrying the surrogate so both defects are exercised.
+        #
+        # chr(0xD83C)+chr(0xDF5D) is the lone-surrogate-pair form of 🍝
+        # (U+1F35D), as produced when a JS String.slice splits the emoji across
+        # stream chunks.
+        split_pasta = chr(0xD83C) + chr(0xDF5D)
+        block = ToolResultBlock(
+            tool_use_id="tc1",
+            content=[{"type": "text", "text": json.dumps({"msg": split_pasta})}],
+            is_error=True,
+        )
+        events = await collect(handle_tool_result_block(block, "th", "run"))
+        assert len(events) == 1
+        payload = json.loads(events[0].content)
+        assert payload["error"] is True
+        # Single-encoded object: "msg" is a top-level field, not buried in a
+        # double-encoded "content" string.
+        assert "msg" in payload
+        assert not isinstance(payload.get("content"), str)
+        # The surrogate is repaired to the real codepoint, not left as a pair of
+        # lone surrogates that Pydantic would reject.
+        assert payload["msg"] == "\U0001f35d"
+        assert len(payload["msg"]) == 1
+
+    @pytest.mark.asyncio
+    async def test_success_result_has_no_error_envelope(self):
+        block = ToolResultBlock(
+            tool_use_id="tc1",
+            content=[{"type": "text", "text": '{"ok": true}'}],
+            is_error=False,
+        )
+        events = await collect(handle_tool_result_block(block, "th", "run"))
+        # Successful result is the bare payload, not wrapped in an error envelope.
         assert json.loads(events[0].content) == {"ok": True}
 
     @pytest.mark.asyncio

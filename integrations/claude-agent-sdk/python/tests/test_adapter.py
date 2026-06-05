@@ -262,3 +262,138 @@ class TestRunErrorPath:
         assert EventType.RUN_FINISHED not in types
         err = next(e for e in events if e.type == EventType.RUN_ERROR)
         assert "boom" in err.message
+
+    @pytest.mark.asyncio
+    async def test_error_path_cleans_all_three_dicts(self, make_input, monkeypatch):
+        # The run() error path must evict the worker AND drop per-thread state
+        # and result, not just the worker + lock. Otherwise an errored thread
+        # leaks _per_thread_state / _per_thread_result forever.
+        adapter = ClaudeAgentAdapter(name="t")
+        monkeypatch.setattr("ag_ui_claude_sdk.adapter.SessionWorker", _FakeFailingWorker)
+
+        inp = make_input(
+            thread_id="leaky",
+            state={"x": 1},
+            messages=[{"id": "1", "role": "user", "content": "hi"}],
+        )
+        _ = [e async for e in adapter.run(inp)]
+        assert "leaky" not in adapter._workers
+        assert "leaky" not in adapter._state_locks
+        assert "leaky" not in adapter._per_thread_state
+        assert "leaky" not in adapter._per_thread_result
+
+
+class _FakeAliveWorker:
+    """A SessionWorker stand-in that stays alive and is never queried."""
+
+    def __init__(self, *args, **kwargs):
+        pass
+
+    async def start(self):
+        pass
+
+    def is_alive(self):
+        return True
+
+    async def stop(self):
+        pass
+
+
+class _FakeDeadWorker:
+    """A SessionWorker stand-in whose background task has died."""
+
+    def __init__(self, *args, **kwargs):
+        self.stopped = False
+
+    async def start(self):
+        pass
+
+    def is_alive(self):
+        return False
+
+    def query(self, prompt, session_id="default"):
+        async def _gen():
+            # A dead worker can never serve a query; if reuse isn't guarded the
+            # real worker would hang here forever. Make the test fail loudly.
+            raise AssertionError("dead worker was reused for a query")
+            yield  # pragma: no cover
+
+        return _gen()
+
+    async def stop(self):
+        self.stopped = True
+
+
+class TestEviction:
+    @pytest.mark.asyncio
+    async def test_lru_eviction_cleans_all_three_dicts(self):
+        # LRU eviction must pop _per_thread_state and _per_thread_result, not
+        # just _workers + _state_locks. Cap at 1 worker, insert 2 idle entries.
+        # Async so _evict_workers' asyncio.create_task has a running loop.
+        import asyncio
+        from datetime import datetime, timedelta
+
+        adapter = ClaudeAgentAdapter(name="t", max_workers=1)
+        for i, tid in enumerate(["old", "new"]):
+            adapter._workers[tid] = {
+                "worker": _FakeAliveWorker(),
+                "last_used": datetime.now() + timedelta(seconds=i),
+                "active": False,
+            }
+            adapter._state_locks[tid] = asyncio.Lock()
+            adapter._per_thread_state[tid] = {"v": i}
+            adapter._per_thread_result[tid] = {"r": i}
+
+        adapter._evict_workers()
+
+        # "old" (lowest last_used) is evicted; all three dicts cleaned for it.
+        assert "old" not in adapter._workers
+        assert "old" not in adapter._state_locks
+        assert "old" not in adapter._per_thread_state
+        assert "old" not in adapter._per_thread_result
+        # "new" survives.
+        assert "new" in adapter._workers
+
+    @pytest.mark.asyncio
+    async def test_clear_session_cleans_all_three_dicts(self):
+        import asyncio
+
+        adapter = ClaudeAgentAdapter(name="t")
+        adapter._workers["s"] = {"worker": _FakeAliveWorker(), "last_used": None, "active": False}
+        adapter._state_locks["s"] = asyncio.Lock()
+        adapter._per_thread_state["s"] = {"v": 1}
+        adapter._per_thread_result["s"] = {"r": 1}
+
+        await adapter.clear_session("s")
+
+        assert "s" not in adapter._workers
+        assert "s" not in adapter._state_locks
+        assert "s" not in adapter._per_thread_state
+        assert "s" not in adapter._per_thread_result
+
+
+class TestPoisonedWorkerCache:
+    @pytest.mark.asyncio
+    async def test_dead_cached_worker_is_evicted_and_replaced(self, make_input, monkeypatch):
+        # A cached worker whose task has died must be evicted so the next run
+        # creates a fresh worker instead of reusing the dead one (which would
+        # hang forever waiting on a queue nothing drains).
+        adapter = ClaudeAgentAdapter(name="t")
+        dead = _FakeDeadWorker()
+        adapter._workers["th"] = {"worker": dead, "last_used": None, "active": False}
+
+        # The fresh worker created on the retry uses a fake that errors on query
+        # (so run still completes via RUN_ERROR rather than touching the LLM),
+        # but crucially the DEAD worker must NOT be the one queried.
+        monkeypatch.setattr("ag_ui_claude_sdk.adapter.SessionWorker", _FakeFailingWorker)
+
+        inp = make_input(thread_id="th", messages=[{"id": "1", "role": "user", "content": "hi"}])
+        events = [e async for e in adapter.run(inp)]
+        types = _types(events)
+        # Dead worker was stopped during eviction.
+        assert dead.stopped is True
+        # A fresh worker replaced it (RUN_ERROR comes from _FakeFailingWorker,
+        # NOT the AssertionError the dead worker would have raised).
+        assert EventType.RUN_ERROR in types
+        err = next(e for e in events if e.type == EventType.RUN_ERROR)
+        assert "boom" in err.message

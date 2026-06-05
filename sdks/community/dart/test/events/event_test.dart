@@ -1027,6 +1027,26 @@ void main() {
               'copyWith must scrub rawEvent when updated input carries cipher data',
         );
       });
+
+      test('RunStartedEvent.fromJson rethrow does not leak input payload', () {
+        expect(
+          () => RunStartedEvent.fromJson({
+            'type': 'RUN_STARTED',
+            'threadId': 't',
+            'runId': 'r',
+            'input': {
+              'runId': 'r',
+              'threadId': 't',
+              'messages': [{'id': 123, 'role': 'user', 'content': 'hi', 'encryptedValue': 'cipher'}],
+              'tools': [],
+              'context': [],
+              'forwardedProps': {},
+              'state': {},
+            },
+          }),
+          throwsA(isA<AGUIValidationError>().having((e) => e.json, 'json', isNull)),
+        );
+      });
     });
 
     group('Event Factory', () {
@@ -1951,6 +1971,17 @@ void main() {
           }),
           throwsA(isA<AGUIValidationError>()),
         );
+      });
+
+      test('ReasoningEncryptedValueEvent.fromJson scrubs rawEvent', () {
+        final decoded = ReasoningEncryptedValueEvent.fromJson({
+          'type': 'REASONING_ENCRYPTED_VALUE',
+          'subtype': 'message',
+          'entityId': 'r-1',
+          'encryptedValue': 'cipher',
+          'rawEvent': {'leak': true},
+        });
+        expect(decoded.rawEvent, isNull);
       });
 
       test('Reasoning events dispatch via BaseEvent.fromJson', () {

@@ -38,11 +38,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `rawEvent` field, undoing the cipher-data scrubbing in every error path.
   `rawEvent` is now always `null` for this event type; proxies that need the
   raw wire form should retain it before calling `fromJson`.
-- **`RunStartedEvent.fromJson` rethrow now forwards the inner error's `json`
-  (`e.json`) instead of the full outer payload.** The outer payload can carry
-  `input.messages[*].encryptedValue`. Using `e.json` (the specific inner map
-  that failed) limits cipher-data exposure in `AGUIValidationError`, mirroring
-  the existing cautious default in `MessagesSnapshotEvent.fromJson`.
+- **`RunStartedEvent.fromJson` no longer attaches the offending payload to
+`AGUIValidationError.json` on rethrow.** The full outer payload (and the inner
+`RunAgentInput`, which can carry `encryptedValue` via `input.messages[*]`)
+are both omitted, so cipher data cannot leak through validation errors —
+matching the existing scrub in `MessagesSnapshotEvent.fromJson`.
 - **`MessagesSnapshotEvent.fromJson` rethrow now drops `json:` entirely.**
   Forwarding `e.json` previously exposed the inner Message map on the outer
   error; for Tool/Reasoning subtypes that map can carry `encryptedValue`. Drops
@@ -520,8 +520,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Deprecated
 - `EventType.thinkingContent` and `ThinkingContentEvent` — not part of the
-  canonical AG-UI protocol. Use `EventType.thinkingTextMessageContent` /
-  `ThinkingTextMessageContentEvent` instead. Decoding remains supported for
+  canonical AG-UI protocol. Use `EventType.reasoningMessageContent` /
+  `ReasoningMessageContentEvent` instead. Decoding remains supported for
   backward compatibility; scheduled for removal in 1.0.0.
 - `EventType.thinkingTextMessageStart` /
   `EventType.thinkingTextMessageContent` /

@@ -69,6 +69,13 @@
         { "name": "@ag-ui/claude-agent-sdk", "path": "integrations/claude-agent-sdk/typescript", "ecosystem": "typescript" }
       ]
     },
+    "integration-claude-agent-sdk-py": {
+      "description": "Claude Agent SDK integration (Python)",
+      "sharedVersion": false,
+      "packages": [
+        { "name": "ag-ui-claude-sdk", "path": "integrations/claude-agent-sdk/python", "ecosystem": "python", "buildSystem": "uv" }
+      ]
+    },
     "integration-cloudflare-agents": {
       "description": "Cloudflare Agents integration (community, TypeScript)",
       "sharedVersion": false,

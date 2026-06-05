@@ -55,6 +55,20 @@ class TestHandleToolUseBlock:
         assert types == [EventType.TOOL_CALL_START, EventType.TOOL_CALL_END]
 
     @pytest.mark.asyncio
+    async def test_missing_id_falls_back_to_generated_uuid(self):
+        # A ToolUseBlock with a falsy id must not crash: the handler falls back
+        # to a generated uuid. This guards against the `uuid` import living in
+        # the module docstring (NameError at the str(uuid.uuid4()) fallback).
+        block = ToolUseBlock(id="", name="ping", input={})
+        _, gen = await handle_tool_use_block(block, _Msg(), "th", "run", None)
+        events = await collect(gen)
+        types = [e.type for e in events]
+        assert types == [EventType.TOOL_CALL_START, EventType.TOOL_CALL_END]
+        # A non-empty fallback id was generated (a uuid4 string).
+        assert events[0].tool_call_id
+        assert events[0].tool_call_id == events[1].tool_call_id
+
+    @pytest.mark.asyncio
     async def test_state_management_tool_emits_snapshot_and_merges(self):
         block = ToolUseBlock(
             id="tc3",
@@ -90,9 +104,17 @@ class TestHandleToolUseBlock:
         _, gen = await handle_tool_use_block(block, _Msg(), "th", "run", {})
         events = await collect(gen)
         types = [e.type for e in events]
-        assert EventType.CUSTOM in types
-        custom = next(e for e in events if e.type == EventType.CUSTOM)
+        # Exact current sequence: the parse error emits a CUSTOM event, then the
+        # handler STILL emits a STATE_SNAPSHOT (with the un-updated state). That
+        # trailing STATE_SNAPSHOT-after-error is a known handler bug deferred to
+        # the follow-up PR; we assert reality precisely here so the test is not
+        # vacuous (do NOT fix the handler logic in this PR).
+        assert types == [EventType.CUSTOM, EventType.STATE_SNAPSHOT]
+        custom = events[0]
         assert custom.name == "state_update_error"
+        assert "error" in custom.value
+        # Invalid JSON -> updates discarded -> snapshot reflects the original {} state.
+        assert events[1].snapshot == {}
 
 
 class TestHandleToolResultBlock:

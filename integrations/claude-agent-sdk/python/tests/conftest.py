@@ -24,24 +24,12 @@ from ag_ui.core import RunAgentInput
 # raw event dict).
 # ---------------------------------------------------------------------------
 
-from claude_agent_sdk.types import StreamEvent, TextBlock, ThinkingBlock  # noqa: E402
-from claude_agent_sdk import (  # noqa: E402
-    AssistantMessage,
-    SystemMessage,
-    ResultMessage,
-    ToolUseBlock,
-    ToolResultBlock,
-)
+from claude_agent_sdk.types import StreamEvent  # noqa: E402
 
 
 def stream_event(event: dict, *, uuid: str = "evt", session_id: str = "thread-1") -> StreamEvent:
     """Build a real StreamEvent wrapping a raw streaming event dict."""
     return StreamEvent(uuid=uuid, session_id=session_id, event=event)
-
-
-def text_block(text: str) -> TextBlock:
-    """A real Claude SDK text content block."""
-    return TextBlock(text=text)
 
 
 async def aiter(items: List[Any]) -> AsyncIterator[Any]:

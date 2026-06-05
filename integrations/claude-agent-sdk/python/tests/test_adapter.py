@@ -199,9 +199,18 @@ class TestBuildOptions:
         assert opts.include_partial_messages is True
 
     def test_api_key_stripped(self):
+        # api_key must be popped from the merged kwargs before constructing
+        # ClaudeAgentOptions (it is handled via env var, and the options
+        # dataclass has no such field). Build must succeed (proving the pop
+        # happened — otherwise ClaudeAgentOptions(**kwargs) would raise on the
+        # unexpected api_key kwarg) and the secret must be absent from vars(opts).
         adapter = ClaudeAgentAdapter(name="t", options={"api_key": "secret", "model": "m"})
         opts = adapter.build_options()
-        assert not hasattr(opts, "api_key") or getattr(opts, "api_key", None) != "secret"
+        opts_vars = vars(opts)
+        assert "api_key" not in opts_vars
+        assert "secret" not in opts_vars.values()
+        # The non-secret kwargs still flow through.
+        assert opts.model == "m"
 
     def test_state_adds_state_management_tool(self, make_input):
         adapter = ClaudeAgentAdapter(name="t")

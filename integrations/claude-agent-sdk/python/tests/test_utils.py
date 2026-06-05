@@ -70,15 +70,35 @@ class TestFixSurrogates:
         assert fix_surrogates("hello world") == "hello world"
 
     def test_reassembles_surrogate_pair(self):
-        # U+1F35D (🍝) as a lone-paired surrogate string
-        broken = "🍝"
+        # U+1F35D (🍝) as a *split* UTF-16 surrogate pair: a high surrogate
+        # (U+D83C) followed by a low surrogate (U+DF5D). This is the genuinely
+        # broken shape produced when a JS String.slice() splits the codepoint.
+        # A normal "🍝" literal carries no surrogates and would not exercise
+        # the repair path at all.
+        broken = "\ud83c\udf5d"
+        assert "\ud83c" in broken and "\udf5d" in broken  # sanity: lone surrogates present
         fixed = fix_surrogates(broken)
+        # Reassembled into the single real codepoint U+1F35D.
+        assert fixed == chr(0x1F35D)
         assert fixed == "🍝"
-        # Round-trips to valid UTF-8
+        # Round-trips to valid UTF-8 (the original `broken` cannot).
         assert fixed.encode("utf-8").decode("utf-8") == "🍝"
 
+    def test_lone_surrogate_uses_fallback(self):
+        # An *unpaired* high surrogate cannot be reassembled into a valid
+        # codepoint, so the "surrogatepass" round-trip succeeds in re-creating
+        # the same lone surrogate; the result must still be UTF-8 encodable
+        # without raising (Pydantic-serialisable). We assert the function
+        # returns a string and that string encodes cleanly to UTF-8.
+        broken = "a\ud83cb"  # lone high surrogate between two ASCII chars
+        assert "\ud83c" in broken
+        fixed = fix_surrogates(broken)
+        assert isinstance(fixed, str)
+        # Must not raise — the whole point of the repair is UTF-8 safety.
+        fixed.encode("utf-8")
+
     def test_deep_fixes_nested_structure(self):
-        broken = "🍝"
+        broken = "\ud83c\udf5d"  # split surrogate pair for U+1F35D
         data = {"a": broken, "b": [broken, {"c": broken}]}
         fixed = fix_surrogates_deep(data)
         assert fixed["a"] == "🍝"
@@ -224,23 +244,29 @@ class TestBuildAguiAssistantMessage:
 
         assert build_agui_assistant_message(Msg(), "m4") is None
 
-    def test_real_sdk_blocks_lack_type_attr_yield_none(self):
-        """Characterization test (documents a latent bug).
+    @pytest.mark.xfail(
+        reason="build_agui_assistant_message dispatches on .type which real SDK blocks lack; deferred to follow-up",
+        strict=False,
+    )
+    def test_real_sdk_blocks_build_assistant_message(self):
+        """Real Claude SDK TextBlock/ToolUseBlock SHOULD build a proper message.
 
-        The real Claude SDK TextBlock/ToolUseBlock dataclasses do NOT expose a
-        ``.type`` attribute, but build_agui_assistant_message keys off
-        ``getattr(block, "type", None)``. As a result the function currently
-        returns None for genuine SDK content blocks -- it only works on blocks
-        that carry an explicit ``.type``. In streaming mode (the default) the
-        adapter builds messages from stream events instead, so this path is a
-        non-streaming fallback. Flagged for maintainer review.
+        The real Claude SDK ``TextBlock``/``ToolUseBlock`` dataclasses do NOT
+        expose a ``.type`` attribute, but build_agui_assistant_message keys off
+        ``getattr(block, "type", None)``. The CORRECT behaviour is to produce a
+        populated AG-UI assistant message from genuine SDK blocks; the current
+        implementation instead returns None. Marked xfail so it documents the
+        defect now and flips to xpass once the follow-up fixes the dispatch.
         """
         from claude_agent_sdk.types import TextBlock
 
         class Msg:
             content = [TextBlock(text="Hello")]
 
-        assert build_agui_assistant_message(Msg(), "m5") is None
+        msg = build_agui_assistant_message(Msg(), "m5")
+        assert msg is not None
+        assert msg.content == "Hello"
+        assert msg.id == "m5"
 
 
 class TestBuildAguiToolMessage:

@@ -426,18 +426,36 @@ def build_agui_tool_message(
     Returns:
         AG-UI ToolMessage
     """
+    def _normalize_text(text: str) -> str:
+        """Canonical textual-payload encoding: parse JSON when possible (so the
+        frontend can access fields) else pass the raw text through UNQUOTED.
+
+        This mirrors ``handlers.py``'s ``_normalize_text`` for the live
+        TOOL_CALL_RESULT path (Item 5). Routing both the list-of-text-blocks
+        branch and the bare-string branch through here keeps MESSAGES_SNAPSHOT
+        encoding identical to TOOL_CALL_RESULT: the SAME logical tool result
+        reaches the frontend with the SAME encoding regardless of which SDK
+        shape (list vs. bare string) delivered it — in particular a bare string
+        is NOT json.dumps-quoted into '"plain"'."""
+        try:
+            return json.dumps(json.loads(text))
+        except (json.JSONDecodeError, ValueError):
+            # Not JSON — raw passthrough (NOT json.dumps, which would quote it
+            # and diverge from the list-text-block path).
+            return text
+
     result_str = ""
     try:
         if isinstance(content, list) and len(content) > 0:
             first_block = content[0]
             if isinstance(first_block, dict) and first_block.get("type") == "text":
-                text = first_block.get("text", "")
-                try:
-                    result_str = json.dumps(json.loads(text))
-                except (json.JSONDecodeError, ValueError):
-                    result_str = text
+                result_str = _normalize_text(first_block.get("text", ""))
             else:
                 result_str = json.dumps(content)
+        elif isinstance(content, str):
+            # Bare-string content: normalise identically to the inner text of a
+            # text block (Item 5) instead of json.dumps-quoting it.
+            result_str = _normalize_text(content)
         elif content is not None:
             result_str = json.dumps(content)
     except (TypeError, ValueError):

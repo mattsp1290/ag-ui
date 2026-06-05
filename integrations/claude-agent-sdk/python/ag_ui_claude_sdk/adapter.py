@@ -180,7 +180,14 @@ class ClaudeAgentAdapter:
         
         self._per_thread_state[thread_id] = input_data.state
         self._per_thread_result[thread_id] = None
-        
+
+        # Set True only once this run has been counted into a worker's
+        # ``active_runs`` refcount, so the ``finally`` block decrements exactly
+        # the runs it incremented. The fail-loud dead-worker-with-live-peer path
+        # below returns WITHOUT counting itself in, so it must leave this False
+        # to avoid decrementing the peer's refcount. (Item 7a)
+        counted_in = False
+
         try:
             # Get or create worker for this thread.
             # Guard against a poisoned cache entry: if a previously-cached
@@ -191,15 +198,32 @@ class ClaudeAgentAdapter:
             if entry is not None and not entry["worker"].is_alive():
                 if entry.get("active_runs", 0) > 0:
                     # A peer run is still streaming on this (now-dead) worker.
-                    # Do NOT pop+stop the shared entry out from under it; that
-                    # would violate the item-7 invariant. Fall through and reuse
-                    # the existing entry so the refcount stays consistent — the
-                    # peer's own teardown (error or finally) handles eviction.
-                    logger.warning(
+                    # We are wedged between two unacceptable options:
+                    #   * REUSE the dead worker — querying it would hang this
+                    #     arriving run forever (the peer's exited run-loop will
+                    #     never service our output queue).
+                    #   * EVICT (pop+stop) the shared entry — that tears the
+                    #     worker out from under the live peer (item-7 violation).
+                    # So FAIL LOUD instead: surface a descriptive RunErrorEvent
+                    # and stop, leaving the peer's entry (and its refcount)
+                    # completely untouched. ``counted_in`` stays False so the
+                    # ``finally`` block does NOT decrement the peer's refcount.
+                    logger.error(
                         f"Worker for thread={thread_id} is dead but a peer run is "
                         f"still active (active_runs={entry.get('active_runs')}); "
-                        f"not evicting mid-stream"
+                        f"failing this run loudly rather than reusing (hang risk) "
+                        f"or evicting (would corrupt the live peer)"
                     )
+                    yield RunErrorEvent(
+                        type=EventType.RUN_ERROR,
+                        thread_id=thread_id,
+                        run_id=run_id,
+                        message=(
+                            f"cannot start run on thread {thread_id}: its worker "
+                            f"has terminated while another run is still active"
+                        ),
+                    )
+                    return
                 else:
                     logger.warning(
                         f"Evicting dead worker for thread={thread_id} (task terminated); creating fresh worker"
@@ -222,10 +246,12 @@ class ClaudeAgentAdapter:
                 # count) for callers/tests that read it. (Item 7a)
                 entry = {"worker": worker, "last_used": datetime.now(), "active": True, "active_runs": 1}
                 self._workers[thread_id] = entry
+                counted_in = True
                 self._evict_workers()
                 logger.debug(f"Created worker for thread={thread_id}")
             else:
                 entry["active_runs"] = entry.get("active_runs", 0) + 1
+                counted_in = True
                 entry["active"] = True
                 entry["last_used"] = datetime.now()
                 worker = entry["worker"]
@@ -327,8 +353,12 @@ class ClaudeAgentAdapter:
                 message=str(e),
             )
         finally:
+            # Only decrement if THIS run was counted into the refcount. The
+            # fail-loud dead-worker-with-live-peer path returns early without
+            # counting itself in (``counted_in`` stays False), so it must not
+            # decrement — doing so would corrupt the live peer's refcount. (Item 7a)
             entry = self._workers.get(thread_id)
-            if entry:
+            if entry and counted_in:
                 # Decrement the in-flight refcount; the worker only becomes idle
                 # (and thus evictable) once ALL concurrent runs sharing it have
                 # finished, so a peer run is never evicted mid-stream. (Item 7a)

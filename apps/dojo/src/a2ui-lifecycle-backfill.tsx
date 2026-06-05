@@ -140,15 +140,24 @@ export function createA2UISurfaceLifecycleRenderer(
       if (!contentHasOps) lastLoaderContentRef.current = content;
 
       // Cross-over (OSS-162): hold the skeleton in-flow while the surface mounts +
-      // paints OFFSCREEN, then swap — so the first card replaces the skeleton with
-      // no empty gap (the A2UIProvider needs a couple ticks to paint after mount).
+      // paints OFFSCREEN, then swap the instant the surface reports it has painted
+      // (onReady). Paint-timed, NOT a fixed delay — the right delay varies with
+      // stream latency / payload / machine, so a constant can't be correct. The
+      // timer is only a safety fallback if onReady never fires.
       const [surfaceReady, setSurfaceReady] = useState(false);
+      const readyRef = useRef(false);
+      const markSurfaceReady = useCallback(() => {
+        if (readyRef.current) return;
+        readyRef.current = true;
+        requestAnimationFrame(() => setSurfaceReady(true));
+      }, []);
       useEffect(() => {
         if (!hasOps) {
           setSurfaceReady(false);
+          readyRef.current = false;
           return;
         }
-        const t = setTimeout(() => setSurfaceReady(true), 220);
+        const t = setTimeout(() => setSurfaceReady(true), 1500); // fallback only
         return () => clearTimeout(t);
       }, [hasOps]);
 
@@ -167,6 +176,7 @@ export function createA2UISurfaceLifecycleRenderer(
               agent={agent}
               copilotkit={copilotkit}
               catalog={catalog}
+              onReady={markSurfaceReady}
             />
           ))}
         </div>
@@ -218,6 +228,7 @@ function ReactSurfaceHost({
   agent,
   copilotkit,
   catalog,
+  onReady,
 }: {
   surfaceId: string;
   operations: any[];
@@ -225,6 +236,7 @@ function ReactSurfaceHost({
   agent: any;
   copilotkit: any;
   catalog?: any;
+  onReady?: () => void;
 }) {
   const handleAction = useCallback(
     async (message: any) => {
@@ -245,7 +257,11 @@ function ReactSurfaceHost({
   return (
     <div className="cpk:flex cpk:w-full cpk:flex-none cpk:flex-col cpk:gap-4">
       <A2UIProvider onAction={handleAction} theme={theme} catalog={catalog}>
-        <SurfaceMessageProcessor surfaceId={surfaceId} operations={operations} />
+        <SurfaceMessageProcessor
+          surfaceId={surfaceId}
+          operations={operations}
+          onReady={onReady}
+        />
         <A2UISurfaceOrError surfaceId={surfaceId} />
       </A2UIProvider>
     </div>
@@ -267,9 +283,11 @@ function A2UISurfaceOrError({ surfaceId }: { surfaceId: string }) {
 function SurfaceMessageProcessor({
   surfaceId,
   operations,
+  onReady,
 }: {
   surfaceId: string;
   operations: any[];
+  onReady?: () => void;
 }) {
   const { processMessages, getSurface } = useA2UIActions();
   const lastHashRef = useRef<string>("");
@@ -282,7 +300,8 @@ function SurfaceMessageProcessor({
       ? operations.filter((op) => !op?.createSurface)
       : operations;
     processMessages(ops);
-  }, [processMessages, getSurface, surfaceId, operations]);
+    onReady?.();
+  }, [processMessages, getSurface, surfaceId, operations, onReady]);
   return null;
 }
 

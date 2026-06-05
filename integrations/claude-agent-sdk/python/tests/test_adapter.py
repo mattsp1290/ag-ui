@@ -773,3 +773,62 @@ class TestPoisonedWorkerCache:
         assert EventType.RUN_ERROR in types
         err = next(e for e in events if e.type == EventType.RUN_ERROR)
         assert "boom" in err.message
+
+    @pytest.mark.asyncio
+    async def test_dead_cached_worker_with_live_peer_is_not_evicted(self, make_input):
+        # The dead-worker eviction branch is refcount-aware: when a cached worker
+        # reports is_alive()==False BUT a concurrent peer still holds it
+        # (active_runs > 0), it must NOT pop+stop the shared entry out from under
+        # that peer. It leaves/reuses the entry so the peer isn't torn down
+        # mid-stream; the peer's own teardown handles eviction. (Item 7a)
+        stop_calls = {"n": 0}
+
+        class _DeadWorkerWithCleanQuery:
+            """Reports dead, but serves a clean (empty) query stream so run()
+            completes normally — isolating the dead-worker branch as the only
+            place that could have popped+stopped the entry."""
+
+            def __init__(self, *args, **kwargs):
+                pass
+
+            async def start(self):
+                pass
+
+            def is_alive(self):
+                return False
+
+            def query(self, prompt, session_id="default"):
+                async def _gen():
+                    return
+                    yield  # pragma: no cover
+
+                return _gen()
+
+            async def stop(self):
+                stop_calls["n"] += 1
+
+        adapter = ClaudeAgentAdapter(name="t")
+        worker = _DeadWorkerWithCleanQuery()
+        # Pre-seed the cache as if a concurrent peer run already holds this
+        # (now-dead) worker: active_runs=1 simulates the live peer.
+        adapter._workers["shared"] = {
+            "worker": worker,
+            "last_used": None,
+            "active": True,
+            "active_runs": 1,
+        }
+
+        inp = make_input(
+            thread_id="shared", messages=[{"id": "1", "role": "user", "content": "hi"}]
+        )
+        events = [e async for e in adapter.run(inp)]
+
+        # INVARIANT: the dead-worker branch must NOT evict a shared entry that a
+        # peer still holds. The entry survives and stop() is never called by the
+        # branch — the peer's worker is preserved mid-stream.
+        entry = adapter._workers.get("shared")
+        assert entry is not None, "shared worker evicted while a peer run was live"
+        assert entry["worker"] is worker
+        assert stop_calls["n"] == 0, "shared worker stopped while a peer run was live"
+        # This run completed normally (no error/hang) on the reused entry.
+        assert EventType.RUN_FINISHED in _types(events)

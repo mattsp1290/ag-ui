@@ -1,5 +1,4 @@
 """
-import uuid
 Event handlers for Claude SDK stream processing.
 
 Breaks down stream processing into focused handler functions.
@@ -7,6 +6,7 @@ Breaks down stream processing into focused handler functions.
 
 import json
 import logging
+import uuid
 from typing import AsyncIterator, Any, Optional
 
 from ag_ui.core import (

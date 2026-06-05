@@ -20,6 +20,13 @@
         { "name": "@ag-ui/a2ui-toolkit", "path": "sdks/typescript/packages/a2ui-toolkit", "ecosystem": "typescript" }
       ]
     },
+    "sdk-py-a2ui-toolkit": {
+      "description": "A2UI Toolkit (standalone Python SDK package, independently versioned)",
+      "sharedVersion": false,
+      "packages": [
+        { "name": "ag-ui-a2ui-toolkit", "path": "sdks/python/a2ui_toolkit", "ecosystem": "python", "buildSystem": "uv" }
+      ]
+    },
     "sdk-py": {
       "description": "Python SDK",
       "sharedVersion": false,

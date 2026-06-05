@@ -264,7 +264,14 @@ class AgUiSpanProcessor(SpanProcessor):
                     self._tool_run_id_to_tool_call_id[event.request_id] = tool_call_id
             case ToolExecutionResponse():
                 if self._runtime == "langgraph":
-                    tool_call_id = self._tool_run_id_to_tool_call_id[event.request_id]
+                    # The correlation map is populated from the matching
+                    # ToolExecutionRequest. If that request was never seen
+                    # (out-of-order events, or a request span lacking a
+                    # ``tcid__`` description), fall back to the run-level
+                    # request_id rather than raising a KeyError.
+                    tool_call_id = self._tool_run_id_to_tool_call_id.get(
+                        event.request_id, event.request_id
+                    )
                 else:
                     tool_call_id = event.request_id
                 content = _normalize_tool_output(event.outputs)

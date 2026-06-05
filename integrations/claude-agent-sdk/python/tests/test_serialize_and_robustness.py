@@ -166,6 +166,173 @@ class TestSerializeSameThread:
         await adapter.shutdown()
 
     @pytest.mark.asyncio
+    async def test_run_lock_not_orphaned_by_eviction_in_release_acquire_window(
+        self, make_input, monkeypatch
+    ):
+        # (a2) ORPHAN REGRESSION (Fix 1): the run-admission lock must NOT be
+        # coupled to worker eviction. Reproduce the hole:
+        #   1. Run A admits, holds the run-lock L1, runs on a fresh worker.
+        #   2. Run B parks on ``L1.acquire()`` (waiter on L1).
+        #   3. A finishes and releases L1 — but B has not yet woken. The worker
+        #      is now idle (active_runs==0) and thus TTL-evictable.
+        #   4. Eviction fires (worker_ttl_seconds=0). If eviction POPS
+        #      ``_run_locks[thread_id]`` (the bug), L1 is orphaned: B is still a
+        #      waiter on it, but a later run D will ``setdefault`` a FRESH lock
+        #      L2 and run on its own brand-new worker.
+        #   5. D and B then hold DIFFERENT locks → they run CONCURRENTLY on the
+        #      same thread_id. Serialization defeated.
+        # With the fix (lock NOT popped + identity re-validation after acquire),
+        # B and D share the SAME current lock entry, so they serialize: their two
+        # runs never overlap (refcount on the shared worker never exceeds 1, and
+        # RUN_STARTED events never interleave).
+        order = []  # (marker, event_type) for RUN_STARTED / RUN_FINISHED
+        a_gate = asyncio.Event()       # release A's stream so A can finish
+        b_gate = asyncio.Event()       # hold B's stream open so B is mid-flight
+                                       # when D arrives (so an orphan → overlap)
+        b_proceeded = asyncio.Event()  # set when B wakes from acquire()
+        max_overlap = {"n": 0}
+        # True concurrency gauge: number of runs that have emitted RUN_STARTED
+        # but not yet RUN_FINISHED, counted across ALL drive() coroutines (not
+        # tied to a single _workers slot, which two distinct workers can overwrite).
+        live_runs = {"n": 0, "max": 0}
+
+        class _OrphanWorker:
+            calls = 0
+
+            def __init__(self, *a, **kw):
+                pass
+
+            async def start(self):
+                pass
+
+            def is_alive(self):
+                return True
+
+            def query(self, prompt, session_id="default"):
+                idx = _OrphanWorker.calls
+                _OrphanWorker.calls += 1
+
+                async def _gen_a():
+                    # A (idx 0): hold open until released, so B can park on the
+                    # run-lock and we can fire eviction in the release→acquire
+                    # window.
+                    await a_gate.wait()
+                    for ev in _make_text_stream():
+                        yield ev
+
+                async def _gen_b():
+                    # B (idx 1): hold open until released, so B is still mid-flight
+                    # when D arrives. If B's lock was orphaned by eviction, D will
+                    # acquire a FRESH lock and run concurrently with B → the
+                    # serialization violation this test is designed to catch.
+                    await b_gate.wait()
+                    for ev in _make_text_stream():
+                        yield ev
+
+                async def _gen_other():
+                    for ev in _make_text_stream():
+                        yield ev
+
+                if idx == 0:
+                    return _gen_a()
+                if idx == 1:
+                    return _gen_b()
+                return _gen_other()
+
+            async def stop(self):
+                pass
+
+        adapter = ClaudeAgentAdapter(name="t", worker_ttl_seconds=0.0)
+        monkeypatch.setattr("ag_ui_claude_sdk.adapter.SessionWorker", _OrphanWorker)
+
+        inp_a = make_input(thread_id="shared", run_id="A",
+                           messages=[{"id": "1", "role": "user", "content": "hi"}])
+        inp_b = make_input(thread_id="shared", run_id="B",
+                           messages=[{"id": "2", "role": "user", "content": "yo"}])
+        inp_d = make_input(thread_id="shared", run_id="D",
+                           messages=[{"id": "3", "role": "user", "content": "sup"}])
+
+        def _record_overlap():
+            entry = adapter._workers.get("shared")
+            if entry:
+                max_overlap["n"] = max(max_overlap["n"], entry.get("active_runs", 0))
+
+        async def drive(inp, marker, evict_after=False):
+            async for e in adapter.run(inp):
+                _record_overlap()
+                if e.type == EventType.RUN_STARTED:
+                    live_runs["n"] += 1
+                    live_runs["max"] = max(live_runs["max"], live_runs["n"])
+                    order.append((marker, e.type))
+                    if marker == "B":
+                        b_proceeded.set()
+                elif e.type == EventType.RUN_FINISHED:
+                    live_runs["n"] -= 1
+                    order.append((marker, e.type))
+            # CRITICAL: fire eviction in the SAME coroutine step in which A's
+            # run() generator was exhausted — A's ``finally`` has just run
+            # ``run_lock.release()``, scheduling B's parked acquire to wake on the
+            # NEXT loop iteration, but we have not yielded control yet. So B is
+            # still a waiter on L1 when eviction runs. With the bug, eviction pops
+            # L1 here → B is orphaned on a lock no longer in ``_run_locks``.
+            if evict_after:
+                adapter._evict_workers()
+
+        # 1+2: A admits and holds L1; B parks on L1.acquire().
+        t_a = asyncio.create_task(drive(inp_a, "A", evict_after=True))
+        await _wait_for(lambda: ("A", EventType.RUN_STARTED) in order)
+        l1 = adapter._run_locks["shared"]
+        t_b = asyncio.create_task(drive(inp_b, "B"))
+        # Let B reach the parked acquire() on L1.
+        await _wait_for(lambda: l1.locked() and len(l1._waiters or []) >= 1)
+
+        # 3: release A; A finishes, releases L1, and (in A's own coroutine step,
+        # before B wakes) fires eviction (evict_after=True). The now-idle worker
+        # is popped; with the BUG L1 is popped too, orphaning B's wait.
+        a_gate.set()
+        # B wakes, acquires (its now-orphaned, under the bug) lock, emits
+        # RUN_STARTED, and blocks in its gated stream — still in-flight.
+        await _wait_for(lambda: b_proceeded.is_set())
+
+        # 5: D arrives WHILE B is still mid-flight. With the bug, ``_run_locks``
+        # was emptied by eviction, so D ``setdefault``s a FRESH lock + fresh
+        # worker and runs immediately — concurrently with B. With the fix, the
+        # lock entry survived (B still holds the current entry), so D parks until
+        # B releases.
+        t_d = asyncio.create_task(drive(inp_d, "D"))
+        # Give D ample opportunity to (incorrectly) start before B is released.
+        for _ in range(100):
+            await asyncio.sleep(0)
+
+        # Now release B; everything drains.
+        b_gate.set()
+        await asyncio.wait_for(asyncio.gather(t_a, t_b, t_d), timeout=10.0)
+
+        # SERIALIZATION INVARIANT: never were two same-thread runs simultaneously
+        # in-flight (RUN_STARTED-but-not-yet-RUN_FINISHED). Counted across all
+        # drive() coroutines so it catches B and D running on DISTINCT workers
+        # (the orphan symptom: each gets its own worker, so the per-entry refcount
+        # can't see the overlap, but the run-lock was supposed to prevent it).
+        assert live_runs["max"] <= 1, (
+            f"run-lock orphaned: {live_runs['max']} same-thread runs were "
+            f"concurrently in-flight (B and D overlapped). order={order}"
+        )
+        # All three completed.
+        for m in ("A", "B", "D"):
+            assert (m, EventType.RUN_FINISHED) in order, f"{m} did not finish: {order}"
+        # B and D never interleave their RUN_STARTED/RUN_FINISHED: one fully
+        # precedes the other.
+        b_fin = order.index(("B", EventType.RUN_FINISHED))
+        d_start = order.index(("D", EventType.RUN_STARTED))
+        b_start = order.index(("B", EventType.RUN_STARTED))
+        d_fin = order.index(("D", EventType.RUN_FINISHED))
+        assert b_fin < d_start or d_fin < b_start, (
+            f"B and D interleaved — not serialized: {order}"
+        )
+
+        await adapter.shutdown()
+
+    @pytest.mark.asyncio
     async def test_different_threads_run_concurrently(self, make_input, monkeypatch):
         # (b) Two DIFFERENT-thread runs must still overlap (lock is per-thread).
         both_started = asyncio.Event()
@@ -379,10 +546,111 @@ class TestQueryTimeoutDefault:
 
 
 class TestPerRunResult:
+    # Fix 4 keys ``_per_run_result`` by ``(thread_id, run_id)`` rather than a
+    # bare per-thread slot. Under run-admission serialization (Fix 1) same-thread
+    # runs are sequential, so a bare per-thread slot would NOT actually bleed
+    # across runs at RUN_FINISHED time — which means the two ordering-only tests
+    # below (``..._reflects_own_result_message`` /
+    # ``..._serialized_runs_each_get_own_result``) are DEFENSE-IN-DEPTH: they
+    # would still pass against a thread-keyed implementation. The dedicated
+    # ``test_result_dict_is_run_keyed_not_thread_keyed`` below is the LOAD-BEARING
+    # guard: it inspects ``_per_run_result`` directly and fails if the result is
+    # stored under a bare ``thread_id`` key instead of the ``(thread_id, run_id)``
+    # tuple — i.e. it genuinely guards the keying that Fix 4 introduced.
+    @pytest.mark.asyncio
+    async def test_result_dict_is_run_keyed_not_thread_keyed(self, make_input, monkeypatch):
+        # LOAD-BEARING keying guard. Pause run A mid-stream, AFTER its
+        # ResultMessage has been recorded into ``_per_run_result`` but BEFORE A
+        # emits RUN_FINISHED (and its ``finally`` drops the slot). Then assert the
+        # live entry is keyed by the (thread_id, run_id) TUPLE — never by the bare
+        # thread_id. A thread-keyed implementation (the regression Fix 4 guards
+        # against) would fail this directly.
+        from claude_agent_sdk import ResultMessage
+
+        after_result_gate = asyncio.Event()  # release A's stream after ResultMessage
+
+        class _PausingResultWorker:
+            def __init__(self, *a, **kw):
+                pass
+
+            async def start(self):
+                pass
+
+            def is_alive(self):
+                return True
+
+            def query(self, prompt, session_id="default"):
+                async def _gen():
+                    yield stream_event({"type": "message_start"})
+                    yield stream_event({
+                        "type": "content_block_delta",
+                        "delta": {"type": "text_delta", "text": "hi"},
+                    })
+                    yield stream_event({"type": "message_stop"})
+                    yield ResultMessage(
+                        subtype="success",
+                        duration_ms=7,
+                        duration_api_ms=1,
+                        is_error=False,
+                        num_turns=1,
+                        session_id="sess",
+                        total_cost_usd=0.0,
+                        usage={},
+                        result="hi",
+                    )
+                    # Suspend HERE: the adapter has recorded the result under this
+                    # run's key, but has not yet exhausted the stream / emitted
+                    # RUN_FINISHED / popped the slot.
+                    await after_result_gate.wait()
+
+                return _gen()
+
+            async def stop(self):
+                pass
+
+        adapter = ClaudeAgentAdapter(name="t")
+        monkeypatch.setattr("ag_ui_claude_sdk.adapter.SessionWorker", _PausingResultWorker)
+
+        inp = make_input(thread_id="kt", run_id="RUNX",
+                         messages=[{"id": "1", "role": "user", "content": "hi"}])
+
+        events = []
+
+        async def drive():
+            async for e in adapter.run(inp):
+                events.append(e)
+
+        t = asyncio.create_task(drive())
+        # Wait until A's ResultMessage has been recorded into _per_run_result.
+        await _wait_for(lambda: adapter._per_run_result.get(("kt", "RUNX")) is not None)
+
+        # LOAD-BEARING ASSERTIONS — these fail against a thread-keyed store.
+        # 1. The entry exists under the (thread_id, run_id) tuple key.
+        assert ("kt", "RUNX") in adapter._per_run_result
+        assert adapter._per_run_result[("kt", "RUNX")]["duration_ms"] == 7
+        # 2. Every live key is a (thread_id, run_id) tuple — never a bare string
+        #    thread_id (which is what a thread-keyed regression would produce).
+        for k in adapter._per_run_result:
+            assert isinstance(k, tuple) and len(k) == 2, (
+                f"_per_run_result key is not (thread_id, run_id): {k!r}"
+            )
+        assert "kt" not in adapter._per_run_result, (
+            "result stored under bare thread_id — keying regressed to per-thread"
+        )
+
+        after_result_gate.set()
+        await asyncio.wait_for(t, timeout=5.0)
+        fin = next(e for e in events if e.type == EventType.RUN_FINISHED)
+        assert fin.result["duration_ms"] == 7
+
+        await adapter.shutdown()
+
     @pytest.mark.asyncio
     async def test_run_finished_result_reflects_own_result_message(self, make_input, monkeypatch):
-        # Fix 4: RUN_FINISHED.result must reflect THIS run's own ResultMessage,
-        # not a shared per-thread slot clobbered by another run.
+        # Fix 4 (defense-in-depth, ordering): RUN_FINISHED.result reflects THIS
+        # run's own ResultMessage. (Sequential under serialization, so this would
+        # also pass thread-keyed; the load-bearing guard is
+        # ``test_result_dict_is_run_keyed_not_thread_keyed``.)
         from claude_agent_sdk import ResultMessage
 
         class _ResultWorker:
@@ -626,3 +894,96 @@ class TestWorkerDeathFanout:
         finally:
             claude_agent_sdk.ClaudeSDKClient = orig
             await worker.stop()
+
+    @pytest.mark.asyncio
+    async def test_in_flight_consumer_gets_terminal_error_on_worker_cancellation(self):
+        # Fix 4 (b): ``_on_task_done`` has a branch for the worker task exiting
+        # WITHOUT a fatal exception — e.g. cancelled / terminated mid-flight while
+        # a query is still being serviced. That branch must fan out a terminal
+        # RuntimeError("...terminated while a query was still in flight") + the
+        # None sentinel to every in-flight output queue, so the waiting consumer
+        # gets a raised error rather than hanging forever. (The existing
+        # ``..._on_worker_death`` test only covers the FATAL connect()-raises
+        # path; this covers the cancelled/no-exception path.)
+        import claude_agent_sdk
+        from ag_ui_claude_sdk.session import SessionWorker
+
+        in_connect = asyncio.Event()     # set once connect() is entered
+        block_forever = asyncio.Event()  # never set: keeps connect() pending
+
+        class _BlockingConnectClient:
+            def __init__(self, options=None, **kwargs):
+                self.options = options
+
+            async def connect(self):
+                # Block in connect so the enqueued query is registered as
+                # in-flight but NEVER dequeued/serviced. Cancelling the worker
+                # here raises CancelledError (a BaseException, NOT caught by the
+                # fatal ``except Exception`` branch), so ``_run`` exits WITHOUT a
+                # fatal exception while the query's output queue is still
+                # registered — exactly the no-exception path of _on_task_done.
+                in_connect.set()
+                await block_forever.wait()
+
+            async def query(self, prompt, session_id="default"):  # pragma: no cover
+                pass
+
+            async def receive_response(self):  # pragma: no cover
+                if False:
+                    yield None
+
+            async def disconnect(self):
+                pass
+
+            async def interrupt(self):
+                pass
+
+        orig = claude_agent_sdk.ClaudeSDKClient
+        claude_agent_sdk.ClaudeSDKClient = _BlockingConnectClient
+        worker = SessionWorker("th", options=None)
+        try:
+            await worker.start()
+
+            terminal_error = {"exc": None}
+
+            async def consume():
+                try:
+                    async for _ in worker.query("p", session_id="th"):
+                        pass
+                except Exception as e:  # noqa: BLE001 — capture the terminal error
+                    terminal_error["exc"] = e
+
+            c = asyncio.create_task(consume())
+
+            # The query is enqueued + its output queue registered as in-flight,
+            # while the worker is blocked in connect() (query never dequeued).
+            await _wait_for(
+                lambda: in_connect.is_set() and len(worker._inflight_queues) == 1
+            )
+
+            # Cancel the worker task while it sits in connect(). CancelledError is
+            # a BaseException, so ``_run``'s ``except Exception`` fatal fan-out is
+            # NOT taken; the task ends with no fatal exception while the consumer's
+            # queue is still registered. The done-callback's no-exception branch
+            # must terminate that consumer.
+            worker._task.cancel()
+
+            # The consumer must terminate with a raised terminal error — not hang.
+            await asyncio.wait_for(c, timeout=5.0)
+            assert terminal_error["exc"] is not None, (
+                "in-flight consumer hung instead of receiving a terminal error "
+                "on worker cancellation"
+            )
+            assert "terminated while a query was still in flight" in str(
+                terminal_error["exc"]
+            ), f"unexpected terminal error: {terminal_error['exc']!r}"
+        finally:
+            claude_agent_sdk.ClaudeSDKClient = orig
+            block_forever.set()
+            # The worker task was cancelled above; awaiting it via stop() would
+            # re-raise CancelledError. Just await the already-cancelled task,
+            # suppressing the cancellation, to clean up without masking the test.
+            from contextlib import suppress
+            if worker._task is not None:
+                with suppress(asyncio.CancelledError):
+                    await worker._task

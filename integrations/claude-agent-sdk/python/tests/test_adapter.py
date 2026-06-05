@@ -535,8 +535,11 @@ class TestWorkerLifecycle:
 
     # ── Run-admission serialization (Fix 1): two same-thread runs no longer run
     # concurrently — the run-lock serializes them, so the refcount never exceeds
-    # 1. (The active_runs refcount machinery is retained as defense-in-depth and
-    # is still exercised cross-thread; same-thread it is now bounded at 1.) ──
+    # 1. The active_runs refcount machinery is retained purely as
+    # DEFENSE-IN-DEPTH: ``active_runs`` is PER-THREAD, and the per-thread run-lock
+    # caps it at 1, so ``active_runs > 1`` is unreachable on every path — both
+    # same-thread (serialized) AND cross-thread (distinct threads have distinct
+    # refcounts, so a single thread's count is never bumped by a peer thread). ──
     @pytest.mark.asyncio
     async def test_same_thread_runs_serialized_refcount_bounded_at_one(self, make_input, monkeypatch):
         import asyncio

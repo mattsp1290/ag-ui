@@ -173,61 +173,45 @@ async def _wait_for(predicate, *, tries=400):
 
 
 class TestRealWorkerConcurrency:
-    """Drives the REAL SessionWorker + adapter; only ClaudeSDKClient is faked."""
+    """Drives the REAL SessionWorker + adapter; only ClaudeSDKClient is faked.
+
+    Same-thread runs are now SERIALIZED by the per-thread run-admission lock
+    (Fix 1), so two overlapping same-thread runs no longer co-exist in-flight
+    (the refcount never exceeds 1). These scenarios verify the real worker is
+    nonetheless REUSED across the serialized runs (not duplicated, not torn
+    down) and torn down cleanly afterward.
+    """
 
     @pytest.mark.asyncio
-    async def test_scenario_a_two_overlapping_runs_share_one_real_worker(
+    async def test_scenario_a_two_overlapping_runs_serialized_on_one_real_worker(
         self, make_input, monkeypatch
     ):
-        # (a) Two overlapping run() invocations on the SAME thread_id stream
-        # concurrently; both complete, the shared REAL worker is reused (not
-        # duplicated, not torn down): active_runs reaches 2 then drains to 0
-        # and the worker survives throughout.
+        # (a) Two overlapping run() invocations on the SAME thread_id are
+        # SERIALIZED: B's RUN_STARTED is emitted only after A's RUN_FINISHED.
+        # Both complete on the ONE shared REAL worker (reused, not duplicated),
+        # which drains to refcount 0 and survives throughout.
         instances = []
-        # The worker is created lazily on the FIRST run; the 2nd run reuses it.
-        # Only one ClaudeSDKClient is constructed (index 0). Hold its stream
-        # open so BOTH runs are provably in-flight on the one shared worker.
-        # NOTE: a single worker serves queries serially via its queue, so we
-        # release as soon as both runs have incremented the refcount.
-        releases = _install_scripted_client(
-            monkeypatch, instances, release_when=lambda i: i == 0
-        )
+        _install_scripted_client(monkeypatch, instances)
 
         adapter = ClaudeAgentAdapter(name="t")
         inp = make_input(
             thread_id="shared", messages=[{"id": "1", "role": "user", "content": "hi"}]
         )
 
-        t1 = asyncio.create_task(_drive(adapter, inp))
-        t2 = asyncio.create_task(_drive(adapter, inp))
+        order = []
 
-        # Both runs in-flight => refcount 2 on the single shared worker.
-        reached_two = await _wait_for(
-            lambda: (adapter._workers.get("shared") or {}).get("active_runs", 0) >= 2
-        )
-        assert reached_two, "two concurrent runs never both became in-flight"
+        async def drive(marker):
+            evs = []
+            async for e in adapter.run(inp):
+                evs.append(e)
+                if e.type in (EventType.RUN_STARTED, EventType.RUN_FINISHED):
+                    order.append((marker, e.type))
+            return evs
 
-        entry = adapter._workers["shared"]
-        assert entry["active_runs"] == 2
-        assert entry["active"] is True
-        # PROOF the REAL worker ran: it's an actual SessionWorker with a live
-        # background task. (A fake worker would never be a SessionWorker.)
-        assert isinstance(entry["worker"], SessionWorker)
-        assert entry["worker"].is_alive() is True
+        t1 = asyncio.create_task(drive("A"))
+        await _wait_for(lambda: ("A", EventType.RUN_STARTED) in order)
+        t2 = asyncio.create_task(drive("B"))
 
-        # The worker's background task constructs + connects exactly ONE real
-        # ClaudeSDKClient (lazily, when _run is scheduled). Wait for it: a fake
-        # worker would construct none. This proves the real connect()/query()/
-        # receive_response() lifecycle executed, not a bypassed stub.
-        constructed = await _wait_for(lambda: len(instances) == 1)
-        assert constructed, "real SessionWorker never constructed its ClaudeSDKClient"
-        assert instances[0].connected is True
-
-        # Release the held stream so both runs drain. Wait for the release Event
-        # to be created on the (lazily-constructed) client first.
-        await _wait_for(lambda: len(releases) >= 1)
-        for r in releases:
-            r.set()
         events1, events2 = await asyncio.gather(t1, t2)
 
         assert EventType.RUN_FINISHED in _types(events1)
@@ -236,9 +220,14 @@ class TestRealWorkerConcurrency:
         assert EventType.TEXT_MESSAGE_CONTENT in _types(events1)
         assert EventType.TEXT_MESSAGE_CONTENT in _types(events2)
 
-        # (c) After all runs finish: refcount 0, worker idle/evictable, no leak,
-        # and still the SAME single worker (never duplicated).
+        # SERIALIZED: A's RUN_FINISHED strictly precedes B's RUN_STARTED.
+        idx_a_fin = order.index(("A", EventType.RUN_FINISHED))
+        idx_b_start = order.index(("B", EventType.RUN_STARTED))
+        assert idx_a_fin < idx_b_start, f"runs not serialized: {order}"
+
+        # ONE real worker served both runs (reused, not duplicated).
         entry = adapter._workers["shared"]
+        assert isinstance(entry["worker"], SessionWorker)
         assert entry["active_runs"] == 0
         assert entry["active"] is False
         assert len(instances) == 1, "worker was duplicated instead of reused"
@@ -246,35 +235,24 @@ class TestRealWorkerConcurrency:
         await adapter.shutdown()
 
     @pytest.mark.asyncio
-    async def test_scenario_b_erroring_run_does_not_evict_live_peer(
+    async def test_scenario_b_erroring_run_then_next_run_proceeds(
         self, make_input, monkeypatch
     ):
-        # (b) Two concurrent same-thread runs; ONE raises mid-stream. The
-        # surviving peer completes normally and its (shared, real) worker is NOT
-        # evicted by the erroring run (item-7 error-path invariant); the erroring
-        # run surfaces RUN_ERROR.
-        #
-        # Both runs share ONE worker (same thread_id). That worker's single
-        # ClaudeSDKClient is constructed once (index 0). The worker serves the
-        # two queued queries serially: we make the FIRST served query block then
-        # raise (the failer A), while the SECOND completes (the survivor B). We
-        # gate so the failer raises only once both runs are in-flight.
+        # (b) Two overlapping same-thread runs; the FIRST-admitted one raises
+        # mid-stream. Because runs are serialized, the second run only begins
+        # after the first releases its run-lock (on the error path). The errored
+        # run surfaces RUN_ERROR; the next run completes normally.
         instances = []
-        gate = asyncio.Event()       # released to let the failer (A) raise
-        b_streaming = asyncio.Event()  # set once the survivor (B) is streaming
-        b_release = asyncio.Event()    # released to let B finish after the assert
 
         import claude_agent_sdk
 
-        # A single client instance serves both queries off the worker's queue.
-        # Track query invocations so the first served query fails and the second
-        # succeeds, all on the one real shared worker.
         class _SharedClient:
+            served = 0
+
             def __init__(self, options=None, **kwargs):
                 self.options = options
                 self.connected = False
                 self.disconnected = False
-                self._served = 0
                 instances.append(self)
 
             async def connect(self):
@@ -286,19 +264,13 @@ class TestRealWorkerConcurrency:
             async def receive_response(self):
                 from claude_agent_sdk import ResultMessage
 
-                served = self._served
-                self._served += 1
+                served = _SharedClient.served
+                _SharedClient.served += 1
                 if served == 0:
-                    # Failer A: wait until both runs are in-flight, then raise
-                    # mid-stream while the peer (B) is still queued on this
-                    # shared worker.
-                    await gate.wait()
+                    # First served query (A): raise mid-stream.
                     raise RuntimeError("scripted client boom")
                     yield  # pragma: no cover
-                # Survivor B: begin streaming, then HOLD the stream open so B is
-                # provably still in-flight on the shared worker when the test
-                # inspects the post-error invariant. (The worker serves queries
-                # serially, so B only starts after A's failed query is drained.)
+                # Next query (B): complete normally.
                 yield stream_event({"type": "message_start"})
                 yield stream_event(
                     {
@@ -306,8 +278,6 @@ class TestRealWorkerConcurrency:
                         "delta": {"type": "text_delta", "text": "ok"},
                     }
                 )
-                b_streaming.set()
-                await b_release.wait()
                 yield stream_event({"type": "message_stop"})
                 yield ResultMessage(
                     subtype="success",
@@ -334,54 +304,25 @@ class TestRealWorkerConcurrency:
             thread_id="shared", messages=[{"id": "1", "role": "user", "content": "hi"}]
         )
 
-        # Start A (failer, first to enqueue) then B (survivor).
+        # A (admitted first, fails) and B (proceeds after A releases the lock).
         t_a = asyncio.create_task(_drive(adapter, inp))
         await _wait_for(
             lambda: (adapter._workers.get("shared") or {}).get("active_runs", 0) >= 1
         )
         t_b = asyncio.create_task(_drive(adapter, inp))
-        reached_two = await _wait_for(
-            lambda: (adapter._workers.get("shared") or {}).get("active_runs", 0) >= 2
+
+        events_a, events_b = await asyncio.wait_for(
+            asyncio.gather(t_a, t_b), timeout=10.0
         )
-        assert reached_two, "second concurrent run never became in-flight"
-
-        entry = adapter._workers["shared"]
-        assert entry["active_runs"] == 2
-        # PROOF: one real shared SessionWorker, one real client constructed.
-        assert isinstance(entry["worker"], SessionWorker)
-        assert len(instances) == 1
-
-        # Let A raise. The worker drains A's failed query then dequeues B, which
-        # streams a chunk and parks on b_release — so B is provably mid-stream.
-        gate.set()
-        events_a = await t_a
         assert EventType.RUN_ERROR in _types(events_a)
-
-        # Wait until B is provably streaming on the shared worker.
-        b_live = await _wait_for(b_streaming.is_set)
-        assert b_live, "survivor peer never began streaming on the shared worker"
-
-        # INVARIANT: the shared real worker survives — B is still on it. A's
-        # error path must NOT have evicted/stopped it, and A's single decrement
-        # leaves the refcount at exactly 1 (B still in-flight).
-        entry = adapter._workers.get("shared")
-        assert entry is not None, "shared worker evicted while a peer run was live"
-        assert isinstance(entry["worker"], SessionWorker)
-        assert entry["worker"].is_alive() is True
-        assert entry["active_runs"] == 1
-        assert entry["active"] is True
-
-        # Now let B finish normally on the surviving worker.
-        b_release.set()
-        events_b = await t_b
         assert EventType.RUN_FINISHED in _types(events_b)
         assert EventType.RUN_ERROR not in _types(events_b)
 
-        # (c) After both finished: refcount 0, idle, evictable, no leak.
+        # End state: refcount 0, idle, evictable, no leak.
         entry = adapter._workers["shared"]
+        assert isinstance(entry["worker"], SessionWorker)
         assert entry["active_runs"] == 0
         assert entry["active"] is False
-        assert len(instances) == 1, "shared worker was duplicated"
 
         await adapter.shutdown()
 
@@ -389,13 +330,11 @@ class TestRealWorkerConcurrency:
     async def test_scenario_c_worker_cleanly_evictable_after_runs(
         self, make_input, monkeypatch
     ):
-        # (c) explicit: after concurrent runs finish, the shared real worker is
-        # refcount 0 and is actually torn down (stop() disconnects the client)
-        # by clear_session — no leak, no lingering background task.
+        # (c) explicit: after two serialized same-thread runs finish, the shared
+        # real worker is refcount 0 and is actually torn down (stop() disconnects
+        # the client) by clear_session — no leak, no lingering background task.
         instances = []
-        releases = _install_scripted_client(
-            monkeypatch, instances, release_when=lambda i: i == 0
-        )
+        _install_scripted_client(monkeypatch, instances)
 
         adapter = ClaudeAgentAdapter(name="t")
         inp = make_input(
@@ -404,15 +343,6 @@ class TestRealWorkerConcurrency:
 
         t1 = asyncio.create_task(_drive(adapter, inp))
         t2 = asyncio.create_task(_drive(adapter, inp))
-        await _wait_for(
-            lambda: (adapter._workers.get("shared") or {}).get("active_runs", 0) >= 2
-        )
-        # The worker constructs its client lazily on the background task, so wait
-        # for the held release Event to exist before setting it (otherwise the
-        # client would park on a stream nothing releases).
-        await _wait_for(lambda: len(releases) >= 1)
-        for r in releases:
-            r.set()
         await asyncio.gather(t1, t2)
 
         entry = adapter._workers["shared"]

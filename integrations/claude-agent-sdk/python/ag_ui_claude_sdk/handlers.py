@@ -76,14 +76,21 @@ async def handle_tool_use_block(
     # must NOT mutate state nor emit a STATE_SNAPSHOT (mirrors the streaming
     # path in adapter.py). This flag carries that decision out to the generator.
     state_parse_error: Optional[str] = None
+    # Whether the merge actually changed state. The streaming path only emits a
+    # STATE_SNAPSHOT when the merged state differs from the prior; mirror that
+    # here so a no-op update doesn't emit a spurious snapshot (Item 3).
+    state_changed: bool = False
 
     if _is_state_management_tool(tool_name):
         logger.debug("Intercepting ag_ui_update_state tool call")
 
-        # Extract state updates from tool input
-        state_updates = tool_input.get("state_updates", {})
+        # Extract state updates from tool input. Mirror the streaming path
+        # (adapter.py): when the "state_updates" key is absent, fall back to the
+        # whole tool_input object instead of an empty {} (Item 4).
+        state_updates = tool_input.get("state_updates", tool_input)
 
-        # Parse if it's a JSON string
+        # Parse if it's a JSON string (streaming re-parses nested JSON strings
+        # too — Item 4).
         if isinstance(state_updates, str):
             try:
                 state_updates = json.loads(state_updates)
@@ -93,6 +100,8 @@ async def handle_tool_use_block(
                 state_parse_error = str(e)
 
         if state_parse_error is None:
+            prev_state_json = json.dumps(merged_state, sort_keys=True, default=str)
+
             # Update current state
             if isinstance(merged_state, dict) and isinstance(state_updates, dict):
                 merged_state = {**merged_state, **state_updates}
@@ -101,6 +110,11 @@ async def handle_tool_use_block(
 
             # Fix any UTF-16 surrogates before Pydantic serialisation
             merged_state = fix_surrogates_deep(merged_state)
+
+            # Mirror the streaming change check (adapter.py): only emit a
+            # snapshot if the merge actually changed the persisted state.
+            new_state_json = json.dumps(merged_state, sort_keys=True, default=str)
+            state_changed = new_state_json != prev_state_json
 
     async def event_gen():
         # Intercept state management tool calls (check both prefixed and unprefixed names)
@@ -116,14 +130,18 @@ async def handle_tool_use_block(
                 # streaming path (adapter.py), which emits the error alone.
                 return
 
-            # Emit STATE_SNAPSHOT with the SAME merged state we return below, so
-            # the persisted state and the snapshot never diverge.
-            yield StateSnapshotEvent(
-                type=EventType.STATE_SNAPSHOT,
-                snapshot=merged_state
-            )
-
-            logger.debug(f"Emitted STATE_SNAPSHOT with updated state")
+            # Emit STATE_SNAPSHOT only when the merge actually changed state,
+            # matching the streaming path (Item 3). The snapshot carries the
+            # SAME merged state we return below, so the persisted state and the
+            # snapshot never diverge.
+            if state_changed:
+                yield StateSnapshotEvent(
+                    type=EventType.STATE_SNAPSHOT,
+                    snapshot=merged_state
+                )
+                logger.debug("Emitted STATE_SNAPSHOT with updated state")
+            else:
+                logger.debug("State unchanged — suppressing no-op STATE_SNAPSHOT")
             return  # Skip normal tool call events
 
         # Regular tool handling for non-state tools
@@ -195,29 +213,42 @@ async def handle_tool_result_block(
     # can add an "error" marker WITHOUT double-encoding it into a string.
     result_str = ""
     parsed_obj = None  # set only when the content is a JSON object (dict)
+
+    def _normalize_text(text: str) -> None:
+        """Normalise a plain-text payload: parse JSON when possible (so the
+        frontend can access fields) else pass the raw text through unquoted.
+
+        This is the single canonical encoding for textual content. Both the
+        list-of-text-blocks path and the bare-string path route through here so
+        the SAME logical payload reaches the frontend with the SAME encoding
+        regardless of which SDK shape delivered it (Item 5)."""
+        nonlocal result_str, parsed_obj
+        try:
+            parsed_json = json.loads(text)
+            result_str = json.dumps(parsed_json)
+            if isinstance(parsed_json, dict):
+                parsed_obj = parsed_json
+        except (json.JSONDecodeError, ValueError):
+            # Not JSON — pass the raw text through unquoted (NOT json.dumps,
+            # which would quote it and diverge from the list-text-block path).
+            result_str = text
+
     if content is not None:
         try:
             # If content is a list of content blocks (Claude SDK format)
             if isinstance(content, list) and len(content) > 0:
                 first_block = content[0]
                 if isinstance(first_block, dict) and first_block.get("type") == "text":
-                    # Extract the text content
-                    text_content = first_block.get("text", "")
-                    # Try to parse as JSON (tools often return JSON strings)
-                    try:
-                        parsed_json = json.loads(text_content)
-                        # Use the parsed JSON directly so frontend can access fields
-                        result_str = json.dumps(parsed_json)
-                        if isinstance(parsed_json, dict):
-                            parsed_obj = parsed_json
-                    except (json.JSONDecodeError, ValueError):
-                        # Not JSON, use as-is
-                        result_str = text_content
+                    _normalize_text(first_block.get("text", ""))
                 else:
                     # Fallback: stringify the whole content
                     result_str = json.dumps(content)
+            elif isinstance(content, str):
+                # Bare-string content: normalise identically to the inner text
+                # of a text block (Item 5) instead of json.dumps-quoting it.
+                _normalize_text(content)
             else:
-                # Fallback: stringify as-is
+                # Fallback: stringify as-is (dicts, scalars, empty lists, ...)
                 result_str = json.dumps(content)
         except (TypeError, ValueError):
             result_str = str(content)
@@ -255,8 +286,16 @@ async def handle_tool_result_block(
         # errors in the CopilotKit runtime. The TS adapter follows the same
         # pattern: tool result handling only emits TOOL_CALL_RESULT.
 
-        # Emit ToolCallResult with the actual result content
+        # Emit ToolCallResult with the actual result content.
+        #
+        # Nested / sub-agent results (e.g. Task calling WebSearch) carry a
+        # parent_tool_use_id. AG-UI's ToolCallResultEvent has no first-class
+        # field for it, so we surface the linkage via the protocol-standard
+        # ``raw_event`` escape hatch — only when present, so top-level results
+        # don't gain a spurious raw_event. (Item 8: previously this argument was
+        # accepted but never used, leaving the documented nested behavior inert.)
         result_message_id = f"{tool_use_id}-result"
+        raw_event = {"parent_tool_use_id": parent_tool_use_id} if parent_tool_use_id else None
         yield ToolCallResultEvent(
             type=EventType.TOOL_CALL_RESULT,
             thread_id=thread_id,
@@ -265,4 +304,5 @@ async def handle_tool_result_block(
             tool_call_id=tool_use_id,
             content=result_str,
             role="tool",
+            raw_event=raw_event,
         )

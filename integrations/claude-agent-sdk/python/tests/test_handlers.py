@@ -122,6 +122,75 @@ class TestHandleToolUseBlock:
         assert "error" in custom.value
 
 
+    # ── Item 3: suppress no-op STATE_SNAPSHOT on the non-streaming path ──
+    @pytest.mark.asyncio
+    async def test_state_management_noop_update_suppresses_snapshot(self):
+        # When the merge does not change state, the non-streaming handler must
+        # NOT emit a STATE_SNAPSHOT — matching the streaming path, which only
+        # emits when the merged state actually changed.
+        block = ToolUseBlock(
+            id="tc-noop",
+            name=STATE_MANAGEMENT_TOOL_FULL_NAME,
+            input={"state_updates": {"count": 1}},
+        )
+        new_state, gen = await handle_tool_use_block(
+            block, _Msg(), "th", "run", {"count": 1}
+        )
+        events = await collect(gen)
+        # No-op merge => no snapshot emitted.
+        assert [e.type for e in events] == []
+        # Returned state is unchanged (still equal to prior).
+        assert new_state == {"count": 1}
+
+    @pytest.mark.asyncio
+    async def test_state_management_real_change_still_emits_snapshot(self):
+        # A genuine change must still emit exactly one STATE_SNAPSHOT.
+        block = ToolUseBlock(
+            id="tc-change",
+            name=STATE_MANAGEMENT_TOOL_FULL_NAME,
+            input={"state_updates": {"count": 2}},
+        )
+        _, gen = await handle_tool_use_block(block, _Msg(), "th", "run", {"count": 1})
+        events = await collect(gen)
+        assert [e.type for e in events] == [EventType.STATE_SNAPSHOT]
+        assert events[0].snapshot == {"count": 2}
+
+    # ── Item 4: align state_updates extraction with the streaming path ──
+    @pytest.mark.asyncio
+    async def test_state_updates_key_absent_falls_back_to_whole_object(self):
+        # The streaming path (adapter.py) treats the whole parsed object as the
+        # updates when the "state_updates" key is absent. The non-streaming
+        # handler must behave identically instead of merging an empty {}.
+        block = ToolUseBlock(
+            id="tc-whole",
+            name=STATE_MANAGEMENT_TOOL_FULL_NAME,
+            input={"count": 7, "name": "z"},
+        )
+        new_state, gen = await handle_tool_use_block(
+            block, _Msg(), "th", "run", {"count": 1}
+        )
+        events = await collect(gen)
+        assert [e.type for e in events] == [EventType.STATE_SNAPSHOT]
+        assert events[0].snapshot == {"count": 7, "name": "z"}
+        assert new_state == {"count": 7, "name": "z"}
+
+    @pytest.mark.asyncio
+    async def test_state_updates_nested_json_string_value_reparsed(self):
+        # Streaming re-parses a state_updates value that is itself a JSON string.
+        # The non-streaming handler must do the same.
+        block = ToolUseBlock(
+            id="tc-nested",
+            name=STATE_MANAGEMENT_TOOL_FULL_NAME,
+            input={"state_updates": json.dumps({"count": 3})},
+        )
+        new_state, gen = await handle_tool_use_block(
+            block, _Msg(), "th", "run", {"count": 1}
+        )
+        events = await collect(gen)
+        assert events[0].snapshot == {"count": 3}
+        assert new_state == {"count": 3}
+
+
 class TestToolUseBlockParentMessageId:
     @pytest.mark.asyncio
     async def test_parent_message_id_uses_passed_assistant_message_id(self):
@@ -247,3 +316,103 @@ class TestHandleToolResultBlock:
         block = ToolResultBlock(tool_use_id="", content="x")
         events = await collect(handle_tool_result_block(block, "th", "run"))
         assert events == []
+
+    # ── Item 5: tool-result content encoding consistency ──
+    @pytest.mark.asyncio
+    async def test_list_text_block_and_bare_string_encode_identically(self):
+        # The SAME logical plain-text payload must reach the frontend with the
+        # SAME encoding regardless of whether the SDK delivered it as a
+        # list-of-text-blocks or as a bare string. Previously the list path
+        # emitted the text UNQUOTED while the bare-string path json.dumps-quoted
+        # it, so identical content arrived differently.
+        list_block = ToolResultBlock(
+            tool_use_id="tc1",
+            content=[{"type": "text", "text": "plain text"}],
+        )
+        bare_block = ToolResultBlock(tool_use_id="tc2", content="plain text")
+        list_events = await collect(handle_tool_result_block(list_block, "th", "run"))
+        bare_events = await collect(handle_tool_result_block(bare_block, "th", "run"))
+        assert list_events[0].content == bare_events[0].content
+
+    # ── Item 9: untested fallback branches (non-list / scalar / except) ──
+    @pytest.mark.asyncio
+    async def test_dict_content_fallback_is_json_encoded(self):
+        # content is a dict (not a list, not a string) -> json.dumps fallback.
+        block = ToolResultBlock(tool_use_id="tc1", content={"k": "v"})
+        events = await collect(handle_tool_result_block(block, "th", "run"))
+        assert len(events) == 1
+        assert json.loads(events[0].content) == {"k": "v"}
+
+    @pytest.mark.asyncio
+    async def test_scalar_int_content_fallback(self):
+        # A bare non-string scalar -> json.dumps fallback.
+        block = ToolResultBlock(tool_use_id="tc1", content=42)
+        events = await collect(handle_tool_result_block(block, "th", "run"))
+        assert len(events) == 1
+        assert events[0].content == "42"
+
+    @pytest.mark.asyncio
+    async def test_empty_list_content_fallback(self):
+        # An empty list takes the `else` (non-truthy-len) branch -> json.dumps([]).
+        block = ToolResultBlock(tool_use_id="tc1", content=[])
+        events = await collect(handle_tool_result_block(block, "th", "run"))
+        assert len(events) == 1
+        assert events[0].content == "[]"
+
+    @pytest.mark.asyncio
+    async def test_non_text_block_list_fallback(self):
+        # A list whose first block is NOT a text block -> json.dumps(content).
+        content = [{"type": "image", "data": "xyz"}]
+        block = ToolResultBlock(tool_use_id="tc1", content=content)
+        events = await collect(handle_tool_result_block(block, "th", "run"))
+        assert len(events) == 1
+        assert json.loads(events[0].content) == content
+
+    @pytest.mark.asyncio
+    async def test_unserializable_content_uses_str_fallback(self):
+        # Content that json.dumps cannot serialise must hit the
+        # `except (TypeError, ValueError) -> str(content)` fallback rather than
+        # crashing the handler.
+        class Unserializable:
+            def __repr__(self):
+                return "UNSER"
+
+        block = ToolResultBlock(tool_use_id="tc1", content=Unserializable())
+        events = await collect(handle_tool_result_block(block, "th", "run"))
+        assert len(events) == 1
+        assert events[0].content == "UNSER"
+
+
+class TestNestedToolResult:
+    # ── Item 8: parent_tool_use_id must be wired through ──
+    @pytest.mark.asyncio
+    async def test_parent_tool_use_id_surfaced_on_result(self):
+        # A nested/sub-agent tool result carries a parent_tool_use_id. The
+        # handler accepts it but historically never used it, so the documented
+        # nested-result behavior was inert. It must now be surfaced on the
+        # emitted event so consumers can attribute the result to its parent.
+        block = ToolResultBlock(
+            tool_use_id="child-tc",
+            content=[{"type": "text", "text": '{"ok": true}'}],
+        )
+        events = await collect(
+            handle_tool_result_block(block, "th", "run", parent_tool_use_id="parent-tc")
+        )
+        assert len(events) == 1
+        ev = events[0]
+        # AG-UI's ToolCallResultEvent has no first-class parent field, so the
+        # parent linkage is surfaced via the protocol-standard raw_event escape
+        # hatch. Previously parent_tool_use_id was accepted but dropped.
+        assert ev.raw_event is not None
+        assert ev.raw_event.get("parent_tool_use_id") == "parent-tc"
+
+    @pytest.mark.asyncio
+    async def test_no_parent_tool_use_id_leaves_raw_event_unset(self):
+        # Top-level (non-nested) results must NOT gain a spurious raw_event.
+        block = ToolResultBlock(
+            tool_use_id="tc1",
+            content=[{"type": "text", "text": '{"ok": true}'}],
+        )
+        events = await collect(handle_tool_result_block(block, "th", "run"))
+        assert len(events) == 1
+        assert events[0].raw_event is None

@@ -8,7 +8,7 @@ requires-python = ">=3.10,<3.14.0"
 dependencies = [
   "fastapi>=0.115.0",
   "ag-ui-protocol>=0.1.10",
-  "pyagentspec",
+  "pyagentspec>=26.1.2",
   "json-repair>=0.30.0,<0.45.0",
 ]
 authors = [{ name = "Agent Spec team" }]
@@ -32,6 +32,9 @@ testpaths = ["tests"]
 requires = ["setuptools>=77.0.0"]
 build-backend = "setuptools.build_meta"
 
+[tool.setuptools]
+license-files = ["LICENSE-APACHE", "LICENSE-UPL"]
+
 [tool.setuptools.packages.find]
 include = ["ag_ui_agentspec*"]
 
@@ -41,7 +44,7 @@ pyagentspec = { git = "https://github.com/oracle/agent-spec.git", rev = "agent-s
 
 [project.optional-dependencies]
 langgraph = ["pyagentspec[langgraph]"]
-wayflow = ["wayflowcore"]
+wayflow = ["wayflowcore>=26.1.2"]
 
 [tool.uv]
 package = true

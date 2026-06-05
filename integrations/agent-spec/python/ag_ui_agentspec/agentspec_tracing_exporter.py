@@ -6,12 +6,16 @@ This module bridges pyagentspec.tracing spans/events to AG-UI events
 telemetry package but adapts to the event shapes defined under
 `pyagentspec.tracing.events`.
 
-Notes/limitations for the pyagentspec.tracing version:
-- LLM streaming uses `LlmGenerationChunkReceived` with chunk_type MESSAGE only;
-  tool-call streaming chunks are not available in this event set.
-- Tool execution events in this namespace do not include `message_id` nor
-  `tool_call_id`; therefore, we do not emit AG-UI tool call lifecycle or
-  result events here.
+Notes for the pyagentspec.tracing version:
+- LLM streaming uses `LlmGenerationChunkReceived`, which may carry text content
+  and/or tool-call chunks; both are translated to AG-UI events.
+- Tool execution events (`ToolExecutionRequest`/`ToolExecutionResponse`) do not
+  carry a stable AG-UI `tool_call_id` of their own. We therefore correlate them:
+  for the langgraph runtime the AG-UI `tool_call_id` is recovered from the
+  request span's `tcid__` description, and for other runtimes the run-level
+  `request_id` is used directly. Given that correlation, we DO emit AG-UI tool
+  call lifecycle (`ToolCallChunkEvent`) and result (`ToolCallResultEvent`)
+  events here.
 """
 
 from __future__ import annotations

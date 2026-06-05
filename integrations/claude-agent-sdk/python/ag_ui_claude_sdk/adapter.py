@@ -86,7 +86,7 @@ class ClaudeAgentAdapter:
         description: str = "",
         max_workers: int = 1000,
         worker_ttl_seconds: float = 1800,   # 30 min
-        query_timeout_seconds: Optional[float] = None,
+        query_timeout_seconds: Optional[float] = 300,   # 5 min; bounds a hung/slow worker
     ):
         self.name = name
         self.description = description
@@ -97,8 +97,21 @@ class ClaudeAgentAdapter:
         # thread_id -> {"worker": SessionWorker, "last_used": datetime, "active": bool, "active_runs": int}
         self._workers: Dict[str, Dict] = {}
         self._state_locks: Dict[str, asyncio.Lock] = {}
+        # Per-thread RUN-ADMISSION lock. This is a SEPARATE lock from
+        # ``_state_locks`` on purpose: ``_state_locks[thread_id]`` is acquired
+        # mid-stream by the state-management-tool path (``async with lock:`` in
+        # ``_stream_claude_sdk``), and ``asyncio.Lock`` is non-reentrant, so
+        # reusing it for run admission would self-deadlock the instant the model
+        # emits a state-update tool call. Lock ordering is fixed: the run-lock is
+        # OUTERMOST (acquired at admission, before streaming / before
+        # RUN_STARTED) and the state-lock is INNERMOST (acquired only mid-stream).
+        # No path may hold ``_state_locks`` then wait on ``_run_locks``.
+        self._run_locks: Dict[str, asyncio.Lock] = {}
         self._per_thread_state: Dict[str, Any] = {}  # thread_id -> current state
-        self._per_thread_result: Dict[str, Any] = {}  # thread_id -> last result data
+        # Per-RUN result keyed by (thread_id, run_id). ``RUN_FINISHED.result`` is
+        # per-run by definition, so it must not share a per-thread slot that a
+        # concurrent/serialized peer run could clobber.
+        self._per_run_result: Dict[tuple, Any] = {}  # (thread_id, run_id) -> result data
         # Strong references to fire-and-forget cleanup tasks (e.g. worker.stop()
         # during eviction). Without this the only reference is local and the
         # event loop keeps only a weak reference, so a pending stop task can be
@@ -128,12 +141,23 @@ class ClaudeAgentAdapter:
             for entry in self._workers.values():
                 await entry["worker"].interrupt()
 
+    def _drop_thread_results(self, thread_id: str) -> None:
+        """Drop every per-run result entry belonging to ``thread_id``.
+
+        ``_per_run_result`` is keyed by ``(thread_id, run_id)``; thread-scoped
+        cleanup (eviction / clear_session / error path) must purge all of a
+        thread's run results, not a single run."""
+        for key in [k for k in self._per_run_result if k[0] == thread_id]:
+            self._per_run_result.pop(key, None)
+
     async def shutdown(self) -> None:
         """Gracefully stop all session workers. Call on server shutdown."""
         for entry in list(self._workers.values()):
             await entry["worker"].stop()
         self._workers.clear()
         self._state_locks.clear()
+        self._run_locks.clear()
+        self._per_run_result.clear()
 
     def _evict_workers(self) -> None:
         """Evict idle workers by TTL and LRU cap."""
@@ -147,8 +171,9 @@ class ClaudeAgentAdapter:
             entry = self._workers.pop(tid)
             self._spawn_cleanup_task(entry["worker"].stop())
             self._state_locks.pop(tid, None)
+            self._run_locks.pop(tid, None)
             self._per_thread_state.pop(tid, None)
-            self._per_thread_result.pop(tid, None)
+            self._drop_thread_results(tid)
 
         # LRU eviction: if still over cap, remove oldest idle entries
         while len(self._workers) > self._max_workers:
@@ -159,8 +184,9 @@ class ClaudeAgentAdapter:
             entry = self._workers.pop(oldest_tid)
             self._spawn_cleanup_task(entry["worker"].stop())
             self._state_locks.pop(oldest_tid, None)
+            self._run_locks.pop(oldest_tid, None)
             self._per_thread_state.pop(oldest_tid, None)
-            self._per_thread_result.pop(oldest_tid, None)
+            self._drop_thread_results(oldest_tid)
 
     async def clear_session(self, thread_id: str) -> None:
         """Stop and remove the session worker for a thread."""
@@ -168,8 +194,9 @@ class ClaudeAgentAdapter:
         if entry:
             await entry["worker"].stop()
         self._state_locks.pop(thread_id, None)
+        self._run_locks.pop(thread_id, None)
         self._per_thread_state.pop(thread_id, None)
-        self._per_thread_result.pop(thread_id, None)
+        self._drop_thread_results(thread_id)
 
     async def run(self, input_data: RunAgentInput) -> AsyncIterator[BaseEvent]:
         """Run the agent and yield AG-UI events."""
@@ -177,9 +204,28 @@ class ClaudeAgentAdapter:
 
         thread_id = input_data.thread_id or str(uuid.uuid4())
         run_id = input_data.run_id or str(uuid.uuid4())
-        
+        result_key = (thread_id, run_id)
+
+        # ── Run-admission serialization (Fix 1) ──
+        # Acquire the per-thread RUN lock at admission — BEFORE worker.query() /
+        # RUN_STARTED — and hold it across the WHOLE run, releasing in the
+        # ``finally`` (and therefore on every ``except`` path too). Effect: a
+        # second run on the same thread_id waits here until the first emits
+        # RUN_FINISHED and releases; different thread_ids stay concurrent (the
+        # lock is per-thread). This is a DISTINCT lock from ``_state_locks``
+        # (acquired mid-stream on the state-update-tool path); reusing the
+        # non-reentrant state-lock would self-deadlock. Lock ordering is fixed:
+        # run-lock OUTERMOST, state-lock INNERMOST.
+        run_lock = self._run_locks.setdefault(thread_id, asyncio.Lock())
+        await run_lock.acquire()
+
+        # Re-seed per-thread state for THIS run, now that we hold the thread
+        # exclusively. Fresh ``input_data.state`` REPLACES any prior thread state
+        # (documented reset semantics); doing it under the run-lock keeps the
+        # reset per-run rather than racing a peer's seed. ``_per_run_result`` is
+        # keyed per-run so a serialized peer can never clobber it (Fix 4).
         self._per_thread_state[thread_id] = input_data.state
-        self._per_thread_result[thread_id] = None
+        self._per_run_result[result_key] = None
 
         # Set True only once this run has been counted into a worker's
         # ``active_runs`` refcount, so the ``finally`` block decrements exactly
@@ -309,12 +355,13 @@ class ClaudeAgentAdapter:
                 ):
                     yield event
             
-            # Emit RUN_FINISHED
+            # Emit RUN_FINISHED — read THIS run's own result (keyed per-run, so a
+            # serialized peer on the same thread cannot have clobbered it). (Fix 4)
             yield RunFinishedEvent(
                 type=EventType.RUN_FINISHED,
                 thread_id=thread_id,
                 run_id=run_id,
-                result=self._per_thread_result.get(thread_id, None),
+                result=self._per_run_result.get(result_key, None),
             )
             
         except asyncio.TimeoutError as e:
@@ -345,7 +392,7 @@ class ClaudeAgentAdapter:
                     await broken_entry["worker"].stop()
                 self._state_locks.pop(thread_id, None)
                 self._per_thread_state.pop(thread_id, None)
-                self._per_thread_result.pop(thread_id, None)
+                self._drop_thread_results(thread_id)
             yield RunErrorEvent(
                 type=EventType.RUN_ERROR,
                 thread_id=thread_id,
@@ -366,6 +413,15 @@ class ClaudeAgentAdapter:
                 entry["active_runs"] = max(remaining, 0)
                 entry["active"] = entry["active_runs"] > 0
                 entry["last_used"] = datetime.now()
+
+            # Drop THIS run's result slot (per-run keyed; thread-scoped cleanup
+            # paths above may already have purged it, hence pop with default).
+            self._per_run_result.pop(result_key, None)
+
+            # Release the run-admission lock on EVERY exit path (success, error,
+            # timeout, and the fail-loud early return) so a waiting same-thread
+            # run can proceed. We acquired it unconditionally before this try.
+            run_lock.release()
 
     def build_options(self, input_data: Optional[RunAgentInput] = None, thread_id: Optional[str] = None) -> "ClaudeAgentOptions":
         """Build ClaudeAgentOptions from base config + RunAgentInput."""
@@ -933,8 +989,10 @@ class ClaudeAgentAdapter:
                 is_error = getattr(message, 'is_error', None)
                 result_text = getattr(message, 'result', None)
                 
-                # Capture metadata for RunFinished event
-                self._per_thread_result[thread_id] = {
+                # Capture metadata for RunFinished event. Key per-run
+                # (thread_id, run_id) so a serialized peer on the same thread
+                # cannot clobber this run's result. (Fix 4)
+                self._per_run_result[(thread_id, run_id)] = {
                     "is_error": is_error,
                     "duration_ms": getattr(message, 'duration_ms', None),
                     "duration_api_ms": getattr(message, 'duration_api_ms', None),

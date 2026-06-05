@@ -775,18 +775,21 @@ class TestPoisonedWorkerCache:
         assert "boom" in err.message
 
     @pytest.mark.asyncio
-    async def test_dead_cached_worker_with_live_peer_is_not_evicted(self, make_input):
-        # The dead-worker eviction branch is refcount-aware: when a cached worker
-        # reports is_alive()==False BUT a concurrent peer still holds it
-        # (active_runs > 0), it must NOT pop+stop the shared entry out from under
-        # that peer. It leaves/reuses the entry so the peer isn't torn down
-        # mid-stream; the peer's own teardown handles eviction. (Item 7a)
+    async def test_dead_cached_worker_with_live_peer_fails_loud(self, make_input):
+        # The dead-worker branch is refcount-aware: when a cached worker reports
+        # is_alive()==False BUT a concurrent peer still holds it (active_runs > 0),
+        # the arriving NEW run must FAIL LOUD. It must neither reuse the dead
+        # worker (querying it would hang — the peer's exited run-loop will never
+        # service the new run's output queue) nor evict it (that would tear the
+        # worker out from under the live peer). Instead it emits a descriptive
+        # RunErrorEvent and stops WITHOUT disturbing the peer's entry. (Item 7a)
         stop_calls = {"n": 0}
+        query_calls = {"n": 0}
 
-        class _DeadWorkerWithCleanQuery:
-            """Reports dead, but serves a clean (empty) query stream so run()
-            completes normally — isolating the dead-worker branch as the only
-            place that could have popped+stopped the entry."""
+        class _DeadWorkerWithLivePeer:
+            """Reports dead. If the new run ever reuses it and calls query(),
+            that is the hang-risk bug — flag it loudly so the test catches a
+            regression to the reuse behavior."""
 
             def __init__(self, *args, **kwargs):
                 pass
@@ -798,8 +801,14 @@ class TestPoisonedWorkerCache:
                 return False
 
             def query(self, prompt, session_id="default"):
+                query_calls["n"] += 1
+
                 async def _gen():
-                    return
+                    # A real dead worker would hang here forever; raise instead
+                    # so a reuse regression fails fast rather than blocking.
+                    raise AssertionError(
+                        "dead worker was queried by the arriving run (hang risk)"
+                    )
                     yield  # pragma: no cover
 
                 return _gen()
@@ -808,7 +817,7 @@ class TestPoisonedWorkerCache:
                 stop_calls["n"] += 1
 
         adapter = ClaudeAgentAdapter(name="t")
-        worker = _DeadWorkerWithCleanQuery()
+        worker = _DeadWorkerWithLivePeer()
         # Pre-seed the cache as if a concurrent peer run already holds this
         # (now-dead) worker: active_runs=1 simulates the live peer.
         adapter._workers["shared"] = {
@@ -823,12 +832,23 @@ class TestPoisonedWorkerCache:
         )
         events = [e async for e in adapter.run(inp)]
 
-        # INVARIANT: the dead-worker branch must NOT evict a shared entry that a
-        # peer still holds. The entry survives and stop() is never called by the
-        # branch — the peer's worker is preserved mid-stream.
+        # LOUD FAILURE: the arriving run emits RUN_ERROR (never reuses → never
+        # queries the dead worker → no hang).
+        assert EventType.RUN_ERROR in _types(events), (
+            "arriving run on a dead-worker-with-live-peer must fail loud"
+        )
+        assert EventType.RUN_FINISHED not in _types(events)
+        assert query_calls["n"] == 0, "dead worker must not be queried (hang risk)"
+
+        # PEER UNTOUCHED: the shared entry survives, is not popped, not stopped.
         entry = adapter._workers.get("shared")
         assert entry is not None, "shared worker evicted while a peer run was live"
         assert entry["worker"] is worker
         assert stop_calls["n"] == 0, "shared worker stopped while a peer run was live"
-        # This run completed normally (no error/hang) on the reused entry.
-        assert EventType.RUN_FINISHED in _types(events)
+        # REFCOUNT INTACT: the peer's count must be exactly what it was (1). The
+        # arriving run must not increment-then-abandon, nor decrement the peer's
+        # count via the finally block.
+        assert entry["active_runs"] == 1, (
+            f"peer refcount corrupted: expected 1, got {entry['active_runs']}"
+        )
+        assert entry["active"] is True

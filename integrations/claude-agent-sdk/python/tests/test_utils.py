@@ -288,3 +288,25 @@ class TestBuildAguiToolMessage:
     def test_none_content(self):
         msg = build_agui_tool_message("tc1", None)
         assert msg.content == ""
+
+    def test_bare_string_not_double_quoted(self):
+        # A bare-string (non-JSON) result must be passed through unquoted, NOT
+        # json.dumps-quoted into '"plain"'. (Item 5 encoding symmetry)
+        msg = build_agui_tool_message("tc1", "plain")
+        assert msg.content == "plain"
+
+    def test_bare_string_matches_list_text_block(self):
+        # The MESSAGES_SNAPSHOT builder must encode a logical tool result the
+        # SAME way regardless of whether the SDK delivered it as a bare string
+        # or as a list of text blocks — mirroring the TOOL_CALL_RESULT path's
+        # canonical normalization (Item 5). Otherwise the same result renders
+        # differently depending on transport shape.
+        for raw in ("not json", '{"temp": 72}', "[1, 2, 3]", "42"):
+            bare = build_agui_tool_message("tc1", raw)
+            listed = build_agui_tool_message(
+                "tc1", [{"type": "text", "text": raw}]
+            )
+            assert bare.content == listed.content, (
+                f"asymmetric encoding for {raw!r}: "
+                f"bare={bare.content!r} list={listed.content!r}"
+            )

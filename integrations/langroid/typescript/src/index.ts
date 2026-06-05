@@ -18,14 +18,21 @@
  *      that fetches the agent's `/capabilities` endpoint and validates the
  *      response with Zod. Reference implementation:
  *        integrations/adk-middleware/typescript/src/index.ts
- *      Once this class adds equivalent Langroid-specific behavior, remove the
- *      `"private": true` / `"//"` keys from package.json and publish it.
+ *      Once this class adds equivalent Langroid-specific behavior, making it
+ *      publishable requires BOTH removing the `"private": true` / `"//"` keys
+ *      from package.json AND enrolling it in the release pipeline — removing
+ *      the keys alone will NOT publish it. To enroll: add a TypeScript scope
+ *      (e.g. `integration-langroid-ts`, mirroring sibling `integration-*-ts`
+ *      scopes) to scripts/release/release.config.json AND add `@ag-ui/langroid`
+ *      to nx.json `release.projects`. These two lists must stay in sync or
+ *      scripts/release/verify-nx-release-allowlist.sh fails.
  *
  *   2) DELETE THIS TS PACKAGE — accept a Python-only integration shape.
- *      Precedent: `@ag-ui/crewai` and `@ag-ui/llamaindex` ship NO TypeScript
- *      package; their integrations are Python-only. If Langroid follows that
- *      shape, remove this entire TS package (integrations/langroid/typescript)
- *      and rely on the Python integration alone.
+ *      Precedent: some AG-UI integrations are Python-only — e.g. `agent-spec`
+ *      ships a Python adapter (`ag-ui-agent-spec`) and no TS package at all.
+ *      If Langroid follows that shape, remove this entire TS package
+ *      (integrations/langroid/typescript) and rely on the Python integration
+ *      (`ag_ui_langroid`) alone.
  */
 
 import { HttpAgent } from "@ag-ui/client";

@@ -63,52 +63,69 @@ async def handle_tool_use_block(
         logger.debug(f"Stripped MCP prefix in handler: {tool_name} -> {tool_display_name}")
     
     logger.debug(f"ToolUseBlock detected: {tool_name}")
-    
-    async def event_gen():
-        nonlocal current_state
-        
-        # Intercept state management tool calls (check both prefixed and unprefixed names)
-        if _is_state_management_tool(tool_name):
-            logger.debug("Intercepting ag_ui_update_state tool call")
-            
-            # Extract state updates from tool input
-            state_updates = tool_input.get("state_updates", {})
-            
-            # Parse if it's a JSON string
-            if isinstance(state_updates, str):
-                try:
-                    state_updates = json.loads(state_updates)
-                    logger.debug("Parsed state_updates from JSON string")
-                except json.JSONDecodeError as e:
-                    logger.warning(f"Failed to parse state_updates JSON: {e}")
-                    yield CustomEvent(
-                        type=EventType.CUSTOM,
-                        name="state_update_error",
-                        value={"error": str(e)},
-                    )
-                    # Emit ONLY the error event — do not fall through and emit a
-                    # spurious STATE_SNAPSHOT with un-updated state. Mirrors the
-                    # streaming path (adapter.py), which emits the error alone.
-                    return
 
+    # Compute the merged state SYNCHRONOUSLY, before building the generator, so
+    # the returned first element reflects the post-merge state. The adapter
+    # persists this returned value (self._per_thread_state[thread_id]) BEFORE it
+    # iterates the event generator, so a value computed inside event_gen() would
+    # not yet exist when the tuple is built — the adapter would persist the
+    # stale pre-merge state while the emitted STATE_SNAPSHOT carried the merged
+    # state. Computing here keeps the returned/persisted state == the snapshot.
+    merged_state = current_state
+    # When the state_updates JSON fails to parse we emit ONLY a CUSTOM error and
+    # must NOT mutate state nor emit a STATE_SNAPSHOT (mirrors the streaming
+    # path in adapter.py). This flag carries that decision out to the generator.
+    state_parse_error: Optional[str] = None
+
+    if _is_state_management_tool(tool_name):
+        logger.debug("Intercepting ag_ui_update_state tool call")
+
+        # Extract state updates from tool input
+        state_updates = tool_input.get("state_updates", {})
+
+        # Parse if it's a JSON string
+        if isinstance(state_updates, str):
+            try:
+                state_updates = json.loads(state_updates)
+                logger.debug("Parsed state_updates from JSON string")
+            except json.JSONDecodeError as e:
+                logger.warning(f"Failed to parse state_updates JSON: {e}")
+                state_parse_error = str(e)
+
+        if state_parse_error is None:
             # Update current state
-            if isinstance(current_state, dict) and isinstance(state_updates, dict):
-                current_state = {**current_state, **state_updates}
+            if isinstance(merged_state, dict) and isinstance(state_updates, dict):
+                merged_state = {**merged_state, **state_updates}
             else:
-                current_state = state_updates
+                merged_state = state_updates
 
             # Fix any UTF-16 surrogates before Pydantic serialisation
-            current_state = fix_surrogates_deep(current_state)
+            merged_state = fix_surrogates_deep(merged_state)
 
-            # Emit STATE_SNAPSHOT with updated state
+    async def event_gen():
+        # Intercept state management tool calls (check both prefixed and unprefixed names)
+        if _is_state_management_tool(tool_name):
+            if state_parse_error is not None:
+                yield CustomEvent(
+                    type=EventType.CUSTOM,
+                    name="state_update_error",
+                    value={"error": state_parse_error},
+                )
+                # Emit ONLY the error event — do not fall through and emit a
+                # spurious STATE_SNAPSHOT with un-updated state. Mirrors the
+                # streaming path (adapter.py), which emits the error alone.
+                return
+
+            # Emit STATE_SNAPSHOT with the SAME merged state we return below, so
+            # the persisted state and the snapshot never diverge.
             yield StateSnapshotEvent(
                 type=EventType.STATE_SNAPSHOT,
-                snapshot=current_state
+                snapshot=merged_state
             )
-            
+
             logger.debug(f"Emitted STATE_SNAPSHOT with updated state")
             return  # Skip normal tool call events
-        
+
         # Regular tool handling for non-state tools
         yield ToolCallStartEvent(
             type=EventType.TOOL_CALL_START,
@@ -140,7 +157,7 @@ async def handle_tool_use_block(
             tool_call_id=tool_id,
         )
 
-    return current_state, event_gen()
+    return merged_state, event_gen()
 
 
 async def handle_tool_result_block(
@@ -172,7 +189,12 @@ async def handle_tool_result_block(
     # Parse tool result content for frontend rendering
     # Claude SDK tools return: [{"type": "text", "text": "{json_data}"}]
     # Frontend expects just the parsed json_data
+    #
+    # We track both the final string AND, when the content is a JSON *object*,
+    # the parsed object. The error path (below) needs the parsed object so it
+    # can add an "error" marker WITHOUT double-encoding it into a string.
     result_str = ""
+    parsed_obj = None  # set only when the content is a JSON object (dict)
     if content is not None:
         try:
             # If content is a list of content blocks (Claude SDK format)
@@ -186,6 +208,8 @@ async def handle_tool_result_block(
                         parsed_json = json.loads(text_content)
                         # Use the parsed JSON directly so frontend can access fields
                         result_str = json.dumps(parsed_json)
+                        if isinstance(parsed_json, dict):
+                            parsed_obj = parsed_json
                     except (json.JSONDecodeError, ValueError):
                         # Not JSON, use as-is
                         result_str = text_content
@@ -198,17 +222,31 @@ async def handle_tool_result_block(
         except (TypeError, ValueError):
             result_str = str(content)
 
-    result_str = fix_surrogates(result_str)
-
     # Propagate the SDK's error indication. AG-UI's ToolCallResultEvent has no
     # dedicated error field, so a failed tool result would otherwise look
-    # identical to a successful one. Wrap the payload in an explicit error
-    # envelope (and log it) so downstream consumers can distinguish failures.
+    # identical to a successful one. Surface the error indicator (and log it)
+    # so downstream consumers can distinguish failures — but do it WITHOUT
+    # corrupting the payload:
+    #   * JSON-object content: add an "error": True key to the object and emit
+    #     the single-encoded object (consistent with the success shape).
+    #   * Plain-string content: wrap as {"error": True, "content": <string>}
+    #     exactly once (no nested re-encode).
+    #
+    # Surrogate repair must happen on the string VALUE *before* it is embedded
+    # in any json.dumps: json.dumps (ensure_ascii) escapes lone surrogates into
+    # literal "\ud83c" text, which fix_surrogates (a UTF-16 round-trip) cannot
+    # subsequently repair. So we fix the raw content first, then serialise, and
+    # do not re-escape the already-repaired value.
     if is_error:
         logger.warning(
             f"Tool result for tool_use_id={tool_use_id} reported is_error=True"
         )
-        result_str = json.dumps({"error": True, "content": result_str})
+        if parsed_obj is not None:
+            result_str = json.dumps(fix_surrogates_deep({**parsed_obj, "error": True}))
+        else:
+            result_str = json.dumps({"error": True, "content": fix_surrogates(result_str)})
+    else:
+        result_str = fix_surrogates(result_str)
 
     if tool_use_id:
         # NOTE: Do NOT emit TOOL_CALL_END here — it was already emitted

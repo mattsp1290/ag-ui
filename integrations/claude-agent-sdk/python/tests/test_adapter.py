@@ -376,8 +376,8 @@ class TestRunErrorPath:
     @pytest.mark.asyncio
     async def test_error_path_cleans_all_three_dicts(self, make_input, monkeypatch):
         # The run() error path must evict the worker AND drop per-thread state
-        # and result, not just the worker + lock. Otherwise an errored thread
-        # leaks _per_thread_state / _per_thread_result forever.
+        # and per-run results, not just the worker + lock. Otherwise an errored
+        # thread leaks _per_thread_state / _per_run_result forever.
         adapter = ClaudeAgentAdapter(name="t")
         monkeypatch.setattr("ag_ui_claude_sdk.adapter.SessionWorker", _FakeFailingWorker)
 
@@ -390,7 +390,8 @@ class TestRunErrorPath:
         assert "leaky" not in adapter._workers
         assert "leaky" not in adapter._state_locks
         assert "leaky" not in adapter._per_thread_state
-        assert "leaky" not in adapter._per_thread_result
+        # No per-run result entry for the errored thread survives.
+        assert not any(k[0] == "leaky" for k in adapter._per_run_result)
 
 
 class _FakeAliveWorker:
@@ -437,7 +438,7 @@ class _FakeDeadWorker:
 class TestEviction:
     @pytest.mark.asyncio
     async def test_lru_eviction_cleans_all_three_dicts(self):
-        # LRU eviction must pop _per_thread_state and _per_thread_result, not
+        # LRU eviction must pop _per_thread_state and per-run results, not
         # just _workers + _state_locks. Cap at 1 worker, insert 2 idle entries.
         # Async so _evict_workers' asyncio.create_task has a running loop.
         import asyncio
@@ -452,17 +453,18 @@ class TestEviction:
             }
             adapter._state_locks[tid] = asyncio.Lock()
             adapter._per_thread_state[tid] = {"v": i}
-            adapter._per_thread_result[tid] = {"r": i}
+            adapter._per_run_result[(tid, "r")] = {"r": i}
 
         adapter._evict_workers()
 
-        # "old" (lowest last_used) is evicted; all three dicts cleaned for it.
+        # "old" (lowest last_used) is evicted; all per-thread state cleaned for it.
         assert "old" not in adapter._workers
         assert "old" not in adapter._state_locks
         assert "old" not in adapter._per_thread_state
-        assert "old" not in adapter._per_thread_result
+        assert not any(k[0] == "old" for k in adapter._per_run_result)
         # "new" survives.
         assert "new" in adapter._workers
+        assert any(k[0] == "new" for k in adapter._per_run_result)
 
     @pytest.mark.asyncio
     async def test_clear_session_cleans_all_three_dicts(self):
@@ -472,14 +474,14 @@ class TestEviction:
         adapter._workers["s"] = {"worker": _FakeAliveWorker(), "last_used": None, "active": False}
         adapter._state_locks["s"] = asyncio.Lock()
         adapter._per_thread_state["s"] = {"v": 1}
-        adapter._per_thread_result["s"] = {"r": 1}
+        adapter._per_run_result[("s", "r")] = {"r": 1}
 
         await adapter.clear_session("s")
 
         assert "s" not in adapter._workers
         assert "s" not in adapter._state_locks
         assert "s" not in adapter._per_thread_state
-        assert "s" not in adapter._per_thread_result
+        assert not any(k[0] == "s" for k in adapter._per_run_result)
 
 
 class _FakeSlowStopWorker:
@@ -531,13 +533,16 @@ class TestWorkerLifecycle:
         # Completed tasks are dropped from the retention set.
         assert len(adapter._pending_tasks) == 0
 
-    # ── Item 7(a): a finished run must not mark a worker idle while a peer
-    # concurrent run on the same thread is still streaming ──
+    # ── Run-admission serialization (Fix 1): two same-thread runs no longer run
+    # concurrently — the run-lock serializes them, so the refcount never exceeds
+    # 1. (The active_runs refcount machinery is retained as defense-in-depth and
+    # is still exercised cross-thread; same-thread it is now bounded at 1.) ──
     @pytest.mark.asyncio
-    async def test_concurrent_runs_keep_worker_active_until_all_finish(self, make_input, monkeypatch):
+    async def test_same_thread_runs_serialized_refcount_bounded_at_one(self, make_input, monkeypatch):
         import asyncio
 
         gate = asyncio.Event()
+        max_seen = {"n": 0}
 
         class _GatedWorker:
             def __init__(self, *a, **kw):
@@ -551,7 +556,9 @@ class TestWorkerLifecycle:
 
             def query(self, prompt, session_id="default"):
                 async def _gen():
-                    # Block until released, simulating an in-flight stream.
+                    # Block the FIRST admitted run's stream open; while it holds
+                    # the run-lock the second run cannot even increment the
+                    # refcount (it waits at admission).
                     await gate.wait()
                     return
                     yield  # pragma: no cover
@@ -570,42 +577,37 @@ class TestWorkerLifecycle:
 
         t1 = asyncio.create_task(drive())
         t2 = asyncio.create_task(drive())
-        # Let both runs start and increment the refcount.
-        for _ in range(20):
+        # Let scheduling settle; the refcount must NEVER exceed 1 (serialized).
+        for _ in range(60):
             await asyncio.sleep(0)
             entry = adapter._workers.get("shared")
-            if entry and entry.get("active_runs", 0) >= 2:
-                break
-        entry = adapter._workers.get("shared")
-        assert entry is not None
-        # Both runs are in-flight: refcount is 2 and the worker is active.
-        assert entry["active_runs"] == 2
-        assert entry["active"] is True
+            if entry:
+                max_seen["n"] = max(max_seen["n"], entry.get("active_runs", 0))
+        assert max_seen["n"] == 1, (
+            f"same-thread runs were not serialized; refcount reached {max_seen['n']}"
+        )
 
-        # Release the gate so both runs finish.
+        # Release the gate so the first run finishes and the second proceeds.
         gate.set()
         await asyncio.gather(t1, t2)
         entry = adapter._workers.get("shared")
         assert entry is not None
-        # Only after BOTH finished is the worker idle and evictable.
+        # After BOTH ran (serially) the worker is idle and evictable.
         assert entry["active_runs"] == 0
         assert entry["active"] is False
 
-    # ── Item 7(a) hardening: an erroring run must not tear down the SHARED
-    # worker while a peer concurrent run on the same thread is still streaming ──
+    # ── Run-lock release on the error path (Fix 1): a same-thread run that
+    # raises must release the run-lock so the next same-thread run proceeds; the
+    # shared worker must not be torn down out from under a still-pending run. ──
     @pytest.mark.asyncio
-    async def test_erroring_run_does_not_evict_shared_worker_with_live_peer(
+    async def test_erroring_run_releases_lock_for_next_same_thread_run(
         self, make_input, monkeypatch
     ):
         import asyncio
 
-        gate = asyncio.Event()       # released to let the surviving peer (B) finish
-        both_inflight = asyncio.Event()  # set once refcount has reached 2
         stop_calls = {"n": 0}
 
-        class _MixedWorker:
-            # First query() call is the survivor B (blocks on gate); the second
-            # is the failer A (waits until both runs are in-flight, then raises).
+        class _FailThenOkWorker:
             call_index = 0
 
             def __init__(self, *a, **kw):
@@ -618,28 +620,24 @@ class TestWorkerLifecycle:
                 return True
 
             def query(self, prompt, session_id="default"):
-                idx = _MixedWorker.call_index
-                _MixedWorker.call_index += 1
+                idx = _FailThenOkWorker.call_index
+                _FailThenOkWorker.call_index += 1
 
-                async def _gen_survivor():
-                    await gate.wait()
-                    return
-                    yield  # pragma: no cover
-
-                async def _gen_failer():
-                    # Wait until BOTH runs have incremented the refcount, so the
-                    # peer (B) is provably mid-stream when A raises.
-                    await both_inflight.wait()
+                async def _fail():
                     raise RuntimeError("boom")
                     yield  # pragma: no cover
 
-                return _gen_survivor() if idx == 0 else _gen_failer()
+                async def _ok():
+                    return
+                    yield  # pragma: no cover
+
+                return _fail() if idx == 0 else _ok()
 
             async def stop(self):
                 stop_calls["n"] += 1
 
         adapter = ClaudeAgentAdapter(name="t")
-        monkeypatch.setattr("ag_ui_claude_sdk.adapter.SessionWorker", _MixedWorker)
+        monkeypatch.setattr("ag_ui_claude_sdk.adapter.SessionWorker", _FailThenOkWorker)
         inp = make_input(
             thread_id="shared", messages=[{"id": "1", "role": "user", "content": "hi"}]
         )
@@ -647,50 +645,23 @@ class TestWorkerLifecycle:
         async def drive():
             return [e async for e in adapter.run(inp)]
 
-        # Start B first (it will block on the gate), then A.
-        t_b = asyncio.create_task(drive())
-        for _ in range(50):
-            await asyncio.sleep(0)
-            entry = adapter._workers.get("shared")
-            if entry and entry.get("active_runs", 0) >= 1 and _MixedWorker.call_index >= 1:
-                break
+        # A (fails) is admitted first; B waits on the run-lock. Launch overlapping.
         t_a = asyncio.create_task(drive())
-        # Wait until both runs are in-flight (refcount == 2).
-        for _ in range(50):
-            await asyncio.sleep(0)
-            entry = adapter._workers.get("shared")
-            if entry and entry.get("active_runs", 0) >= 2:
-                break
-        entry = adapter._workers.get("shared")
-        assert entry is not None
-        assert entry["active_runs"] == 2
+        t_b = asyncio.create_task(drive())
+        events_a, events_b = await asyncio.wait_for(
+            asyncio.gather(t_a, t_b), timeout=5.0
+        )
 
-        # Release A to raise mid-stream.
-        both_inflight.set()
-        events_a = await t_a
-        # A errored.
+        # A surfaced RUN_ERROR; B then proceeded once the run-lock was released.
         assert EventType.RUN_ERROR in _types(events_a)
-
-        # INVARIANT: the shared worker must survive — B is still streaming on it.
-        entry = adapter._workers.get("shared")
-        assert entry is not None, "shared worker evicted while a peer run was live"
-        assert stop_calls["n"] == 0, "shared worker stopped while a peer run was live"
-        # Refcount dropped to exactly 1 (A's one decrement), worker still active.
-        assert entry["active_runs"] == 1
-        assert entry["active"] is True
-
-        # Now let B finish normally.
-        gate.set()
-        events_b = await t_b
         assert EventType.RUN_FINISHED in _types(events_b)
 
-        # After both ended: refcount is 0, worker idle/evictable, no leak/underflow.
+        # A's error path tore down its (solo, at that moment) worker; B re-created
+        # a fresh one and finished cleanly. End state: idle/evictable, no leak.
         entry = adapter._workers.get("shared")
         assert entry is not None
         assert entry["active_runs"] == 0
         assert entry["active"] is False
-        # Still never stopped — last run leaves it cached for TTL/LRU eviction.
-        assert stop_calls["n"] == 0
 
     # ── Single erroring run (the common path) still pops + stops the worker ──
     @pytest.mark.asyncio
@@ -729,7 +700,7 @@ class TestWorkerLifecycle:
         assert stop_calls["n"] == 1
         assert "solo" not in adapter._state_locks
         assert "solo" not in adapter._per_thread_state
-        assert "solo" not in adapter._per_thread_result
+        assert not any(k[0] == "solo" for k in adapter._per_run_result)
 
     @pytest.mark.asyncio
     async def test_active_worker_not_evicted_by_ttl(self):

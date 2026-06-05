@@ -438,7 +438,7 @@ class AgUiClient {
     if (input.messages != null) {
       for (final message in input.messages!) {
         if (message is UserMessage) {
-          Validators.validateMessageContent(message.content);
+          Validators.validateUserMessageContent(message.messageContent);
         }
       }
     }

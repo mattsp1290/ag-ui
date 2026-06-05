@@ -1,6 +1,7 @@
 import 'package:test/test.dart';
 import 'package:ag_ui/src/client/errors.dart';
 import 'package:ag_ui/src/client/validators.dart';
+import 'package:ag_ui/src/types/message.dart';
 
 void main() {
   group('Validators.requireNonEmpty', () {
@@ -160,27 +161,37 @@ void main() {
     });
   });
 
-  group('Validators.validateMessageContent', () {
-    test('accepts valid content types', () {
-      expect(() => Validators.validateMessageContent('Hello world'), returnsNormally);
-      expect(() => Validators.validateMessageContent({'text': 'Hello'}), returnsNormally);
-      expect(() => Validators.validateMessageContent(['item1', 'item2']), returnsNormally);
-    });
-
-    test('rejects null content', () {
+  group('Validators.validateUserMessageContent', () {
+    test('accepts text content', () {
       expect(
-        () => Validators.validateMessageContent(null),
-        throwsA(isA<ValidationError>()
-            .having((e) => e.field, 'field', 'content')
-            .having((e) => e.constraint, 'constraint', 'non-null')),
+        () => Validators.validateUserMessageContent(const TextContent('Hello')),
+        returnsNormally,
       );
     });
 
-    test('rejects invalid types', () {
+    test('accepts multimodal content with valid parts', () {
+      // Regression: multimodal content must validate, not throw on a null
+      // `content` getter as the retired validateMessageContent did.
+      final content = MultimodalContent([
+        TextInputContent('look'),
+        const ImageInputContent(
+          source: UrlSource(value: 'https://example.com/i.png'),
+        ),
+      ]);
       expect(
-        () => Validators.validateMessageContent(123),
+        () => Validators.validateUserMessageContent(content),
+        returnsNormally,
+      );
+    });
+
+    test('rejects empty parts list', () {
+      expect(
+        () => Validators.validateUserMessageContent(
+          const MultimodalContent([]),
+        ),
         throwsA(isA<ValidationError>()
-            .having((e) => e.constraint, 'constraint', 'valid-type')),
+            .having((e) => e.field, 'field', 'content')
+            .having((e) => e.constraint, 'constraint', 'non-empty')),
       );
     });
   });

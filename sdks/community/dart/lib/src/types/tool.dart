@@ -51,11 +51,13 @@ class ToolCall extends AGUIModel {
   final String id;
   final String type;
   final FunctionCall function;
+  final String? encryptedValue;
 
   const ToolCall({
     required this.id,
     this.type = 'function',
     required this.function,
+    this.encryptedValue,
   });
 
   factory ToolCall.fromJson(Map<String, dynamic> json) {
@@ -65,6 +67,8 @@ class ToolCall extends AGUIModel {
       function: FunctionCall.fromJson(
         JsonDecoder.requireField<Map<String, dynamic>>(json, 'function'),
       ),
+      encryptedValue: JsonDecoder.optionalField<String>(json, 'encryptedValue') ??
+          JsonDecoder.optionalField<String>(json, 'encrypted_value'),
     );
   }
 
@@ -73,6 +77,7 @@ class ToolCall extends AGUIModel {
     'id': id,
     'type': type,
     'function': function.toJson(),
+    if (encryptedValue != null) 'encryptedValue': encryptedValue,
   };
 
   @override
@@ -80,11 +85,13 @@ class ToolCall extends AGUIModel {
     String? id,
     String? type,
     FunctionCall? function,
+    String? encryptedValue,
   }) {
     return ToolCall(
       id: id ?? this.id,
       type: type ?? this.type,
       function: function ?? this.function,
+      encryptedValue: encryptedValue ?? this.encryptedValue,
     );
   }
 }

@@ -5,6 +5,32 @@ All notable changes to the AG-UI Dart SDK will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0] - 2026-05-28
+
+### Added
+- Multimodal `UserMessage` content. `UserMessage.content` now accepts either a
+  plain string or an ordered list of typed parts, matching the canonical
+  protocol (`string | InputContent[]`).
+- New content types: `UserMessageContent` (`TextContent`, `MultimodalContent`),
+  `InputContent` (`TextInputContent`, `ImageInputContent`, `AudioInputContent`,
+  `VideoInputContent`, `DocumentInputContent`, legacy `BinaryInputContent`), and
+  `InputContentSource` (`DataSource`, `UrlSource`).
+- `UserMessage.multimodal(...)` and `UserMessage.fromContent(...)` constructors.
+- `Validators.validateUserMessageContent(...)`.
+
+### Changed
+- **Breaking:** `UserMessage.content` getter is now `String?` (was non-null
+  `String`) and returns `null` for multimodal messages. Read
+  `UserMessage.messageContent` for the typed union.
+- **Breaking:** `UserMessage.copyWith` now takes `messageContent` instead of
+  `content`.
+- **Breaking:** the default `UserMessage({required id, required content})`
+  constructor is no longer `const` (it wraps the string into `TextContent` at
+  runtime). Use `UserMessage.fromContent(id:, messageContent: const TextContent(...))`
+  for a compile-time constant.
+- **Breaking:** removed `Validators.validateMessageContent`; use
+  `validateUserMessageContent`.
+
 ## [0.1.0] - 2025-01-21
 
 ### Added

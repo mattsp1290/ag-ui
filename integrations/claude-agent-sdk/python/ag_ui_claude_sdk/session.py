@@ -41,7 +41,7 @@ class SessionWorker:
         # and deregistered once its terminal ``None`` sentinel has been pushed.
         # On fatal worker death we fan out a terminal signal to ALL of these so a
         # peer/queued query whose item never got serviced cannot hang forever.
-        self._inflight_queues: set = set()
+        self._inflight_queues: set[asyncio.Queue] = set()
 
     async def start(self) -> None:
         """Spawn the background task that owns the SDK client."""
@@ -117,6 +117,11 @@ class SessionWorker:
                     break
 
                 prompt, session_id, output_queue = item
+                # ``output_queue`` is a loop-local Optional that is unconditionally
+                # bound here (the ``_SHUTDOWN`` sentinel already broke out above),
+                # so it is never None on the ``.put`` calls below. Narrow it for
+                # the type checker (no runtime behavior change).
+                assert output_queue is not None
                 try:
                     await client.query(prompt, session_id=session_id)
                     async for msg in client.receive_response():

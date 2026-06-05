@@ -157,7 +157,7 @@ export function createA2UISurfaceLifecycleRenderer(
           readyRef.current = false;
           return;
         }
-        const t = setTimeout(() => setSurfaceReady(true), 1500); // fallback only
+        const t = setTimeout(() => setSurfaceReady(true), 8000); // fallback only
         return () => clearTimeout(t);
       }, [hasOps]);
 
@@ -300,9 +300,27 @@ function SurfaceMessageProcessor({
       ? operations.filter((op) => !op?.createSurface)
       : operations;
     processMessages(ops);
-    onReady?.();
+    // Swap only once the surface can paint a visible card (data-bound lists paint
+    // nothing until their data arrives). Latency-independent. (OSS-162)
+    if (onReady && surfaceHasRenderableContent(operations)) onReady();
   }, [processMessages, getSurface, surfaceId, operations, onReady]);
   return null;
+}
+
+function surfaceHasRenderableContent(operations: any[]): boolean {
+  const componentOps = operations.filter((o) => o?.updateComponents);
+  if (!componentOps.length) return false;
+  const needsData = JSON.stringify(componentOps).includes('"path"');
+  if (!needsData) return true;
+  return operations.some((o) => {
+    const v = o?.updateDataModel?.value;
+    if (!v || typeof v !== "object") return false;
+    return Object.values(v).some((x) =>
+      Array.isArray(x)
+        ? x.length > 0
+        : x !== null && x !== undefined && x !== "",
+    );
+  });
 }
 
 function getOperationSurfaceId(operation: any): string | null {

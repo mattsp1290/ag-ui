@@ -97,7 +97,7 @@ To use this integration you need to:
     cd integrations/adk-middleware/python
     ```
 
-3. Install the `adk-middleware` package from the local directory.  For example,
+3. Install the `ag_ui_adk` package from the local directory.  For example,
 
     ```bash
     pip install .
@@ -110,17 +110,12 @@ To use this integration you need to:
     ```
 
     This installs the package from the current directory which contains:
-    - `src/adk_middleware/` - The middleware source code
+    - `src/ag_ui_adk/` - The middleware source code
     - `examples/` - Example servers and agents
     - `tests/` - Test suite
 
-4. Install the requirements for the `examples`, for example:
-
-    ```bash
-    uv pip install -r requirements.txt
-    ```
-
-5. Run the example fast_api server.
+4. Run the example FastAPI server. The example project pulls in its own
+   dependencies (including the local middleware) via `uv sync`.
 
     ```bash
     export GOOGLE_API_KEY=<My API Key>
@@ -129,42 +124,31 @@ To use this integration you need to:
     uv run dev
     ```
 
-6. Open another terminal in the root directory of the ag-ui repository clone.
+5. Open another terminal in the root directory of the ag-ui repository clone.
 
-7. Start the integration ag-ui dojo:
+6. Start the integration ag-ui dojo:
 
     ```bash
     pnpm install && pnpm run dev
     ```
 
-8. Visit [http://localhost:3000/adk-middleware](http://localhost:3000/adk-middleware).
+7. Visit [http://localhost:3000/adk-middleware](http://localhost:3000/adk-middleware).
 
-9. Select View `ADK Middleware` from the sidebar.
+8. Select View `ADK Middleware` from the sidebar.
 
 ### Development Setup
 
-If you want to contribute to ADK Middleware development, you'll need to take some additional steps.  You can either use the following script of the manual development setup.
+If you want to contribute to ADK Middleware development, install the package in
+editable mode with its dev dependencies:
 
 ```bash
-# From the adk-middleware directory
-chmod +x setup_dev.sh
-./setup_dev.sh
-```
-
-### Manual Development Setup
-
-```bash
-# Create virtual environment
-python -m venv venv
-source venv/bin/activate
+# From the integrations/adk-middleware/python directory
 
 # Install this package in editable mode
 pip install -e .
 
 # For development (includes testing and linting tools)
 pip install -e ".[dev]"
-# OR
-pip install -r requirements-dev.txt
 ```
 
 This installs the ADK middleware in editable mode for development.
@@ -172,11 +156,11 @@ This installs the ADK middleware in editable mode for development.
 ## Testing
 
 ```bash
-# Run tests (271 comprehensive tests)
+# Run the test suite
 pytest
 
 # With coverage
-pytest --cov=src/adk_middleware
+pytest --cov=src/ag_ui_adk
 
 # Specific test file
 pytest tests/test_adk_agent.py
@@ -185,7 +169,7 @@ pytest tests/test_adk_agent.py
 
 ### Option 1: Direct Usage
 ```python
-from adk_middleware import ADKAgent
+from ag_ui_adk import ADKAgent
 from google.adk.agents import Agent
 
 # 1. Create your ADK agent
@@ -210,7 +194,7 @@ async for event in agent.run(input_data):
 
 ```python
 from fastapi import FastAPI
-from adk_middleware import ADKAgent, add_adk_fastapi_endpoint
+from ag_ui_adk import ADKAgent, add_adk_fastapi_endpoint
 from google.adk.agents import Agent
 
 # 1. Create your ADK agent
@@ -233,18 +217,21 @@ add_adk_fastapi_endpoint(app, agent, path="/chat")
 # Run with: uvicorn your_module:app --host 0.0.0.0 --port 8000
 ```
 
-For detailed configuration options, see [CONFIGURATION.md](./CONFIGURATION.md)
+For detailed configuration options, see [CONFIGURATION.md](https://github.com/ag-ui-protocol/ag-ui/blob/main/integrations/adk-middleware/python/CONFIGURATION.md).
 
 
 ## Running the ADK Backend Server for Dojo App
 
-To run the ADK backend server that works with the Dojo app, use the following command:
+To run the ADK backend server that works with the Dojo app, run the example
+server from the `integrations/adk-middleware/python/examples` directory:
 
 ```bash
-python -m examples.fastapi_server
+cd examples
+uv sync
+uv run dev
 ```
 
-This will start a FastAPI server that connects your ADK middleware to the Dojo application.
+This starts a FastAPI server (the `server:main` entrypoint) that connects your ADK middleware to the Dojo application.
 
 ## Examples
 
@@ -252,7 +239,7 @@ This will start a FastAPI server that connects your ADK middleware to the Dojo a
 
 ```python
 import asyncio
-from adk_middleware import ADKAgent
+from ag_ui_adk import ADKAgent
 from google.adk.agents import Agent
 from ag_ui.core import RunAgentInput, UserMessage
 
@@ -312,7 +299,7 @@ creative_agent_wrapper = ADKAgent(
 
 # Use different endpoints for each agent
 from fastapi import FastAPI
-from adk_middleware import add_adk_fastapi_endpoint
+from ag_ui_adk import add_adk_fastapi_endpoint
 
 app = FastAPI()
 add_adk_fastapi_endpoint(app, general_agent_wrapper, path="/agents/general")
@@ -324,11 +311,13 @@ add_adk_fastapi_endpoint(app, creative_agent_wrapper, path="/agents/creative")
 
 The middleware provides complete bidirectional tool support, enabling AG-UI Protocol tools to execute within Google ADK agents. All tools supplied by the client are currently implemented as long-running tools that emit events to the client for execution and can be combined with backend tools provided by the agent to create a hybrid combined toolset.
 
-For detailed information about tool support, see [TOOLS.md](./TOOLS.md).
+For detailed information about tool support, see [TOOLS.md](https://github.com/ag-ui-protocol/ag-ui/blob/main/integrations/adk-middleware/python/TOOLS.md).
 
 ## Additional Documentation
 
-- **[CONFIGURATION.md](./CONFIGURATION.md)** - Complete configuration guide
-- **[TOOLS.md](./TOOLS.md)** - Tool support documentation
-- **[USAGE.md](./USAGE.md)** - Usage examples and patterns
-- **[ARCHITECTURE.md](./ARCHITECTURE.md)** - Technical architecture and design details
+These guides live in the companion Python middleware directory:
+
+- **[CONFIGURATION.md](https://github.com/ag-ui-protocol/ag-ui/blob/main/integrations/adk-middleware/python/CONFIGURATION.md)** - Complete configuration guide
+- **[TOOLS.md](https://github.com/ag-ui-protocol/ag-ui/blob/main/integrations/adk-middleware/python/TOOLS.md)** - Tool support documentation
+- **[USAGE.md](https://github.com/ag-ui-protocol/ag-ui/blob/main/integrations/adk-middleware/python/USAGE.md)** - Usage examples and patterns
+- **[ARCHITECTURE.md](https://github.com/ag-ui-protocol/ag-ui/blob/main/integrations/adk-middleware/python/ARCHITECTURE.md)** - Technical architecture and design details

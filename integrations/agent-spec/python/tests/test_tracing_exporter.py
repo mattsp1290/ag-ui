@@ -11,6 +11,7 @@ pyagentspec events and assert on the AG-UI events it produces.
 """
 
 import json
+import logging
 
 import pytest
 
@@ -193,6 +194,16 @@ class TestLlmTextStreaming:
                 llm_chunk(content="hi", request_id="", completion_id=None), span
             )
 
+    def test_response_without_completion_id_raises(self):
+        # Unlike the chunk path (which falls back to request_id), the response
+        # path REQUIRES completion_id and raises if it is absent.
+        proc = AgUiSpanProcessor(runtime="wayflow")
+        span = make_span(id="llm-1")
+        with pytest.raises(ValueError, match="assistant message id in LLM response"):
+            proc._gather_events_for_event(
+                llm_response(content="answer", request_id="req-1", completion_id=None), span
+            )
+
     def test_response_emits_full_text_when_no_chunks_streamed(self):
         proc = AgUiSpanProcessor(runtime="wayflow")
         span = make_span(id="llm-1")
@@ -300,6 +311,36 @@ class TestToolExecutionLangGraph:
         assert len(results) == 1
         assert results[0].tool_call_id == "UNSEEN"
         assert results[0].content == "ok"
+
+    def test_unseen_request_id_logs_correlation_miss_warning(self, caplog):
+        """The fallback path (request_id never correlated) silently surrogates
+        the raw request_id as the tool_call_id, which orphans the tool result on
+        the frontend. That degraded path must be observable: a WARNING naming
+        the missed request_id is emitted only on the genuine fallback."""
+        proc = AgUiSpanProcessor(runtime="langgraph")
+        resp_span = make_span(id="span-resp")
+        with caplog.at_level(logging.WARNING, logger="ag_ui_agentspec.tracing"):
+            proc._gather_events_for_event(
+                tool_response(request_id="UNSEEN", outputs={"r": "ok"}), resp_span
+            )
+        warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+        assert len(warnings) == 1
+        assert "UNSEEN" in warnings[0].getMessage()
+
+    def test_correlated_request_id_does_not_log_warning(self, caplog):
+        """The happy path (request correlated via tcid__ description) must NOT
+        emit the correlation-miss warning."""
+        proc = AgUiSpanProcessor(runtime="langgraph")
+        req_span = make_span(id="span-req", description="tcid__client-tc-7")
+        proc._gather_events_for_event(tool_request(request_id="run-1"), req_span)
+
+        resp_span = make_span(id="span-resp")
+        with caplog.at_level(logging.WARNING, logger="ag_ui_agentspec.tracing"):
+            proc._gather_events_for_event(
+                tool_response(request_id="run-1", outputs={"r": "ok"}), resp_span
+            )
+        warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+        assert warnings == []
 
 
 class TestToolExecutionWayflow:

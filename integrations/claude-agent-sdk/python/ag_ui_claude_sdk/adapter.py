@@ -156,11 +156,9 @@ class ClaudeAgentAdapter:
             await entry["worker"].stop()
         self._workers.clear()
         self._state_locks.clear()
-        # NOTE: ``_run_locks`` is intentionally cleared only here, on full
-        # adapter shutdown (no run can be in-flight or waiting past this point).
-        # It is NOT cleared on per-thread eviction / clear_session / the run
-        # error path — see ``_evict_workers`` for the rationale (decoupling the
-        # run-admission lock lifecycle from worker-cache eviction).
+        # ``_run_locks`` is cleared ONLY here, on full adapter shutdown (no run
+        # can be in-flight or waiting past this point); it is intentionally NOT
+        # evicted per-thread — see ``_evict_workers`` for the rationale.
         self._run_locks.clear()
         self._per_run_result.clear()
 
@@ -177,7 +175,11 @@ class ClaudeAgentAdapter:
         and runs CONCURRENTLY with B — serialization defeated. Re-validating
         identity after acquire (in ``run``) is not sufficient alone, because a
         held/waited lock can still be popped and re-created. So we leave run-lock
-        entries resident. This is bounded by the number of distinct ``thread_id``
+        entries resident. Only ``_run_locks`` is exempt from eviction here:
+        ``_state_locks`` IS still popped (below), because it is acquired only
+        mid-stream UNDER the run-lock, so a live run always holds the run-lock
+        while touching it and it can never be orphaned by eviction. This is
+        bounded by the number of distinct ``thread_id``
         values seen (each maps to one tiny ``asyncio.Lock``); a future
         ``ThreadContext`` unification (one record per thread owning worker + all
         locks + state, reaped together) is the long-term home for bounding it —
@@ -214,12 +216,8 @@ class ClaudeAgentAdapter:
         if entry:
             await entry["worker"].stop()
         self._state_locks.pop(thread_id, None)
-        # NOTE: ``_run_locks[thread_id]`` is intentionally NOT popped — see
-        # ``_evict_workers``. A run may be parked on this lock right now;
-        # popping it would orphan that waiter and let a later run on the same
-        # thread acquire a fresh lock and run concurrently (defeating
-        # serialization). The lock is a tiny resident ``asyncio.Lock`` bounded
-        # by distinct thread_ids; only full ``shutdown`` clears the map.
+        # see _evict_workers: _run_locks intentionally not evicted (only full
+        # ``shutdown`` clears the map).
         self._per_thread_state.pop(thread_id, None)
         self._drop_thread_results(thread_id)
 

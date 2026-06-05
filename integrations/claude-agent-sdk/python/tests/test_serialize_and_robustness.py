@@ -897,7 +897,7 @@ class TestWorkerDeathFanout:
 
     @pytest.mark.asyncio
     async def test_in_flight_consumer_gets_terminal_error_on_worker_cancellation(self):
-        # Fix 4 (b): ``_on_task_done`` has a branch for the worker task exiting
+        # Fix 3 — cancellation path: ``_on_task_done`` has a branch for the worker task exiting
         # WITHOUT a fatal exception — e.g. cancelled / terminated mid-flight while
         # a query is still being serviced. That branch must fan out a terminal
         # RuntimeError("...terminated while a query was still in flight") + the

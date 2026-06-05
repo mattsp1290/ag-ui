@@ -189,14 +189,26 @@ class ClaudeAgentAdapter:
             # dead worker and fall through to creating a fresh one.
             entry = self._workers.get(thread_id)
             if entry is not None and not entry["worker"].is_alive():
-                logger.warning(
-                    f"Evicting dead worker for thread={thread_id} (task terminated); creating fresh worker"
-                )
-                dead_entry = self._workers.pop(thread_id, None)
-                if dead_entry is not None:
-                    await dead_entry["worker"].stop()
-                self._state_locks.pop(thread_id, None)
-                entry = None
+                if entry.get("active_runs", 0) > 0:
+                    # A peer run is still streaming on this (now-dead) worker.
+                    # Do NOT pop+stop the shared entry out from under it; that
+                    # would violate the item-7 invariant. Fall through and reuse
+                    # the existing entry so the refcount stays consistent — the
+                    # peer's own teardown (error or finally) handles eviction.
+                    logger.warning(
+                        f"Worker for thread={thread_id} is dead but a peer run is "
+                        f"still active (active_runs={entry.get('active_runs')}); "
+                        f"not evicting mid-stream"
+                    )
+                else:
+                    logger.warning(
+                        f"Evicting dead worker for thread={thread_id} (task terminated); creating fresh worker"
+                    )
+                    dead_entry = self._workers.pop(thread_id, None)
+                    if dead_entry is not None:
+                        await dead_entry["worker"].stop()
+                    self._state_locks.pop(thread_id, None)
+                    entry = None
 
             if entry is None:
                 options = self.build_options(input_data, thread_id=thread_id)
@@ -289,13 +301,25 @@ class ClaudeAgentAdapter:
             )
         except Exception as e:
             logger.error(f"Error in run: {e}")
-            # Evict broken worker
-            broken_entry = self._workers.pop(thread_id, None)
-            if broken_entry:
-                await broken_entry["worker"].stop()
-            self._state_locks.pop(thread_id, None)
-            self._per_thread_state.pop(thread_id, None)
-            self._per_thread_result.pop(thread_id, None)
+            # Evict the broken worker — but ONLY if this is the last in-flight run
+            # sharing it. If a peer run is still streaming (active_runs > 1),
+            # tearing the worker down here would yank it out from under that peer.
+            # In that case leave the shared entry intact and let the ``finally``
+            # block decrement this run's refcount exactly once (preserving the
+            # item-7 invariant: a peer run is never evicted mid-stream). (Item 7a)
+            entry = self._workers.get(thread_id)
+            if entry is not None and entry.get("active_runs", 1) > 1:
+                logger.debug(
+                    f"Run errored but a peer run is still active on thread={thread_id}; "
+                    f"keeping shared worker (active_runs={entry.get('active_runs')})"
+                )
+            else:
+                broken_entry = self._workers.pop(thread_id, None)
+                if broken_entry:
+                    await broken_entry["worker"].stop()
+                self._state_locks.pop(thread_id, None)
+                self._per_thread_state.pop(thread_id, None)
+                self._per_thread_result.pop(thread_id, None)
             yield RunErrorEvent(
                 type=EventType.RUN_ERROR,
                 thread_id=thread_id,

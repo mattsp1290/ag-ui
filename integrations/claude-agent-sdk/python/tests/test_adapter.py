@@ -591,6 +591,146 @@ class TestWorkerLifecycle:
         assert entry["active_runs"] == 0
         assert entry["active"] is False
 
+    # ── Item 7(a) hardening: an erroring run must not tear down the SHARED
+    # worker while a peer concurrent run on the same thread is still streaming ──
+    @pytest.mark.asyncio
+    async def test_erroring_run_does_not_evict_shared_worker_with_live_peer(
+        self, make_input, monkeypatch
+    ):
+        import asyncio
+
+        gate = asyncio.Event()       # released to let the surviving peer (B) finish
+        both_inflight = asyncio.Event()  # set once refcount has reached 2
+        stop_calls = {"n": 0}
+
+        class _MixedWorker:
+            # First query() call is the survivor B (blocks on gate); the second
+            # is the failer A (waits until both runs are in-flight, then raises).
+            call_index = 0
+
+            def __init__(self, *a, **kw):
+                pass
+
+            async def start(self):
+                pass
+
+            def is_alive(self):
+                return True
+
+            def query(self, prompt, session_id="default"):
+                idx = _MixedWorker.call_index
+                _MixedWorker.call_index += 1
+
+                async def _gen_survivor():
+                    await gate.wait()
+                    return
+                    yield  # pragma: no cover
+
+                async def _gen_failer():
+                    # Wait until BOTH runs have incremented the refcount, so the
+                    # peer (B) is provably mid-stream when A raises.
+                    await both_inflight.wait()
+                    raise RuntimeError("boom")
+                    yield  # pragma: no cover
+
+                return _gen_survivor() if idx == 0 else _gen_failer()
+
+            async def stop(self):
+                stop_calls["n"] += 1
+
+        adapter = ClaudeAgentAdapter(name="t")
+        monkeypatch.setattr("ag_ui_claude_sdk.adapter.SessionWorker", _MixedWorker)
+        inp = make_input(
+            thread_id="shared", messages=[{"id": "1", "role": "user", "content": "hi"}]
+        )
+
+        async def drive():
+            return [e async for e in adapter.run(inp)]
+
+        # Start B first (it will block on the gate), then A.
+        t_b = asyncio.create_task(drive())
+        for _ in range(50):
+            await asyncio.sleep(0)
+            entry = adapter._workers.get("shared")
+            if entry and entry.get("active_runs", 0) >= 1 and _MixedWorker.call_index >= 1:
+                break
+        t_a = asyncio.create_task(drive())
+        # Wait until both runs are in-flight (refcount == 2).
+        for _ in range(50):
+            await asyncio.sleep(0)
+            entry = adapter._workers.get("shared")
+            if entry and entry.get("active_runs", 0) >= 2:
+                break
+        entry = adapter._workers.get("shared")
+        assert entry is not None
+        assert entry["active_runs"] == 2
+
+        # Release A to raise mid-stream.
+        both_inflight.set()
+        events_a = await t_a
+        # A errored.
+        assert EventType.RUN_ERROR in _types(events_a)
+
+        # INVARIANT: the shared worker must survive — B is still streaming on it.
+        entry = adapter._workers.get("shared")
+        assert entry is not None, "shared worker evicted while a peer run was live"
+        assert stop_calls["n"] == 0, "shared worker stopped while a peer run was live"
+        # Refcount dropped to exactly 1 (A's one decrement), worker still active.
+        assert entry["active_runs"] == 1
+        assert entry["active"] is True
+
+        # Now let B finish normally.
+        gate.set()
+        events_b = await t_b
+        assert EventType.RUN_FINISHED in _types(events_b)
+
+        # After both ended: refcount is 0, worker idle/evictable, no leak/underflow.
+        entry = adapter._workers.get("shared")
+        assert entry is not None
+        assert entry["active_runs"] == 0
+        assert entry["active"] is False
+        # Still never stopped — last run leaves it cached for TTL/LRU eviction.
+        assert stop_calls["n"] == 0
+
+    # ── Single erroring run (the common path) still pops + stops the worker ──
+    @pytest.mark.asyncio
+    async def test_single_erroring_run_still_evicts_worker(self, make_input, monkeypatch):
+        stop_calls = {"n": 0}
+
+        class _SoloFailingWorker:
+            def __init__(self, *a, **kw):
+                pass
+
+            async def start(self):
+                pass
+
+            def is_alive(self):
+                return True
+
+            def query(self, prompt, session_id="default"):
+                async def _gen():
+                    raise RuntimeError("boom")
+                    yield  # pragma: no cover
+
+                return _gen()
+
+            async def stop(self):
+                stop_calls["n"] += 1
+
+        adapter = ClaudeAgentAdapter(name="t")
+        monkeypatch.setattr("ag_ui_claude_sdk.adapter.SessionWorker", _SoloFailingWorker)
+        inp = make_input(
+            thread_id="solo", messages=[{"id": "1", "role": "user", "content": "hi"}]
+        )
+        events = [e async for e in adapter.run(inp)]
+        assert EventType.RUN_ERROR in _types(events)
+        # No peer: the worker is popped and stopped exactly as before.
+        assert "solo" not in adapter._workers
+        assert stop_calls["n"] == 1
+        assert "solo" not in adapter._state_locks
+        assert "solo" not in adapter._per_thread_state
+        assert "solo" not in adapter._per_thread_result
+
     @pytest.mark.asyncio
     async def test_active_worker_not_evicted_by_ttl(self):
         from datetime import datetime, timedelta

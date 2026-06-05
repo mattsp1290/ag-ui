@@ -333,6 +333,100 @@ class TestSerializeSameThread:
         await adapter.shutdown()
 
     @pytest.mark.asyncio
+    async def test_run_admission_revalidate_retry_relooops_on_swapped_lock(
+        self, make_input, monkeypatch
+    ):
+        # (a3) RETRY-BRANCH COVERAGE (Fix 1): the run-admission loop in ``run()``
+        #
+        #     while True:
+        #         run_lock = self._run_locks.setdefault(thread_id, Lock())
+        #         await run_lock.acquire()
+        #         if self._run_locks.get(thread_id) is run_lock:
+        #             break
+        #         run_lock.release()   # <-- this RETRY branch
+        #
+        # is defensive: eviction no longer pops ``_run_locks``, so in production
+        # the identity check passes on the first pass and the ``release()`` +
+        # re-loop branch never executes (the suite stays green even if that
+        # branch is deleted and replaced with a plain ``break``). This white-box
+        # test FORCES the retry branch purely test-side: monkeypatch
+        # ``asyncio.Lock.acquire`` so the FIRST acquire against the adapter's
+        # run-lock swaps ``_run_locks[thread_id]`` to a DIFFERENT live lock before
+        # returning. The identity check then fails, the run must ``release()`` the
+        # stale lock and re-loop onto the now-current entry. We assert the run
+        # ends up holding the CURRENT ``_run_locks[thread_id]`` (i.e. it re-looped
+        # rather than running on a stale lock) and completes correctly.
+        #
+        # Red-green: if the RETRY branch is removed (left as a plain ``break``),
+        # the run keeps the stale L1 while the live entry is L2, so the final
+        # ``adapter._run_locks[thread_id] is acquired_lock`` assertion FAILS.
+        adapter = ClaudeAgentAdapter(name="t")
+        monkeypatch.setattr(
+            "ag_ui_claude_sdk.adapter.SessionWorker", _GatedTextWorker
+        )
+
+        def _query(self, prompt, session_id="default"):
+            async def _gen():
+                for ev in _make_text_stream():
+                    yield ev
+            return _gen()
+
+        _GatedTextWorker.query = _query
+
+        thread_id = "swap"
+        # ``acquired_locks`` records, in order, every Lock object the run
+        # actually acquires; the live entry is read at assert time.
+        acquired_locks = []
+        swapped = {"done": False}
+
+        real_acquire = asyncio.Lock.acquire
+
+        async def _acquire(self):
+            result = await real_acquire(self)
+            # Only react to the run-admission lock for our thread, and only the
+            # FIRST time: swap the live entry to a brand-new (unlocked) lock so
+            # the identity re-validation fails and the run must re-loop.
+            if (
+                not swapped["done"]
+                and adapter._run_locks.get(thread_id) is self
+            ):
+                swapped["done"] = True
+                adapter._run_locks[thread_id] = asyncio.Lock()
+            acquired_locks.append(self)
+            return result
+
+        monkeypatch.setattr(asyncio.Lock, "acquire", _acquire)
+
+        inp = make_input(
+            thread_id=thread_id, run_id="R",
+            messages=[{"id": "1", "role": "user", "content": "hi"}],
+        )
+        events = await _drive(adapter, inp)
+
+        # The swap fired (so the retry branch was actually exercised), and the
+        # run acquired at least two distinct lock objects (stale L1, then the
+        # live L2) — proof it re-looped.
+        assert swapped["done"], "the lock swap never fired; retry branch untested"
+        assert len(acquired_locks) >= 2, (
+            f"run did not re-acquire after swap: acquired={acquired_locks}"
+        )
+        # The run released the stale lock and ended holding the CURRENT entry.
+        live_lock = adapter._run_locks[thread_id]
+        assert acquired_locks[-1] is live_lock, (
+            "run is not holding the current _run_locks entry — it failed to "
+            "re-loop onto the swapped-in lock (retry branch broken)"
+        )
+        # The stale first lock was released (not left orphaned/locked).
+        stale_lock = acquired_locks[0]
+        assert stale_lock is not live_lock, "no swap occurred; test is inert"
+        assert not stale_lock.locked(), "stale run-lock was not released on retry"
+        # And the run completed correctly end-to-end.
+        assert EventType.RUN_STARTED in _types(events)
+        assert EventType.RUN_FINISHED in _types(events)
+
+        await adapter.shutdown()
+
+    @pytest.mark.asyncio
     async def test_different_threads_run_concurrently(self, make_input, monkeypatch):
         # (b) Two DIFFERENT-thread runs must still overlap (lock is per-thread).
         both_started = asyncio.Event()

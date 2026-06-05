@@ -273,9 +273,23 @@ class AgUiSpanProcessor(SpanProcessor):
                     # (out-of-order events, or a request span lacking a
                     # ``tcid__`` description), fall back to the run-level
                     # request_id rather than raising a KeyError.
-                    tool_call_id = self._tool_run_id_to_tool_call_id.get(
-                        event.request_id, event.request_id
-                    )
+                    if event.request_id in self._tool_run_id_to_tool_call_id:
+                        tool_call_id = self._tool_run_id_to_tool_call_id[event.request_id]
+                    else:
+                        # Correlation miss: no matching ToolExecutionRequest was
+                        # recorded for this request_id, so we cannot recover the
+                        # AG-UI tool_call_id the frontend issued. We surrogate the
+                        # raw request_id to avoid crashing, but the resulting tool
+                        # result will be orphaned (it references an id the client
+                        # never saw). Log it so the miss is observable.
+                        logger.warning(
+                            "AG-UI tool-call correlation miss: no ToolExecutionRequest "
+                            "recorded for request_id=%r; using the raw request_id as a "
+                            "surrogate tool_call_id. The emitted tool result may be "
+                            "orphaned because the frontend never saw this id.",
+                            event.request_id,
+                        )
+                        tool_call_id = event.request_id
                 else:
                     tool_call_id = event.request_id
                 content = _normalize_tool_output(event.outputs)

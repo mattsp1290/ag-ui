@@ -422,8 +422,14 @@ class TestLangroidAgentBackendToolDemoCoupling(unittest.TestCase):
         )
 
     def test_render_chart_produces_demo_specific_response(self):
+        # Use a ``message`` that differs from the ``chart_type``-derived
+        # fallback (``f"{chart_type} chart has been rendered"``) so this test
+        # proves the ``message`` key takes precedence rather than the code
+        # falling through to the default. With chart_type="pie", the fallback
+        # would be "pie chart has been rendered" -- the assertion below would
+        # fail if message were ignored.
         chart = {
-            "chart_type": "bar",
+            "chart_type": "pie",
             "status": "completed",
             "message": "bar chart has been rendered",
         }
@@ -431,8 +437,33 @@ class TestLangroidAgentBackendToolDemoCoupling(unittest.TestCase):
 
         event_types = [e.type for e in events]
         self.assertIn(EventType.TOOL_CALL_RESULT, event_types)
-        # Hardcoded demo template (agent.py render_chart branch).
+        # Hardcoded demo template (agent.py render_chart branch): the provided
+        # ``message`` is honored verbatim, not the chart_type fallback.
         self.assertEqual(text, "bar chart has been rendered.")
+
+    def test_generate_recipe_produces_demo_specific_response(self):
+        # The generate_recipe branch (agent.py ~642-659) reads the recipe from
+        # the *tool args* (tool_args.get("recipe")), not the handler result,
+        # and selects one of four sub-templates based on whether ingredients
+        # and/or instructions are present. This pins the both-present branch.
+        recipe = {
+            "title": "Pancakes",
+            "ingredients": ["flour", "eggs"],
+            "instructions": ["mix", "cook"],
+        }
+        events, text = self._run_backend_tool(
+            "generate_recipe", {"status": "completed"}, recipe=recipe
+        )
+
+        event_types = [e.type for e in events]
+        self.assertIn(EventType.TOOL_CALL_RESULT, event_types)
+        # Hardcoded demo template (agent.py generate_recipe branch): title is
+        # lowercased and the ingredients-and-instructions sub-template is used.
+        self.assertEqual(
+            text,
+            "I created a complete pancakes recipe based on the existing "
+            "ingredients and instructions.",
+        )
 
 
 if __name__ == "__main__":

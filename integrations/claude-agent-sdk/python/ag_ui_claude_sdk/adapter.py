@@ -156,11 +156,33 @@ class ClaudeAgentAdapter:
             await entry["worker"].stop()
         self._workers.clear()
         self._state_locks.clear()
+        # NOTE: ``_run_locks`` is intentionally cleared only here, on full
+        # adapter shutdown (no run can be in-flight or waiting past this point).
+        # It is NOT cleared on per-thread eviction / clear_session / the run
+        # error path — see ``_evict_workers`` for the rationale (decoupling the
+        # run-admission lock lifecycle from worker-cache eviction).
         self._run_locks.clear()
         self._per_run_result.clear()
 
     def _evict_workers(self) -> None:
-        """Evict idle workers by TTL and LRU cap."""
+        """Evict idle workers by TTL and LRU cap.
+
+        IMPORTANT: ``_run_locks[tid]`` is deliberately NOT popped here (nor on
+        ``clear_session`` / the run error path). The run-admission lock's
+        lifecycle is run SERIALIZATION, which must stay decoupled from
+        worker-cache eviction. Popping it opens an orphan race: a run B parked on
+        ``await run_lock.acquire()`` in the window after run A released the lock
+        (worker now idle, active_runs==0) but before B wakes can have its lock
+        entry popped by eviction; a later run D then ``setdefault``s a FRESH lock
+        and runs CONCURRENTLY with B — serialization defeated. Re-validating
+        identity after acquire (in ``run``) is not sufficient alone, because a
+        held/waited lock can still be popped and re-created. So we leave run-lock
+        entries resident. This is bounded by the number of distinct ``thread_id``
+        values seen (each maps to one tiny ``asyncio.Lock``); a future
+        ``ThreadContext`` unification (one record per thread owning worker + all
+        locks + state, reaped together) is the long-term home for bounding it —
+        do NOT add a separate reaper here now.
+        """
         now = datetime.now()
         # TTL eviction: remove idle workers older than TTL
         to_remove = [
@@ -171,7 +193,6 @@ class ClaudeAgentAdapter:
             entry = self._workers.pop(tid)
             self._spawn_cleanup_task(entry["worker"].stop())
             self._state_locks.pop(tid, None)
-            self._run_locks.pop(tid, None)
             self._per_thread_state.pop(tid, None)
             self._drop_thread_results(tid)
 
@@ -184,7 +205,6 @@ class ClaudeAgentAdapter:
             entry = self._workers.pop(oldest_tid)
             self._spawn_cleanup_task(entry["worker"].stop())
             self._state_locks.pop(oldest_tid, None)
-            self._run_locks.pop(oldest_tid, None)
             self._per_thread_state.pop(oldest_tid, None)
             self._drop_thread_results(oldest_tid)
 
@@ -194,7 +214,12 @@ class ClaudeAgentAdapter:
         if entry:
             await entry["worker"].stop()
         self._state_locks.pop(thread_id, None)
-        self._run_locks.pop(thread_id, None)
+        # NOTE: ``_run_locks[thread_id]`` is intentionally NOT popped — see
+        # ``_evict_workers``. A run may be parked on this lock right now;
+        # popping it would orphan that waiter and let a later run on the same
+        # thread acquire a fresh lock and run concurrently (defeating
+        # serialization). The lock is a tiny resident ``asyncio.Lock`` bounded
+        # by distinct thread_ids; only full ``shutdown`` clears the map.
         self._per_thread_state.pop(thread_id, None)
         self._drop_thread_results(thread_id)
 
@@ -216,8 +241,20 @@ class ClaudeAgentAdapter:
         # (acquired mid-stream on the state-update-tool path); reusing the
         # non-reentrant state-lock would self-deadlock. Lock ordering is fixed:
         # run-lock OUTERMOST, state-lock INNERMOST.
-        run_lock = self._run_locks.setdefault(thread_id, asyncio.Lock())
-        await run_lock.acquire()
+        # Acquire the CURRENT lock entry, then re-validate identity: if the entry
+        # in ``_run_locks`` changed while we were parked (defense-in-depth against
+        # any residual repopulation race — note eviction no longer pops the lock,
+        # so this loop normally runs once), release the stale lock and retry on
+        # the current one. Loop until we hold the lock that is actually the live
+        # ``_run_locks[thread_id]``, so no two runs can ever hold "the" run-lock
+        # for the same thread at once.
+        while True:
+            run_lock = self._run_locks.setdefault(thread_id, asyncio.Lock())
+            await run_lock.acquire()
+            if self._run_locks.get(thread_id) is run_lock:
+                break
+            # A different lock is now the live entry; we acquired a stale one.
+            run_lock.release()
 
         # Re-seed per-thread state for THIS run, now that we hold the thread
         # exclusively. Fresh ``input_data.state`` REPLACES any prior thread state
@@ -243,8 +280,15 @@ class ClaudeAgentAdapter:
             entry = self._workers.get(thread_id)
             if entry is not None and not entry["worker"].is_alive():
                 if entry.get("active_runs", 0) > 0:
-                    # A peer run is still streaming on this (now-dead) worker.
-                    # We are wedged between two unacceptable options:
+                    # DEFENSE-IN-DEPTH / UNREACHABLE under run-admission
+                    # serialization (Fix 1): the per-thread run-lock admits one
+                    # run at a time, so while THIS run holds the lock no peer run
+                    # on the same thread can be mid-stream (``active_runs`` is
+                    # per-thread and capped at 1). This branch is retained as a
+                    # belt-and-suspenders guard in case that invariant is ever
+                    # violated by a future change. If somehow a peer IS streaming
+                    # on this (now-dead) worker, we are wedged between two
+                    # unacceptable options:
                     #   * REUSE the dead worker — querying it would hang this
                     #     arriving run forever (the peer's exited run-loop will
                     #     never service our output queue).
@@ -375,11 +419,15 @@ class ClaudeAgentAdapter:
         except Exception as e:
             logger.error(f"Error in run: {e}")
             # Evict the broken worker — but ONLY if this is the last in-flight run
-            # sharing it. If a peer run is still streaming (active_runs > 1),
-            # tearing the worker down here would yank it out from under that peer.
-            # In that case leave the shared entry intact and let the ``finally``
-            # block decrement this run's refcount exactly once (preserving the
-            # item-7 invariant: a peer run is never evicted mid-stream). (Item 7a)
+            # sharing it. The ``active_runs > 1`` guard below is DEFENSE-IN-DEPTH /
+            # UNREACHABLE under run-admission serialization (Fix 1): the per-thread
+            # run-lock caps a thread's concurrent runs at 1, so when this run
+            # errors there is no peer run still streaming on the same thread, and
+            # the ``else`` branch (pop + stop the solo worker) is the live path.
+            # The guard is retained so that, were serialization ever broken,
+            # tearing the worker down here would not yank it out from under a peer;
+            # instead we would leave the shared entry intact and let the
+            # ``finally`` block decrement this run's refcount exactly once. (Item 7a)
             entry = self._workers.get(thread_id)
             if entry is not None and entry.get("active_runs", 1) > 1:
                 logger.warning(
@@ -406,9 +454,14 @@ class ClaudeAgentAdapter:
             # decrement — doing so would corrupt the live peer's refcount. (Item 7a)
             entry = self._workers.get(thread_id)
             if entry and counted_in:
-                # Decrement the in-flight refcount; the worker only becomes idle
-                # (and thus evictable) once ALL concurrent runs sharing it have
-                # finished, so a peer run is never evicted mid-stream. (Item 7a)
+                # Decrement the in-flight refcount. Under run-admission
+                # serialization (Fix 1) ``active_runs`` for a given thread is
+                # capped at 1, so this normally takes it 1 -> 0; the
+                # multi-run-sharing semantics below are DEFENSE-IN-DEPTH for the
+                # (now-unreachable) case of concurrent same-thread runs. As coded,
+                # the worker only becomes idle (and thus evictable) once ALL runs
+                # counted into it have finished, so a peer run could never be
+                # evicted mid-stream even if serialization were bypassed. (Item 7a)
                 remaining = entry.get("active_runs", 1) - 1
                 entry["active_runs"] = max(remaining, 0)
                 entry["active"] = entry["active_runs"] > 0

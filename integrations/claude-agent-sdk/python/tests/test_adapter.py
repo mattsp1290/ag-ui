@@ -141,6 +141,47 @@ class TestStreamToolCall:
         assert EventType.TOOL_CALL_END in _types(events)
 
 
+class TestStreamStateMerge:
+    # ── Item 1: state merge when prior thread state is None ──
+    @pytest.mark.asyncio
+    async def test_state_update_with_none_prior_merges_onto_empty(self, make_input):
+        # When no prior state exists (None) and the update is a dict, the result
+        # must be the dict itself (merge onto empty), and a STATE_SNAPSHOT must
+        # be emitted — NOT silently treated as a non-dict replace that skips the
+        # change check.
+        adapter = ClaudeAgentAdapter(name="t")
+        stream = [
+            stream_event({"type": "message_start"}),
+            stream_event(
+                {
+                    "type": "content_block_start",
+                    "content_block": {
+                        "type": "tool_use",
+                        "id": "tc1",
+                        "name": STATE_MANAGEMENT_TOOL_FULL_NAME,
+                    },
+                }
+            ),
+            stream_event(
+                {
+                    "type": "content_block_delta",
+                    "delta": {
+                        "type": "input_json_delta",
+                        "partial_json": '{"state_updates": {"count": 5}}',
+                    },
+                }
+            ),
+            stream_event({"type": "content_block_stop"}),
+            stream_event({"type": "message_stop"}),
+        ]
+        # state=None seeds _per_thread_state[thread] = None
+        events = await _drive(adapter, stream, make_input, state=None)
+        snaps = [e for e in events if e.type == EventType.STATE_SNAPSHOT]
+        assert len(snaps) == 1
+        assert snaps[0].snapshot == {"count": 5}
+        assert adapter._per_thread_state["thread-1"] == {"count": 5}
+
+
 class TestStreamReasoning:
     @pytest.mark.asyncio
     async def test_thinking_block_emits_reasoning_events(self, make_input):
@@ -169,6 +210,57 @@ class TestStreamReasoning:
         assert EventType.REASONING_ENCRYPTED_VALUE in types
         enc = next(e for e in events if e.type == EventType.REASONING_ENCRYPTED_VALUE)
         assert enc.encrypted_value == "sig"
+        # The encrypted value must be tied to the reasoning block it belongs to,
+        # not to the enclosing assistant message id.
+        rstart = next(e for e in events if e.type == EventType.REASONING_START)
+        assert enc.entity_id == rstart.message_id
+
+    # ── Item 2: signature must not clobber across multiple thinking blocks ──
+    @pytest.mark.asyncio
+    async def test_two_thinking_blocks_each_emit_their_own_signature(self, make_input):
+        # Two thinking blocks in ONE message, each with its own signature. Each
+        # block's encrypted value must carry that block's signature, tied to
+        # that block's reasoning id. The old code reset accumulated_signature on
+        # the first block's stop but emitted with the message id, so a later
+        # block's signature attached to the wrong entity / got dropped.
+        adapter = ClaudeAgentAdapter(name="t")
+        stream = [
+            stream_event({"type": "message_start"}),
+            # Block 1
+            stream_event({"type": "content_block_start", "content_block": {"type": "thinking"}}),
+            stream_event(
+                {"type": "content_block_delta", "delta": {"type": "thinking_delta", "thinking": "one"}}
+            ),
+            stream_event(
+                {"type": "content_block_delta", "delta": {"type": "signature_delta", "signature": "SIG1"}}
+            ),
+            stream_event({"type": "content_block_stop"}),
+            # Block 2
+            stream_event({"type": "content_block_start", "content_block": {"type": "thinking"}}),
+            stream_event(
+                {"type": "content_block_delta", "delta": {"type": "thinking_delta", "thinking": "two"}}
+            ),
+            stream_event(
+                {"type": "content_block_delta", "delta": {"type": "signature_delta", "signature": "SIG2"}}
+            ),
+            stream_event({"type": "content_block_stop"}),
+            stream_event({"type": "message_stop"}),
+        ]
+        events = await _drive(adapter, stream, make_input)
+        encs = [e for e in events if e.type == EventType.REASONING_ENCRYPTED_VALUE]
+        rstarts = [e for e in events if e.type == EventType.REASONING_START]
+        assert len(rstarts) == 2
+        # Exactly two signatures, one per block, no clobber.
+        assert len(encs) == 2
+        sigs = {e.encrypted_value for e in encs}
+        assert sigs == {"SIG1", "SIG2"}
+        # Each encrypted value is tied to a distinct reasoning block entity.
+        entity_ids = {e.entity_id for e in encs}
+        assert entity_ids == {r.message_id for r in rstarts}
+        # And the pairing is correct: SIG1 -> block 1, SIG2 -> block 2.
+        by_entity = {e.entity_id: e.encrypted_value for e in encs}
+        assert by_entity[rstarts[0].message_id] == "SIG1"
+        assert by_entity[rstarts[1].message_id] == "SIG2"
 
 
 class TestStreamCleanup:
@@ -225,6 +317,24 @@ class TestBuildOptions:
         opts = adapter.build_options(inp)
         assert opts.system_prompt.startswith("BASE")
         assert "Current Shared State" in opts.system_prompt
+
+    # ── Item 6: forwarded prop that isn't a valid ClaudeAgentOptions kwarg ──
+    def test_forwarded_prop_invalid_kwarg_does_not_crash(self, make_input):
+        # `temperature` is whitelisted in ALLOWED_FORWARDED_PROPS but is NOT a
+        # valid ClaudeAgentOptions field. Applying it must not raise a TypeError
+        # from ClaudeAgentOptions(**kwargs); the invalid kwarg is dropped and a
+        # valid one alongside it still flows through.
+        adapter = ClaudeAgentAdapter(name="t")
+        inp = make_input(forwarded_props={"temperature": 0.5, "model": "claude-x"})
+        opts = adapter.build_options(inp)  # must not raise
+        assert opts.model == "claude-x"
+        assert not hasattr(opts, "temperature")
+
+    def test_forwarded_prop_valid_kwarg_still_applied(self, make_input):
+        adapter = ClaudeAgentAdapter(name="t")
+        inp = make_input(forwarded_props={"max_turns": 3})
+        opts = adapter.build_options(inp)
+        assert opts.max_turns == 3
 
 
 class _FakeFailingWorker:
@@ -370,6 +480,132 @@ class TestEviction:
         assert "s" not in adapter._state_locks
         assert "s" not in adapter._per_thread_state
         assert "s" not in adapter._per_thread_result
+
+
+class _FakeSlowStopWorker:
+    """A worker whose stop() yields control, so the eviction task is pending
+    when _evict_workers returns — exercising the fire-and-forget GC hazard."""
+
+    def __init__(self, *args, **kwargs):
+        self.stopped = False
+
+    async def start(self):
+        pass
+
+    def is_alive(self):
+        return True
+
+    async def stop(self):
+        # Yield so the task is not synchronously complete.
+        import asyncio
+        await asyncio.sleep(0)
+        self.stopped = True
+
+
+class TestWorkerLifecycle:
+    # ── Item 7(b): eviction stop tasks must not be GC-able before completion ──
+    @pytest.mark.asyncio
+    async def test_eviction_stop_tasks_are_retained_until_complete(self):
+        import asyncio
+        from datetime import datetime, timedelta
+
+        adapter = ClaudeAgentAdapter(name="t", max_workers=1)
+        for i, tid in enumerate(["old", "new"]):
+            adapter._workers[tid] = {
+                "worker": _FakeSlowStopWorker(),
+                "last_used": datetime.now() + timedelta(seconds=i),
+                "active": False,
+            }
+
+        evicted_worker = adapter._workers["old"]["worker"]
+        adapter._evict_workers()
+
+        # A strong reference to the in-flight stop task must be retained by the
+        # adapter so the garbage collector cannot reap it mid-flight.
+        assert hasattr(adapter, "_pending_tasks")
+        assert len(adapter._pending_tasks) >= 1
+
+        # Let the retained task run to completion.
+        await asyncio.gather(*list(adapter._pending_tasks))
+        assert evicted_worker.stopped is True
+        # Completed tasks are dropped from the retention set.
+        assert len(adapter._pending_tasks) == 0
+
+    # ── Item 7(a): a finished run must not mark a worker idle while a peer
+    # concurrent run on the same thread is still streaming ──
+    @pytest.mark.asyncio
+    async def test_concurrent_runs_keep_worker_active_until_all_finish(self, make_input, monkeypatch):
+        import asyncio
+
+        gate = asyncio.Event()
+
+        class _GatedWorker:
+            def __init__(self, *a, **kw):
+                pass
+
+            async def start(self):
+                pass
+
+            def is_alive(self):
+                return True
+
+            def query(self, prompt, session_id="default"):
+                async def _gen():
+                    # Block until released, simulating an in-flight stream.
+                    await gate.wait()
+                    return
+                    yield  # pragma: no cover
+
+                return _gen()
+
+            async def stop(self):
+                pass
+
+        adapter = ClaudeAgentAdapter(name="t")
+        monkeypatch.setattr("ag_ui_claude_sdk.adapter.SessionWorker", _GatedWorker)
+        inp = make_input(thread_id="shared", messages=[{"id": "1", "role": "user", "content": "hi"}])
+
+        async def drive():
+            return [e async for e in adapter.run(inp)]
+
+        t1 = asyncio.create_task(drive())
+        t2 = asyncio.create_task(drive())
+        # Let both runs start and increment the refcount.
+        for _ in range(20):
+            await asyncio.sleep(0)
+            entry = adapter._workers.get("shared")
+            if entry and entry.get("active_runs", 0) >= 2:
+                break
+        entry = adapter._workers.get("shared")
+        assert entry is not None
+        # Both runs are in-flight: refcount is 2 and the worker is active.
+        assert entry["active_runs"] == 2
+        assert entry["active"] is True
+
+        # Release the gate so both runs finish.
+        gate.set()
+        await asyncio.gather(t1, t2)
+        entry = adapter._workers.get("shared")
+        assert entry is not None
+        # Only after BOTH finished is the worker idle and evictable.
+        assert entry["active_runs"] == 0
+        assert entry["active"] is False
+
+    @pytest.mark.asyncio
+    async def test_active_worker_not_evicted_by_ttl(self):
+        from datetime import datetime, timedelta
+
+        adapter = ClaudeAgentAdapter(name="t", worker_ttl_seconds=0.0)
+        w = _FakeAliveWorker()
+        # active=True simulates a concurrent in-flight run holding the worker.
+        adapter._workers["busy"] = {
+            "worker": w,
+            "last_used": datetime.now() - timedelta(seconds=10),
+            "active": True,
+        }
+        adapter._evict_workers()
+        # An active worker must survive TTL eviction even though it is stale.
+        assert "busy" in adapter._workers
 
 
 class TestPoisonedWorkerCache:

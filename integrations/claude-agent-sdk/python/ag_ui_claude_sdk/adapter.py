@@ -99,6 +99,26 @@ class ClaudeAgentAdapter:
         self._state_locks: Dict[str, asyncio.Lock] = {}
         self._per_thread_state: Dict[str, Any] = {}  # thread_id -> current state
         self._per_thread_result: Dict[str, Any] = {}  # thread_id -> last result data
+        # Strong references to fire-and-forget cleanup tasks (e.g. worker.stop()
+        # during eviction). Without this the only reference is local and the
+        # event loop keeps only a weak reference, so a pending stop task can be
+        # garbage-collected mid-flight before the worker actually shuts down.
+        # We discard each task from the set when it completes. (Item 7)
+        self._pending_tasks: set = set()
+
+    def _spawn_cleanup_task(self, coro) -> "asyncio.Task":
+        """Schedule a fire-and-forget cleanup coroutine, retaining a strong
+        reference until it completes so it cannot be GC'd mid-flight."""
+        task = asyncio.create_task(coro)
+        self._pending_tasks.add(task)
+
+        def _done(t: "asyncio.Task") -> None:
+            self._pending_tasks.discard(t)
+            if t.exception() is not None:
+                logger.warning(f"Worker eviction error: {t.exception()}")
+
+        task.add_done_callback(_done)
+        return task
 
     async def interrupt(self, thread_id: Optional[str] = None) -> None:
         """Interrupt the active query for a thread, or all workers if no thread specified."""
@@ -125,8 +145,7 @@ class ClaudeAgentAdapter:
         ]
         for tid in to_remove:
             entry = self._workers.pop(tid)
-            task = asyncio.create_task(entry["worker"].stop())
-            task.add_done_callback(lambda t: t.exception() and logger.warning(f"Worker eviction error: {t.exception()}"))
+            self._spawn_cleanup_task(entry["worker"].stop())
             self._state_locks.pop(tid, None)
             self._per_thread_state.pop(tid, None)
             self._per_thread_result.pop(tid, None)
@@ -138,8 +157,7 @@ class ClaudeAgentAdapter:
                 break
             oldest_tid = min(idle, key=lambda x: x[1]["last_used"])[0]
             entry = self._workers.pop(oldest_tid)
-            task = asyncio.create_task(entry["worker"].stop())
-            task.add_done_callback(lambda t: t.exception() and logger.warning(f"Worker eviction error: {t.exception()}"))
+            self._spawn_cleanup_task(entry["worker"].stop())
             self._state_locks.pop(oldest_tid, None)
             self._per_thread_state.pop(oldest_tid, None)
             self._per_thread_result.pop(oldest_tid, None)
@@ -184,11 +202,18 @@ class ClaudeAgentAdapter:
                 options = self.build_options(input_data, thread_id=thread_id)
                 worker = SessionWorker(thread_id, options)
                 await worker.start()
-                entry = {"worker": worker, "last_used": datetime.now(), "active": True}
+                # ``active_runs`` is a refcount of in-flight run() invocations
+                # sharing this worker. A plain ``active`` bool wedged on
+                # concurrent reuse: the first run to finish flipped it False
+                # while a second run was still streaming, making the worker
+                # evictable mid-stream. The bool is kept (derived from the
+                # count) for callers/tests that read it. (Item 7a)
+                entry = {"worker": worker, "last_used": datetime.now(), "active": True, "active_runs": 1}
                 self._workers[thread_id] = entry
                 self._evict_workers()
                 logger.debug(f"Created worker for thread={thread_id}")
             else:
+                entry["active_runs"] = entry.get("active_runs", 0) + 1
                 entry["active"] = True
                 entry["last_used"] = datetime.now()
                 worker = entry["worker"]
@@ -280,7 +305,12 @@ class ClaudeAgentAdapter:
         finally:
             entry = self._workers.get(thread_id)
             if entry:
-                entry["active"] = False
+                # Decrement the in-flight refcount; the worker only becomes idle
+                # (and thus evictable) once ALL concurrent runs sharing it have
+                # finished, so a peer run is never evicted mid-stream. (Item 7a)
+                remaining = entry.get("active_runs", 1) - 1
+                entry["active_runs"] = max(remaining, 0)
+                entry["active"] = entry["active_runs"] > 0
                 entry["last_used"] = datetime.now()
 
     def build_options(self, input_data: Optional[RunAgentInput] = None, thread_id: Optional[str] = None) -> "ClaudeAgentOptions":
@@ -410,6 +440,24 @@ class ClaudeAgentAdapter:
                 )
         
         
+        # Guard against kwargs that are not valid ClaudeAgentOptions fields.
+        # forwarded_props are whitelisted by NAME (ALLOWED_FORWARDED_PROPS), but
+        # some whitelisted runtime controls (e.g. ``temperature``, ``max_tokens``)
+        # are NOT ClaudeAgentOptions dataclass fields, so passing them straight
+        # through would raise a TypeError at runtime and crash the whole run.
+        # Drop unknown keys (with a warning) so an unexpected/forwarded prop can
+        # never wedge a run. (Item 6)
+        import dataclasses
+        valid_fields = {f.name for f in dataclasses.fields(ClaudeAgentOptions)}
+        unknown_keys = [k for k in merged_kwargs if k not in valid_fields]
+        if unknown_keys:
+            for k in unknown_keys:
+                logger.warning(
+                    f"Dropping unsupported ClaudeAgentOptions kwarg: {k!r} "
+                    f"(not a valid option field)"
+                )
+                merged_kwargs.pop(k, None)
+
         logger.debug(f"Creating ClaudeAgentOptions with merged kwargs: {merged_kwargs}")
         return ClaudeAgentOptions(**merged_kwargs)
 
@@ -618,15 +666,26 @@ class ClaudeAgentAdapter:
                             message_id=reasoning_message_id,
                         )
 
-                        # Emit encrypted signature if present
-                        if accumulated_signature and current_message_id:
+                        # Emit encrypted signature if present.
+                        #
+                        # Tie it to THIS thinking block (reasoning_message_id),
+                        # not the enclosing assistant message id. A single
+                        # message can contain multiple thinking blocks, each
+                        # with its own signature_delta; binding to the message
+                        # id (and resetting per block) attached a later block's
+                        # signature to the wrong entity. Capture the block id
+                        # before it is cleared below. (Item 2)
+                        if accumulated_signature and reasoning_message_id:
                             yield ReasoningEncryptedValueEvent(
                                 type=EventType.REASONING_ENCRYPTED_VALUE,
                                 subtype="message",
-                                entity_id=current_message_id,
+                                entity_id=reasoning_message_id,
                                 encrypted_value=accumulated_signature,
                             )
 
+                        # Reset per-block signature accumulation so the next
+                        # thinking block starts clean and cannot inherit this
+                        # block's signature.
                         accumulated_signature = ""
                         reasoning_message_id = None
                     
@@ -642,8 +701,22 @@ class ClaudeAgentAdapter:
                                         updates = json.loads(updates)
                                     lock = self._state_locks.setdefault(thread_id, asyncio.Lock())
                                     async with lock:
-                                        prev_state_json = json.dumps(self._per_thread_state.get(thread_id), sort_keys=True, default=str)
-                                        new_state = {**self._per_thread_state.get(thread_id), **updates} if isinstance(self._per_thread_state.get(thread_id), dict) and isinstance(updates, dict) else updates
+                                        prior = self._per_thread_state.get(thread_id)
+                                        prev_state_json = json.dumps(prior, sort_keys=True, default=str)
+                                        # Merge dict updates onto the prior dict.
+                                        # When there is no prior state (None),
+                                        # treat it as an empty dict so a dict
+                                        # update MERGES onto {} rather than the
+                                        # `else` branch silently replacing state
+                                        # with `updates` (functionally the same
+                                        # for a bare dict, but the explicit form
+                                        # keeps the merge/replace semantics
+                                        # unambiguous and consistent with the
+                                        # non-streaming handler).
+                                        if isinstance(updates, dict) and (prior is None or isinstance(prior, dict)):
+                                            new_state = {**(prior or {}), **updates}
+                                        else:
+                                            new_state = updates
                                         new_state = fix_surrogates_deep(new_state)
                                         self._per_thread_state[thread_id] = new_state
                                         if json.dumps(self._per_thread_state.get(thread_id), sort_keys=True, default=str) != prev_state_json:

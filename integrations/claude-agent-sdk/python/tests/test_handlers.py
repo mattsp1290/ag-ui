@@ -104,17 +104,30 @@ class TestHandleToolUseBlock:
         _, gen = await handle_tool_use_block(block, _Msg(), "th", "run", {})
         events = await collect(gen)
         types = [e.type for e in events]
-        # Exact current sequence: the parse error emits a CUSTOM event, then the
-        # handler STILL emits a STATE_SNAPSHOT (with the un-updated state). That
-        # trailing STATE_SNAPSHOT-after-error is a known handler bug deferred to
-        # the follow-up PR; we assert reality precisely here so the test is not
-        # vacuous (do NOT fix the handler logic in this PR).
-        assert types == [EventType.CUSTOM, EventType.STATE_SNAPSHOT]
+        # Invalid JSON emits ONLY a CUSTOM error event and returns early — no
+        # spurious STATE_SNAPSHOT with un-updated state (mirrors the streaming
+        # path in adapter.py).
+        assert types == [EventType.CUSTOM]
         custom = events[0]
         assert custom.name == "state_update_error"
         assert "error" in custom.value
-        # Invalid JSON -> updates discarded -> snapshot reflects the original {} state.
-        assert events[1].snapshot == {}
+
+
+class TestToolUseBlockParentMessageId:
+    @pytest.mark.asyncio
+    async def test_parent_message_id_uses_passed_assistant_message_id(self):
+        # The streaming path sets ToolCallStartEvent.parent_message_id to the
+        # current assistant message id. The non-streaming handler must mirror
+        # that — NOT the SDK's parent_tool_use_id (which lives on the message).
+        block = ToolUseBlock(id="tc1", name="get_weather", input={"city": "NYC"})
+        msg = _Msg(parent_tool_use_id="SHOULD_NOT_BE_USED")
+        _, gen = await handle_tool_use_block(
+            block, msg, "th", "run", None, parent_message_id="assistant-msg-1"
+        )
+        events = await collect(gen)
+        start = next(e for e in events if e.type == EventType.TOOL_CALL_START)
+        assert start.parent_message_id == "assistant-msg-1"
+        assert start.parent_message_id != "SHOULD_NOT_BE_USED"
 
 
 class TestHandleToolResultBlock:
@@ -129,6 +142,33 @@ class TestHandleToolResultBlock:
         assert events[0].type == EventType.TOOL_CALL_RESULT
         assert events[0].tool_call_id == "tc1"
         assert events[0].message_id == "tc1-result"
+        assert json.loads(events[0].content) == {"ok": True}
+
+    @pytest.mark.asyncio
+    async def test_is_error_propagated_into_result_content(self):
+        # A failed tool result (is_error=True) must not look identical to a
+        # successful one. AG-UI's ToolCallResultEvent has no error field, so the
+        # error indication is surfaced inside the content envelope.
+        block = ToolResultBlock(
+            tool_use_id="tc1",
+            content=[{"type": "text", "text": "boom"}],
+            is_error=True,
+        )
+        events = await collect(handle_tool_result_block(block, "th", "run"))
+        assert len(events) == 1
+        payload = json.loads(events[0].content)
+        assert payload["error"] is True
+        assert payload["content"] == "boom"
+
+    @pytest.mark.asyncio
+    async def test_success_result_has_no_error_envelope(self):
+        block = ToolResultBlock(
+            tool_use_id="tc1",
+            content=[{"type": "text", "text": '{"ok": true}'}],
+            is_error=False,
+        )
+        events = await collect(handle_tool_result_block(block, "th", "run"))
+        # Successful result is the bare payload, not wrapped in an error envelope.
         assert json.loads(events[0].content) == {"ok": True}
 
     @pytest.mark.asyncio

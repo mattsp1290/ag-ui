@@ -244,29 +244,31 @@ class TestBuildAguiAssistantMessage:
 
         assert build_agui_assistant_message(Msg(), "m4") is None
 
-    @pytest.mark.xfail(
-        reason="build_agui_assistant_message dispatches on .type which real SDK blocks lack; deferred to follow-up",
-        strict=False,
-    )
     def test_real_sdk_blocks_build_assistant_message(self):
-        """Real Claude SDK TextBlock/ToolUseBlock SHOULD build a proper message.
+        """Real Claude SDK TextBlock/ToolUseBlock build a proper message.
 
         The real Claude SDK ``TextBlock``/``ToolUseBlock`` dataclasses do NOT
-        expose a ``.type`` attribute, but build_agui_assistant_message keys off
-        ``getattr(block, "type", None)``. The CORRECT behaviour is to produce a
-        populated AG-UI assistant message from genuine SDK blocks; the current
-        implementation instead returns None. Marked xfail so it documents the
-        defect now and flips to xpass once the follow-up fixes the dispatch.
+        expose a ``.type`` attribute. build_agui_assistant_message now
+        dispatches via ``isinstance`` against the real SDK block classes, so a
+        genuine ``TextBlock`` produces a populated AG-UI assistant message
+        instead of being silently dropped.
         """
-        from claude_agent_sdk.types import TextBlock
+        from claude_agent_sdk.types import TextBlock, ToolUseBlock
 
         class Msg:
-            content = [TextBlock(text="Hello")]
+            content = [
+                TextBlock(text="Hello"),
+                ToolUseBlock(id="tc1", name="mcp__ag_ui__search", input={"q": "x"}),
+            ]
 
         msg = build_agui_assistant_message(Msg(), "m5")
         assert msg is not None
         assert msg.content == "Hello"
         assert msg.id == "m5"
+        assert msg.tool_calls is not None
+        assert len(msg.tool_calls) == 1
+        assert msg.tool_calls[0].function.name == "search"
+        assert json.loads(msg.tool_calls[0].function.arguments) == {"q": "x"}
 
 
 class TestBuildAguiToolMessage:

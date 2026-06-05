@@ -150,7 +150,7 @@
       "description": "Langroid integration (Python)",
       "sharedVersion": false,
       "packages": [
-        { "name": "ag_ui_langroid", "path": "integrations/langroid/python", "ecosystem": "python", "buildSystem": "uv" }
+        { "name": "ag-ui-langroid", "path": "integrations/langroid/python", "ecosystem": "python", "buildSystem": "uv" }
       ]
     },
     "integration-llama-index": {

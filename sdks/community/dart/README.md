@@ -315,7 +315,7 @@ void main() async {
   // Initialize client from environment
   final client = AgUiClient(
     config: AgUiClientConfig(
-      baseUrl: Platform.environment['AGUI_BASE_URL'] ?? 'http://localhost:8000',
+      baseUrl: Platform.environment['AGUI_BASE_URL'] ?? 'http://127.0.0.1:8080',
       defaultHeaders: Platform.environment['AGUI_API_KEY'] != null
           ? {'Authorization': 'Bearer ${Platform.environment['AGUI_API_KEY']}'}
           : null,
@@ -458,10 +458,10 @@ try {
 ## Examples
 
 See the [`example/`](example/) directory for:
-- Interactive CLI for testing AG-UI servers
-- Tool-based generative UI flows
-- Message streaming patterns
-- Complete end-to-end demonstrations
+- Flutter web demo for testing AG-UI Dojo-compatible servers
+- Client tool round trips and tool-based generative UI flows
+- Human approval, shared state, predictive state, and multimodal flows
+- Message streaming patterns backed by the local Dart SDK package
 
 ## Testing
 
@@ -517,5 +517,3 @@ intended to drop.
 ## License
 
 This SDK is part of the AG-UI Protocol project. See the [main repository](https://github.com/ag-ui-protocol/ag-ui) for license information.
-
-

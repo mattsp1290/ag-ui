@@ -1,17 +1,23 @@
-name: ag_ui_example
-description: Example CLI application demonstrating Tool Based Generative UI flow
-publish_to: 'none' # Example app, not published
+name: ag_ui_demo
+description: Flutter example app for AG-UI Dojo flows.
+publish_to: "none"
 version: 0.1.0
 
 environment:
-  sdk: '>=3.3.0 <4.0.0'
+  sdk: ">=3.3.0 <4.0.0"
 
 dependencies:
+  flutter:
+    sdk: flutter
+  provider: ^6.1.5
   ag_ui:
     path: ../
-  args: ^2.4.0
-  http: ^1.2.0
+  file_picker: ^8.1.7
 
 dev_dependencies:
-  lints: ^3.0.0
-  test: ^1.24.0
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true

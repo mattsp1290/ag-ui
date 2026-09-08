@@ -8,8 +8,11 @@ import 'package:flutter_test/flutter_test.dart';
 
 class StateService extends AgUiService {
   final List<Stream<BaseEvent>> runs;
+  final List<Object?> terminalErrors;
   final states = <dynamic>[];
-  StateService(this.runs);
+  final histories = <List<Message>>[];
+  final threads = <String>[];
+  StateService(this.runs, {this.terminalErrors = const []});
 
   @override
   Stream<BaseEvent> run(
@@ -21,7 +24,20 @@ class StateService extends AgUiService {
     Map<String, String> extraQuery = const {},
   }) {
     states.add(jsonDecode(jsonEncode(state)));
-    return runs[states.length - 1];
+    histories.add(
+      messages.map((message) => Message.fromJson(message.toJson())).toList(),
+    );
+    threads.add(threadId);
+    final index = states.length - 1;
+    final source = runs[index];
+    final error = index < terminalErrors.length ? terminalErrors[index] : null;
+    if (error == null) return source;
+    return (() async* {
+      await for (final event in source) {
+        yield event;
+      }
+      throw error;
+    })();
   }
 }
 
@@ -202,4 +218,134 @@ void main() {
       expect(() => state.dispose(), returnsNormally);
     },
   );
+
+  test('malformed snapshot preserves the last valid document', () async {
+    final service = StateService([
+      Stream.fromIterable([
+        const StateSnapshotEvent(
+          snapshot: {
+            'recipe': {
+              'title': 42,
+              'servings': 2,
+              'ingredients': <dynamic>[],
+              'steps': <dynamic>[],
+            },
+          },
+        ),
+        patch([
+          {'op': 'replace', 'path': '/recipe/title', 'value': 'must not apply'},
+        ]),
+        finished,
+      ]),
+    ]);
+    final state = LiveStatePageState(
+      endpoint: endpoint('shared_state'),
+      service: service,
+    );
+    addTearDown(state.dispose);
+
+    await state.sendMessage('bad snapshot');
+
+    expect(state.doc['recipe']['title'], 'Tomato Pasta');
+    expect(state.lastSummary, contains('Recipe title must be a string'));
+    expect(state.busy, isFalse);
+  });
+
+  test('schema-invalid delta values are atomic', () async {
+    final service = StateService([
+      Stream.fromIterable([
+        patch([
+          {'op': 'replace', 'path': '/recipe/title', 'value': 42},
+        ]),
+        finished,
+      ]),
+    ]);
+    final state = LiveStatePageState(
+      endpoint: endpoint('shared_state'),
+      service: service,
+    );
+    addTearDown(state.dispose);
+
+    await state.sendMessage('bad value');
+
+    expect(state.doc['recipe']['title'], 'Tomato Pasta');
+    expect(state.lastSummary, contains('Recipe title must be a string'));
+    expect(state.busy, isFalse);
+  });
+
+  test(
+    'state requests retain one thread and cumulative message history',
+    () async {
+      final service = StateService([
+        Stream.fromIterable([
+          MessagesSnapshotEvent(
+            messages: const [
+              AssistantMessage(id: 'assistant-1', content: 'updated'),
+            ],
+          ),
+          finished,
+        ]),
+        Stream.value(finished),
+      ]);
+      final state = LiveStatePageState(
+        endpoint: endpoint('shared_state'),
+        service: service,
+      );
+      addTearDown(state.dispose);
+
+      await state.sendMessage('first edit');
+      await state.sendMessage('second edit');
+
+      expect(service.threads.toSet(), hasLength(1));
+      final secondHistory = service.histories[1];
+      expect(secondHistory.whereType<UserMessage>(), hasLength(2));
+      expect(
+        secondHistory.whereType<AssistantMessage>().where(
+          (message) => message.id == 'assistant-1',
+        ),
+        hasLength(1),
+      );
+    },
+  );
+
+  test('thrown errors clear predictions and permit a clean retry', () async {
+    final service = StateService(
+      [
+        Stream.fromIterable([
+          patch([
+            {
+              'op': 'add',
+              'path': '/_predictive',
+              'value': {'draft': 'temporary'},
+            },
+          ]),
+          patch([
+            {
+              'op': 'replace',
+              'path': '/recipe/steps',
+              'value': ['committed'],
+            },
+          ]),
+        ]),
+        Stream.value(finished),
+      ],
+      terminalErrors: [StateError('decoder failed')],
+    );
+    final state = LiveStatePageState(
+      endpoint: endpoint('predictive_state_updates'),
+      service: service,
+    );
+    addTearDown(state.dispose);
+
+    await state.sendMessage('predict');
+    expect(state.doc.containsKey('_predictive'), isFalse);
+    expect(state.doc['recipe']['steps'], ['committed']);
+    expect(state.lastSummary, contains('decoder failed'));
+    expect(state.busy, isFalse);
+
+    await state.sendMessage('retry');
+    expect(service.states, hasLength(2));
+    expect((service.states.last as Map).containsKey('_predictive'), isFalse);
+    expect(state.busy, isFalse);
+  });
 }

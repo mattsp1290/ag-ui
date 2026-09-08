@@ -266,36 +266,8 @@ class LiveStatePageState extends ChangeNotifier {
     if (copy is! Map<String, dynamic>) {
       throw const FormatException('State document must be an object');
     }
-    final recipe = copy['recipe'];
-    if (recipe != null) {
-      if (recipe is! Map<String, dynamic> ||
-          (recipe['title'] != null && recipe['title'] is! String) ||
-          (recipe['servings'] != null && recipe['servings'] is! num) ||
-          (recipe['steps'] != null &&
-              (recipe['steps'] is! List ||
-                  (recipe['steps'] as List).any((step) => step is! String))) ||
-          (recipe['ingredients'] != null &&
-              (recipe['ingredients'] is! List ||
-                  (recipe['ingredients'] as List).any(
-                    (ingredient) =>
-                        ingredient is! Map<String, dynamic> ||
-                        ingredient['name'] is! String ||
-                        ingredient['amount'] is! String,
-                  )))) {
-        throw const FormatException('Malformed recipe state');
-      }
-    }
-    final steps = copy['steps'];
-    if (steps != null &&
-        (steps is! List ||
-            steps.any(
-              (step) =>
-                  step is! Map<String, dynamic> ||
-                  step['description'] is! String ||
-                  step['status'] is! String,
-            ))) {
-      throw const FormatException('Malformed checklist state');
-    }
+    _validateRecipe(copy['recipe']);
+    _validateChecklist(copy['steps']);
     final prediction = copy['_predictive'];
     if (prediction != null &&
         (prediction is! Map<String, dynamic> ||
@@ -303,6 +275,54 @@ class LiveStatePageState extends ChangeNotifier {
       throw const FormatException('Malformed prediction state');
     }
     return copy;
+  }
+
+  void _validateRecipe(dynamic recipe) {
+    if (recipe == null) return;
+    if (recipe is! Map<String, dynamic>) {
+      throw const FormatException('Recipe state must be an object');
+    }
+    if (recipe['title'] != null && recipe['title'] is! String) {
+      throw const FormatException('Recipe title must be a string');
+    }
+    if (recipe['servings'] != null && recipe['servings'] is! num) {
+      throw const FormatException('Recipe servings must be a number');
+    }
+    final steps = recipe['steps'];
+    if (steps != null &&
+        (steps is! List || steps.any((step) => step is! String))) {
+      throw const FormatException('Recipe steps must be strings');
+    }
+    final ingredients = recipe['ingredients'];
+    if (ingredients == null) return;
+    if (ingredients is! List) {
+      throw const FormatException('Recipe ingredients must be an array');
+    }
+    for (final ingredient in ingredients) {
+      if (ingredient is! Map<String, dynamic> ||
+          ingredient['name'] is! String ||
+          ingredient['amount'] is! String) {
+        throw const FormatException(
+          'Ingredient name and amount must be strings',
+        );
+      }
+    }
+  }
+
+  void _validateChecklist(dynamic steps) {
+    if (steps == null) return;
+    if (steps is! List) {
+      throw const FormatException('Checklist steps must be an array');
+    }
+    for (final step in steps) {
+      if (step is! Map<String, dynamic> ||
+          step['description'] is! String ||
+          step['status'] is! String) {
+        throw const FormatException(
+          'Checklist description and status must be strings',
+        );
+      }
+    }
   }
 
   // --- Recipe card edits (shared_state collaboration) ---

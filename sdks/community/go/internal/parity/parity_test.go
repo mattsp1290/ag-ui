@@ -79,10 +79,12 @@ type manifestHelper struct {
 	Cases      []string `json:"cases"`
 }
 type manifestGenerated struct {
-	Status            string   `json:"status"`
-	OutputEnv         string   `json:"output_env"`
-	RequiredRoutes    []string `json:"required_routes"`
-	ExpectedCaseCount int      `json:"expected_case_count"`
+	Status            string            `json:"status"`
+	Files             map[string]string `json:"files"`
+	ImplementedRoutes []string          `json:"implemented_routes"`
+	OutputEnv         string            `json:"output_env"`
+	RequiredRoutes    []string          `json:"required_routes"`
+	ExpectedCaseCount int               `json:"expected_case_count"`
 }
 
 // The only baseline value insertion is the peers' TEXT_MESSAGE_START role
@@ -174,11 +176,16 @@ func validateManifest(t *testing.T, corpus parityCorpus, m parityManifest) {
 		require.NotEmpty(t, n.Scope)
 		require.NotEmpty(t, n.Difference)
 	}
-	require.Equal(t, "implemented-by-next-oracle-slice", m.Generated.Status)
+	require.Equal(t, "go-producer-only", m.Generated.Status)
 	require.Equal(t, "AG_UI_PARITY_OUTPUT_DIR", m.Generated.OutputEnv)
 	require.Equal(t, len(corpus.Cases), m.Generated.ExpectedCaseCount, "generated case count must match corpus")
 	require.Len(t, m.Generated.RequiredRoutes, 8)
 	require.ElementsMatch(t, []string{"go.direct", "go.encoder", "python.produced", "typescript.produced", "python.from-go", "typescript.from-go", "go.from-python", "go.from-typescript"}, m.Generated.RequiredRoutes)
+	require.Len(t, m.Generated.Files, len(m.Generated.RequiredRoutes))
+	for _, route := range m.Generated.RequiredRoutes {
+		require.Equal(t, route+".json", m.Generated.Files[route])
+	}
+	require.ElementsMatch(t, []string{"go.direct", "go.encoder", "go.from-python", "go.from-typescript"}, m.Generated.ImplementedRoutes)
 	byID := make(map[string]parityCase, len(corpus.Cases))
 	for _, c := range corpus.Cases {
 		byID[c.ID] = c

@@ -15,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	aguitypes "github.com/ag-ui-protocol/ag-ui/sdks/community/go/pkg/core/types"
 	"github.com/cloudwego/eino/schema"
 )
 
@@ -32,6 +33,9 @@ type Saved struct {
 	// whole (including Extra, which carries reasoning items the codex model needs
 	// threaded across turns).
 	Messages []*schema.Message
+	// WireMessages is the application-owned AG-UI transcript. Unlike Messages it
+	// is safe to expose in snapshots and retains the IDs already seen by clients.
+	WireMessages []aguitypes.Message
 	// Pending are the tool calls awaiting human approval.
 	Pending []schema.ToolCall
 	// State is the agent state snapshot at pause time.
@@ -89,11 +93,24 @@ func (s *Store) Save(key string, saved *Saved) {
 		state[k] = v
 	}
 	stored := &Saved{
-		Messages: append([]*schema.Message(nil), saved.Messages...),
-		Pending:  append([]schema.ToolCall(nil), saved.Pending...),
-		State:    state,
+		Messages:     append([]*schema.Message(nil), saved.Messages...),
+		WireMessages: cloneWireMessages(saved.WireMessages),
+		Pending:      append([]schema.ToolCall(nil), saved.Pending...),
+		State:        state,
 	}
 	s.m[key] = &entry{saved: stored, at: now}
+}
+
+func cloneWireMessages(in []aguitypes.Message) []aguitypes.Message {
+	out := make([]aguitypes.Message, len(in))
+	for i := range in {
+		out[i] = in[i]
+		out[i].ToolCalls = append([]aguitypes.ToolCall(nil), in[i].ToolCalls...)
+		if parts, ok := in[i].Content.([]aguitypes.InputContent); ok {
+			out[i].Content = append([]aguitypes.InputContent(nil), parts...)
+		}
+	}
+	return out
 }
 
 // Load returns a paused run and whether it was present. An entry past its TTL is
@@ -110,7 +127,7 @@ func (s *Store) Load(key string) (*Saved, bool) {
 		delete(s.m, key)
 		return nil, false
 	}
-	return e.saved, true
+	return cloneSavedForLoad(e.saved), true
 }
 
 // Delete removes a paused run (called once it has been resumed).
@@ -137,7 +154,13 @@ func (s *Store) LoadAndDelete(key string) (*Saved, bool) {
 	if s.now().Sub(e.at) >= s.ttl {
 		return nil, false
 	}
-	return e.saved, true
+	return cloneSavedForLoad(e.saved), true
+}
+
+func cloneSavedForLoad(saved *Saved) *Saved {
+	out := *saved
+	out.WireMessages = cloneWireMessages(saved.WireMessages)
+	return &out
 }
 
 func (s *Store) purgeExpiredLocked(now time.Time) {

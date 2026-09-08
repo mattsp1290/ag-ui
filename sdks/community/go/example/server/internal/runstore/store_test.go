@@ -5,17 +5,36 @@ import (
 	"testing"
 	"time"
 
+	aguitypes "github.com/ag-ui-protocol/ag-ui/sdks/community/go/pkg/core/types"
 	"github.com/cloudwego/eino/schema"
 )
 
 func testSaved(content string) *Saved {
 	return &Saved{
-		Messages: []*schema.Message{schema.UserMessage(content)},
+		Messages:     []*schema.Message{schema.UserMessage(content)},
+		WireMessages: []aguitypes.Message{{ID: "wire-1", Role: aguitypes.RoleUser, Content: content}},
 		Pending: []schema.ToolCall{{
 			ID:       "c1",
 			Function: schema.FunctionCall{Name: "file_read", Arguments: `{}`},
 		}},
 		State: map[string]any{"status": "awaiting_approval"},
+	}
+}
+
+func TestWireMessagesHaveIndependentSaveAndLoadOwnership(t *testing.T) {
+	s := New()
+	saved := testSaved("hi")
+	s.Save("k", saved)
+	saved.WireMessages[0].ID = "caller-mutated"
+
+	first, _ := s.Load("k")
+	if first.WireMessages[0].ID != "wire-1" {
+		t.Fatalf("save aliased caller wire transcript: %q", first.WireMessages[0].ID)
+	}
+	first.WireMessages[0].ID = "load-mutated"
+	second, _ := s.Load("k")
+	if second.WireMessages[0].ID != "wire-1" {
+		t.Fatalf("load exposed stored wire transcript: %q", second.WireMessages[0].ID)
 	}
 }
 

@@ -45,6 +45,7 @@ jobs:
         run: dart test --exclude-tags requires-server
 
   flutter-example:
+    name: Flutter example
     runs-on: ubuntu-latest
     timeout-minutes: 20
     defaults:
@@ -80,6 +81,7 @@ jobs:
         run: flutter build web
 
   flutter-go-contract:
+    name: Flutter Go contract
     runs-on: ubuntu-latest
     timeout-minutes: 20
     defaults:

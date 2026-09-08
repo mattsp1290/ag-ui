@@ -233,13 +233,16 @@ class ClientToolsPageState extends ChangeNotifier with AgUiEventHandling {
     }
   }
 
-  Stream<BaseEvent> _run() => _service.run(
+  Stream<BaseEvent> _run() {
+    beginRun();
+    return _service.run(
         endpoint.path,
         threadId: _threadId,
         messages: _history,
         tools: endpoint.tools,
         extraQuery: isApproval && !_approvalGate ? {'approval': 'off'} : const {},
       );
+  }
 
   void _handleEvent(BaseEvent event) {
     if (handleCommonEvent(event)) {

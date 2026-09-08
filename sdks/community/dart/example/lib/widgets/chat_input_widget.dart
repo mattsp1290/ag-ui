@@ -1,14 +1,14 @@
 import 'package:flutter/material.dart';
 
 class ChatInputWidget extends StatefulWidget {
-  final Function(String) onSendMessage;
+  final ValueChanged<String> onSendMessage;
   final bool isEnabled;
 
   const ChatInputWidget({
-    Key? key,
+    super.key,
     required this.onSendMessage,
     this.isEnabled = true,
-  }) : super(key: key);
+  });
 
   @override
   State<ChatInputWidget> createState() => _ChatInputWidgetState();
@@ -43,10 +43,7 @@ class _ChatInputWidgetState extends State<ChatInputWidget> {
       decoration: BoxDecoration(
         color: theme.colorScheme.surface,
         border: Border(
-          top: BorderSide(
-            color: theme.colorScheme.outlineVariant,
-            width: 1,
-          ),
+          top: BorderSide(color: theme.colorScheme.outlineVariant, width: 1),
         ),
       ),
       child: SafeArea(
@@ -66,7 +63,7 @@ class _ChatInputWidgetState extends State<ChatInputWidget> {
                       ? 'Type a message...'
                       : 'Waiting for response...',
                   filled: true,
-                  fillColor: theme.colorScheme.surfaceVariant,
+                  fillColor: theme.colorScheme.surfaceContainerHighest,
                   contentPadding: const EdgeInsets.symmetric(
                     horizontal: 16,
                     vertical: 12,
@@ -97,7 +94,7 @@ class _ChatInputWidgetState extends State<ChatInputWidget> {
             Material(
               color: widget.isEnabled
                   ? theme.colorScheme.primary
-                  : theme.colorScheme.surfaceVariant,
+                  : theme.colorScheme.surfaceContainerHighest,
               borderRadius: BorderRadius.circular(24),
               child: InkWell(
                 onTap: widget.isEnabled ? _handleSubmit : null,

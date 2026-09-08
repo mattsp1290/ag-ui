@@ -1,141 +1,216 @@
-import 'package:flutter/foundation.dart';
 import 'package:ag_ui/ag_ui.dart';
+import 'package:flutter/foundation.dart';
+
 import '../models/chat_message.dart';
 import '../services/ids.dart';
 
-/// Shared AG-UI event handling for the dojo page state classes.
-///
-/// Centralizes the cross-cutting behaviors that every page needs and that are NOT
-/// inherited from `ChatPageState`:
-///  - text-message streaming (start/content/end/chunk),
-///  - reasoning passthrough (the current AG-UI path; the deprecated THINKING_* events
-///    are not handled — the dojo server emits REASONING_*),
-///  - `RUN_ERROR` (which arrives as a [RunErrorEvent] *through the stream*, not a throw).
-///
-/// Host classes mix this in (`with AgUiEventHandling`), maintain [messages], set
-/// [disposed] in their `dispose()`, and call [handleCommonEvent] from their own
-/// `_handleEvent`; if it returns true the event was consumed. Override [onRunReset] to
-/// clear host-specific busy/loading flags when a run errors.
 mixin AgUiEventHandling on ChangeNotifier {
-  /// Set true in the host's `dispose()` BEFORE `super.dispose()`.
   bool disposed = false;
-
-  /// The display message list rendered by the page.
+  bool _terminal = false;
   final List<ChatMessage> messages = [];
+  String? _textMessageId;
 
-  ChatMessage? _streaming;
+  bool get runIsTerminal => _terminal;
 
-  /// Hook for the host to reset its own state (e.g. `_busy`, `_loading`) on RUN_ERROR.
   void onRunReset() {}
 
-  /// Returns true if [event] was one of the common types and has been handled.
+  void beginRun() {
+    _terminal = false;
+    finishStreaming();
+  }
+
+  /// Handles shared projections. Snapshots deliberately return false so hosts can
+  /// reconcile authoritative tool/state history before calling [reconcileSnapshot].
   bool handleCommonEvent(BaseEvent event) {
+    if (_terminal) return true;
     if (event is TextMessageStartEvent) {
-      _streaming = ChatMessage(
-        id: event.messageId,
-        type: ChatMessageType.assistant,
-        content: '',
-        timestamp: DateTime.now(),
-        isStreaming: true,
+      _textMessageId = event.messageId;
+      _upsert(
+        ChatMessage(
+          id: event.messageId,
+          type: ChatMessageType.assistant,
+          content: '',
+          timestamp: _timestamp(event),
+          isStreaming: true,
+        ),
       );
-      messages.add(_streaming!);
       return true;
     }
     if (event is TextMessageContentEvent) {
-      _appendStreaming(event.delta);
+      _append(event.messageId, ChatMessageType.assistant, event.delta);
       return true;
     }
     if (event is TextMessageChunkEvent) {
-      if (_streaming == null) {
-        _streaming = ChatMessage(
-          id: event.messageId ?? uid('assistant'),
-          type: ChatMessageType.assistant,
-          content: event.delta ?? '',
-          timestamp: DateTime.now(),
-          isStreaming: true,
-        );
-        messages.add(_streaming!);
-      } else {
-        _appendStreaming(event.delta ?? '');
-      }
+      final id = event.messageId ?? _textMessageId ?? uid('assistant');
+      _textMessageId = id;
+      _append(id, ChatMessageType.assistant, event.delta ?? '', create: true);
       return true;
     }
     if (event is TextMessageEndEvent) {
-      _endStreaming();
+      _finish(event.messageId);
+      _textMessageId = null;
+      return true;
+    }
+    if (event is ReasoningMessageStartEvent) {
+      _upsert(
+        ChatMessage(
+          id: event.messageId,
+          type: ChatMessageType.reasoning,
+          content: '',
+          timestamp: _timestamp(event),
+          isStreaming: true,
+        ),
+      );
       return true;
     }
     if (event is ReasoningStartEvent) {
-      messages.add(ChatMessage(
-        id: uid('reasoning'),
-        type: ChatMessageType.reasoning,
-        content: '',
-        timestamp: DateTime.now(),
-        isStreaming: true,
-      ));
+      // REASONING_START identifies the enclosing block. Use it unless the
+      // canonical message-start event supplies the message identity afterward.
+      _upsert(
+        ChatMessage(
+          id: event.messageId,
+          type: ChatMessageType.reasoning,
+          content: '',
+          timestamp: _timestamp(event),
+          isStreaming: true,
+        ),
+      );
       return true;
     }
     if (event is ReasoningMessageContentEvent) {
-      _appendStreamingOfType(ChatMessageType.reasoning, event.delta);
+      _append(
+        event.messageId,
+        ChatMessageType.reasoning,
+        event.delta,
+        create: true,
+      );
+      return true;
+    }
+    if (event is ReasoningMessageEndEvent) {
+      _finish(event.messageId);
       return true;
     }
     if (event is ReasoningEndEvent) {
-      _endStreamingOfType(ChatMessageType.reasoning);
+      _finish(event.messageId);
       return true;
     }
     if (event is RunErrorEvent) {
-      messages.add(ChatMessage(
-        id: uid('error'),
-        type: ChatMessageType.system,
-        content: '⚠️ Run error: ${event.message}',
-        timestamp: DateTime.now(),
-      ));
+      finishStreaming();
+      messages.add(
+        ChatMessage(
+          id: uid('error'),
+          type: ChatMessageType.system,
+          content: '⚠️ Run error: ${event.message}',
+          timestamp: _timestamp(event),
+        ),
+      );
+      _terminal = true;
       onRunReset();
       return true;
+    }
+    if (event is RunFinishedEvent) {
+      finishStreaming();
+      _terminal = true;
+      return false;
     }
     return false;
   }
 
-  /// Append a reasoning message extracted from a MESSAGES_SNAPSHOT (host calls this).
-  void addReasoningMessage(String text) {
+  void reconcileSnapshot(List<Message> snapshot) {
+    for (final message in snapshot) {
+      final id = message.id;
+      if (id == null || id.isEmpty) continue;
+      if (message is AssistantMessage) {
+        _upsert(
+          ChatMessage(
+            id: id,
+            type: ChatMessageType.assistant,
+            content: message.content ?? '',
+            timestamp: DateTime.now(),
+          ),
+        );
+      } else if (message is ReasoningMessage) {
+        final content = message.content ?? message.thinking ?? '';
+        if (content.isNotEmpty) {
+          _upsert(
+            ChatMessage(
+              id: id,
+              type: ChatMessageType.reasoning,
+              content: content,
+              timestamp: DateTime.now(),
+            ),
+          );
+        }
+      }
+    }
+  }
+
+  void addReasoningMessage(String text, {String? id}) {
     if (text.isEmpty) return;
-    messages.add(ChatMessage(
-      id: uid('reasoning'),
-      type: ChatMessageType.reasoning,
-      content: text,
-      timestamp: DateTime.now(),
-    ));
+    _upsert(
+      ChatMessage(
+        id: id ?? uid('reasoning'),
+        type: ChatMessageType.reasoning,
+        content: text,
+        timestamp: DateTime.now(),
+      ),
+    );
   }
 
-  void _appendStreaming(String delta) {
-    final s = _streaming;
-    if (s == null) return;
-    final i = messages.indexOf(s);
-    if (i == -1) return;
-    _streaming = s.copyWith(content: s.content + delta);
-    messages[i] = _streaming!;
+  void finishStreaming() {
+    for (var i = 0; i < messages.length; i++) {
+      if (messages[i].isStreaming) {
+        messages[i] = messages[i].copyWith(isStreaming: false);
+      }
+    }
+    _textMessageId = null;
   }
 
-  void _endStreaming() {
-    final s = _streaming;
-    if (s == null) return;
-    final i = messages.indexOf(s);
-    if (i != -1) messages[i] = s.copyWith(isStreaming: false);
-    _streaming = null;
+  void _append(
+    String id,
+    ChatMessageType type,
+    String delta, {
+    bool create = false,
+  }) {
+    final index = messages.indexWhere((message) => message.id == id);
+    if (index < 0) {
+      if (create) {
+        _upsert(
+          ChatMessage(
+            id: id,
+            type: type,
+            content: delta,
+            timestamp: DateTime.now(),
+            isStreaming: true,
+          ),
+        );
+      }
+      return;
+    }
+    messages[index] = messages[index].copyWith(
+      content: messages[index].content + delta,
+      isStreaming: true,
+    );
   }
 
-  void _appendStreamingOfType(ChatMessageType type, String delta) {
-    final matches = messages.where((m) => m.type == type && m.isStreaming);
-    if (matches.isEmpty) return;
-    final last = matches.last;
-    final i = messages.indexOf(last);
-    if (i != -1) messages[i] = last.copyWith(content: last.content + delta);
+  void _finish(String? id) {
+    if (id == null) return;
+    final index = messages.indexWhere((message) => message.id == id);
+    if (index >= 0) {
+      messages[index] = messages[index].copyWith(isStreaming: false);
+    }
   }
 
-  void _endStreamingOfType(ChatMessageType type) {
-    final matches = messages.where((m) => m.type == type && m.isStreaming);
-    if (matches.isEmpty) return;
-    final last = matches.last;
-    final i = messages.indexOf(last);
-    if (i != -1) messages[i] = last.copyWith(isStreaming: false);
+  void _upsert(ChatMessage message) {
+    final index = messages.indexWhere((item) => item.id == message.id);
+    if (index < 0) {
+      messages.add(message);
+    } else {
+      messages[index] = message;
+    }
   }
+
+  DateTime _timestamp(BaseEvent event) => event.timestamp == null
+      ? DateTime.now()
+      : DateTime.fromMillisecondsSinceEpoch(event.timestamp!);
 }

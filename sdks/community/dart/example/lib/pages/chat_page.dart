@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
@@ -7,13 +8,15 @@ import 'package:file_picker/file_picker.dart';
 import '../models/chat_message.dart';
 import '../models/endpoint_config.dart';
 import '../services/ag_ui_service.dart';
+import '../services/ids.dart';
+import 'agui_event_handling.dart';
 import '../widgets/chat_message_widget.dart';
 import '../widgets/chat_input_widget.dart';
 
 class ChatPage extends StatelessWidget {
   final EndpointConfig endpoint;
 
-  const ChatPage({Key? key, required this.endpoint}) : super(key: key);
+  const ChatPage({super.key, required this.endpoint});
 
   @override
   Widget build(BuildContext context) {
@@ -25,7 +28,7 @@ class ChatPage extends StatelessWidget {
 }
 
 class ChatPageView extends StatelessWidget {
-  const ChatPageView({Key? key}) : super(key: key);
+  const ChatPageView({super.key});
 
   @override
   Widget build(BuildContext context) {
@@ -33,15 +36,12 @@ class ChatPageView extends StatelessWidget {
     final state = context.watch<ChatPageState>();
 
     return Scaffold(
-      backgroundColor: theme.colorScheme.background,
+      backgroundColor: theme.colorScheme.surface,
       appBar: AppBar(
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              state.endpoint.name,
-              style: theme.textTheme.titleMedium,
-            ),
+            Text(state.endpoint.name, style: theme.textTheme.titleMedium),
             Text(
               state.endpoint.description,
               style: theme.textTheme.bodySmall?.copyWith(
@@ -151,54 +151,79 @@ class ChatPageView extends StatelessWidget {
   }
 }
 
-class ChatPageState extends ChangeNotifier {
+class ChatPageState extends ChangeNotifier with AgUiEventHandling {
   final EndpointConfig endpoint;
   final AgUiService _service;
-  final List<ChatMessage> _messages = [];
   bool _isLoading = false;
   bool _disposed = false;
   ConnectionStatus _connectionStatus = ConnectionStatus.disconnected;
   ChatMessage? _currentStreamingMessage;
+  final List<Message> _history = [];
+  final String _threadId = uid('thread');
+  late final StreamSubscription<ConnectionStatus> _connectionSubscription;
 
-  ChatPageState({required this.endpoint})
-      : _service = AgUiService() {
-    _service.connectionStatus.listen((status) {
+  ChatPageState({required this.endpoint, AgUiService? service})
+    : _service = service ?? AgUiService() {
+    _connectionSubscription = _service.connectionStatus.listen((status) {
+      if (_disposed) return;
       _connectionStatus = status;
       notifyListeners();
     });
   }
 
-  List<ChatMessage> get messages => List.unmodifiable(_messages);
   bool get isLoading => _isLoading;
   ConnectionStatus get connectionStatus => _connectionStatus;
 
   void sendMessage(String text) async {
-    if (text.trim().isEmpty) return;
+    final trimmed = text.trim();
+    if (trimmed.isEmpty || _isLoading || _disposed) return;
+    beginRun();
+    final userId = uid('user');
 
     final userMessage = ChatMessage(
-      id: 'user_${DateTime.now().millisecondsSinceEpoch}',
+      id: userId,
       type: ChatMessageType.user,
-      content: text,
+      content: trimmed,
       timestamp: DateTime.now(),
     );
 
-    _messages.add(userMessage);
+    messages.add(userMessage);
+    _history.add(UserMessage(id: userId, content: trimmed));
     _isLoading = true;
     notifyListeners();
 
     try {
-      await for (final event in _service.sendMessage(endpoint.path, text)) {
+      final outgoingHistory = List<Message>.unmodifiable(_history);
+      await for (final event in _service.run(
+        endpoint.path,
+        threadId: _threadId,
+        messages: outgoingHistory,
+      )) {
         if (_disposed) break;
         _handleEvent(event);
+        if (runIsTerminal) break;
+      }
+      if (!runIsTerminal && !_disposed) {
+        _finalizeStreaming();
+        messages.add(
+          ChatMessage(
+            id: uid('interrupted'),
+            type: ChatMessageType.system,
+            content: 'Connection closed before the run finished.',
+            timestamp: DateTime.now(),
+          ),
+        );
       }
     } catch (e) {
       if (!_disposed) {
-        _messages.add(ChatMessage(
-          id: 'error_${DateTime.now().millisecondsSinceEpoch}',
-          type: ChatMessageType.system,
-          content: 'Error: ${e.toString()}',
-          timestamp: DateTime.now(),
-        ));
+        messages.add(
+          ChatMessage(
+            id: 'error_${DateTime.now().millisecondsSinceEpoch}',
+            type: ChatMessageType.system,
+            content: 'Error: ${e.toString()}',
+            timestamp: DateTime.now(),
+          ),
+        );
       }
     } finally {
       if (!_disposed) {
@@ -210,190 +235,142 @@ class ChatPageState extends ChangeNotifier {
   }
 
   void _handleEvent(BaseEvent event) {
-    if (event is TextMessageStartEvent) {
-      _currentStreamingMessage = ChatMessage(
-        id: event.messageId ?? 'assistant_${DateTime.now().millisecondsSinceEpoch}',
-        type: ChatMessageType.assistant,
-        content: '',
-        timestamp: DateTime.now(),
-        isStreaming: true,
-      );
-      _messages.add(_currentStreamingMessage!);
-    } else if (event is TextMessageContentEvent) {
-      if (_currentStreamingMessage != null) {
-        final index = _messages.indexOf(_currentStreamingMessage!);
-        if (index != -1) {
-          _currentStreamingMessage = _currentStreamingMessage!.copyWith(
-            content: _currentStreamingMessage!.content + event.delta,
-          );
-          _messages[index] = _currentStreamingMessage!;
-        }
-      }
-    } else if (event is TextMessageEndEvent) {
-      if (_currentStreamingMessage != null) {
-        final index = _messages.indexOf(_currentStreamingMessage!);
-        if (index != -1) {
-          _messages[index] = _currentStreamingMessage!.copyWith(
-            isStreaming: false,
-          );
-        }
-        _currentStreamingMessage = null;
-      }
-    } else if (event is ThinkingStartEvent) {
-      _messages.add(ChatMessage(
-        id: 'thinking_${DateTime.now().millisecondsSinceEpoch}',
-        type: ChatMessageType.thinking,
-        content: 'Thinking...',
-        timestamp: DateTime.now(),
-        isStreaming: true,
-      ));
-    } else if (event is ThinkingContentEvent) {
-      final thinkingMessages = _messages
-          .where((m) => m.type == ChatMessageType.thinking && m.isStreaming)
-          .toList();
-      if (thinkingMessages.isNotEmpty) {
-        final lastThinking = thinkingMessages.last;
-        final index = _messages.indexOf(lastThinking);
-        if (index != -1) {
-          _messages[index] = lastThinking.copyWith(
-            content: lastThinking.content + event.delta,
-          );
-        }
-      }
-    } else if (event is ThinkingEndEvent) {
-      final thinkingMessages = _messages
-          .where((m) => m.type == ChatMessageType.thinking && m.isStreaming)
-          .toList();
-      if (thinkingMessages.isNotEmpty) {
-        final lastThinking = thinkingMessages.last;
-        final index = _messages.indexOf(lastThinking);
-        if (index != -1) {
-          _messages[index] = lastThinking.copyWith(isStreaming: false);
-        }
-      }
-    } else if (event is ReasoningStartEvent) {
-      _messages.add(ChatMessage(
-        id: 'reasoning_${DateTime.now().millisecondsSinceEpoch}',
-        type: ChatMessageType.reasoning,
-        content: 'Reasoning...',
-        timestamp: DateTime.now(),
-        isStreaming: true,
-      ));
-    } else if (event is ReasoningMessageContentEvent) {
-      final reasoningMessages = _messages
-          .where((m) => m.type == ChatMessageType.reasoning && m.isStreaming)
-          .toList();
-      if (reasoningMessages.isNotEmpty) {
-        final lastReasoning = reasoningMessages.last;
-        final index = _messages.indexOf(lastReasoning);
-        if (index != -1) {
-          _messages[index] = lastReasoning.copyWith(
-            content: lastReasoning.content + event.delta,
-          );
-        }
-      }
-    } else if (event is ReasoningEndEvent) {
-      final reasoningMessages = _messages
-          .where((m) => m.type == ChatMessageType.reasoning && m.isStreaming)
-          .toList();
-      if (reasoningMessages.isNotEmpty) {
-        final lastReasoning = reasoningMessages.last;
-        final index = _messages.indexOf(lastReasoning);
-        if (index != -1) {
-          _messages[index] = lastReasoning.copyWith(isStreaming: false);
-        }
-      }
-    } else if (event is ToolCallResultEvent) {
-      _messages.add(ChatMessage.fromAssistantEvent(event));
+    final handled = handleCommonEvent(event);
+    if (handled) {
+      if (event is RunErrorEvent) _isLoading = false;
+      notifyListeners();
+      return;
+    }
+    if (event is ToolCallResultEvent) {
+      messages.add(ChatMessage.fromAssistantEvent(event));
     } else if (event is ToolCallStartEvent) {
-      _messages.add(ChatMessage(
-        id: event.toolCallId ?? 'tool_${DateTime.now().millisecondsSinceEpoch}',
-        type: ChatMessageType.tool,
-        content: '🔧 Calling tool: ${event.toolCallName ?? "Unknown"}',
-        timestamp: DateTime.now(),
-        isStreaming: true,
-        toolName: event.toolCallName,
-      ));
+      messages.add(
+        ChatMessage(
+          id: event.toolCallId,
+          type: ChatMessageType.tool,
+          content: '🔧 Calling tool: ${event.toolCallName}',
+          timestamp: DateTime.now(),
+          isStreaming: true,
+          toolName: event.toolCallName,
+        ),
+      );
     } else if (event is ToolCallArgsEvent) {
       // Update the tool call with arguments
-      final toolMessages = _messages
-          .where((m) => m.type == ChatMessageType.tool && m.id == event.toolCallId && m.isStreaming)
+      final toolMessages = messages
+          .where(
+            (m) =>
+                m.type == ChatMessageType.tool &&
+                m.id == event.toolCallId &&
+                m.isStreaming,
+          )
           .toList();
       if (toolMessages.isNotEmpty) {
         final tool = toolMessages.last;
-        final index = _messages.indexOf(tool);
+        final index = messages.indexOf(tool);
         if (index != -1) {
-          final args = event.delta ?? '';
-          _messages[index] = tool.copyWith(
-            content: tool.content + '\nArguments: $args',
+          final args = event.delta;
+          messages[index] = tool.copyWith(
+            content: '${tool.content}\nArguments: $args',
             toolArgs: args,
           );
         }
       }
     } else if (event is ToolCallEndEvent) {
-      final toolMessages = _messages
-          .where((m) => m.type == ChatMessageType.tool && m.id == event.toolCallId)
+      final toolMessages = messages
+          .where(
+            (m) => m.type == ChatMessageType.tool && m.id == event.toolCallId,
+          )
           .toList();
       if (toolMessages.isNotEmpty) {
         final tool = toolMessages.last;
-        final index = _messages.indexOf(tool);
+        final index = messages.indexOf(tool);
         if (index != -1) {
-          _messages[index] = tool.copyWith(
-            content: tool.content + '\n✅ Tool completed',
+          messages[index] = tool.copyWith(
+            content: '${tool.content}\n✅ Tool completed',
             isStreaming: false,
           );
         }
       }
     } else if (event is MessagesSnapshotEvent) {
+      reconcileSnapshot(event.messages);
       // Handle messages snapshot - typically contains the full conversation state
-      for (final message in event.messages ?? []) {
+      for (final message in event.messages) {
         if (message is AssistantMessage) {
-          final hasToolCalls = (message.toolCalls?.isNotEmpty ?? false);
-          final content = message.content ??
-              (hasToolCalls ? '🤖 Assistant used tools to generate response' : 'Response generated');
+          final hasToolCalls = message.toolCalls?.isNotEmpty ?? false;
+          final content =
+              message.content ??
+              (hasToolCalls
+                  ? '🤖 Assistant used tools to generate response'
+                  : 'Response generated');
 
-          _messages.add(ChatMessage(
-            id: message.id ?? 'assistant_${DateTime.now().millisecondsSinceEpoch}',
-            type: ChatMessageType.assistant,
-            content: content,
-            timestamp: DateTime.now(),
-          ));
+          _upsert(
+            ChatMessage(
+              id:
+                  message.id ??
+                  'assistant_${DateTime.now().millisecondsSinceEpoch}',
+              type: ChatMessageType.assistant,
+              content: content,
+              timestamp: DateTime.now(),
+            ),
+          );
+          _replaceHistory(message);
 
           // Add tool calls if present
           if (hasToolCalls) {
             for (final toolCall in message.toolCalls ?? []) {
-              _messages.add(ChatMessage(
-                id: toolCall.id ?? 'tool_${DateTime.now().millisecondsSinceEpoch}',
-                type: ChatMessageType.tool,
-                content: '⚡ Tool: ${toolCall.function?.name ?? "Unknown"}\n${toolCall.function?.arguments ?? ""}',
-                timestamp: DateTime.now(),
-                toolName: toolCall.function?.name,
-                toolArgs: toolCall.function?.arguments,
-              ));
+              _upsert(
+                ChatMessage(
+                  id:
+                      toolCall.id ??
+                      'tool_${DateTime.now().millisecondsSinceEpoch}',
+                  type: ChatMessageType.tool,
+                  content:
+                      '⚡ Tool: ${toolCall.function?.name ?? "Unknown"}\n${toolCall.function?.arguments ?? ""}',
+                  timestamp: DateTime.now(),
+                  toolName: toolCall.function?.name,
+                  toolArgs: toolCall.function?.arguments,
+                ),
+              );
             }
           }
         } else if (message is ReasoningMessage) {
           final text = message.content ?? message.thinking ?? '';
           if (text.isNotEmpty) {
-            _messages.add(ChatMessage(
-              id: message.id ?? 'reasoning_${DateTime.now().millisecondsSinceEpoch}',
-              type: ChatMessageType.reasoning,
-              content: text,
-              timestamp: DateTime.now(),
-            ));
+            _upsert(
+              ChatMessage(
+                id:
+                    message.id ??
+                    'reasoning_${DateTime.now().millisecondsSinceEpoch}',
+                type: ChatMessageType.reasoning,
+                content: text,
+                timestamp: DateTime.now(),
+              ),
+            );
+            _replaceHistory(message);
           }
         }
       }
     } else if (event is CustomEvent && event.name == 'image_generated') {
       final value = event.value as Map<String, dynamic>?;
       final url = value?['url'] as String?;
-      if (url != null && url.isNotEmpty) {
-        _messages.add(ChatMessage(
-          id: 'image_${DateTime.now().millisecondsSinceEpoch}',
-          type: ChatMessageType.image,
-          content: url,
-          timestamp: DateTime.now(),
-        ));
+      if (url != null && _isValidImageDataUrl(url)) {
+        messages.add(
+          ChatMessage(
+            id: 'image_${DateTime.now().millisecondsSinceEpoch}',
+            type: ChatMessageType.image,
+            content: url,
+            timestamp: DateTime.now(),
+          ),
+        );
+      } else {
+        messages.add(
+          ChatMessage(
+            id: uid('error'),
+            type: ChatMessageType.system,
+            content: 'The image response was invalid.',
+            timestamp: DateTime.now(),
+          ),
+        );
       }
     } else if (event is StateSnapshotEvent) {
       final snapshot = event.snapshot;
@@ -408,86 +385,100 @@ class ChatPageState extends ChangeNotifier {
               if (step is Map) {
                 final description = step['description'] ?? 'Step ${i + 1}';
                 final status = step['status'] ?? 'pending';
-                final statusIcon = status == 'completed' ? '✅' :
-                                   status == 'in_progress' ? '🔄' :
-                                   status == 'enabled' ? '⚡' : '⏳';
+                final statusIcon = status == 'completed'
+                    ? '✅'
+                    : status == 'in_progress'
+                    ? '🔄'
+                    : status == 'enabled'
+                    ? '⚡'
+                    : '⏳';
                 stateContent += '  $statusIcon $description\n';
               }
             }
           } else {
             stateContent += snapshot['content'].toString();
           }
-          _messages.add(ChatMessage(
-            id: 'state_${DateTime.now().millisecondsSinceEpoch}',
-            type: ChatMessageType.system,
-            content: stateContent,
-            timestamp: DateTime.now(),
-          ));
+          messages.add(
+            ChatMessage(
+              id: 'state_${DateTime.now().millisecondsSinceEpoch}',
+              type: ChatMessageType.system,
+              content: stateContent,
+              timestamp: DateTime.now(),
+            ),
+          );
         }
         // Unknown snapshot shapes (e.g. image-gen {status, prompt}) are silently ignored.
       }
     } else if (event is StateDeltaEvent) {
       // Handle state delta updates
       final delta = event.delta;
-      if (delta != null && delta is List && delta.isNotEmpty) {
+      if (delta.isNotEmpty) {
         // Find the last state message to update
-        final stateMessages = _messages
-            .where((m) => m.type == ChatMessageType.system && m.content.startsWith('📊'))
+        final stateMessages = messages
+            .where(
+              (m) =>
+                  m.type == ChatMessageType.system &&
+                  m.content.startsWith('📊'),
+            )
             .toList();
 
         if (stateMessages.isNotEmpty) {
           final lastState = stateMessages.last;
-          final index = _messages.indexOf(lastState);
+          final index = messages.indexOf(lastState);
 
           // Apply JSON patch operations to show what changed
           String updateInfo = '';
           for (final op in delta) {
-            if (op is Map) {
-              final operation = op['op'] ?? '';
-              final path = op['path'] ?? '';
-              final value = op['value'];
+            final operation = op['op'] ?? '';
+            final path = op['path'] ?? '';
+            final value = op['value'];
 
-              if (operation == 'replace' && path.contains('/status')) {
-                // Extract step number from path like "/steps/0/status"
-                final stepMatch = RegExp(r'/steps/(\d+)/status').firstMatch(path);
-                if (stepMatch != null) {
-                  final stepNum = int.parse(stepMatch.group(1)!) + 1;
-                  final statusIcon = value == 'completed' ? '✅' :
-                                   value == 'in_progress' ? '🔄' :
-                                   value == 'enabled' ? '⚡' : '⏳';
-                  updateInfo += '\n  $statusIcon Step $stepNum → $value';
-                }
+            if (operation == 'replace' && path.contains('/status')) {
+              // Extract step number from path like "/steps/0/status"
+              final stepMatch = RegExp(r'/steps/(\d+)/status').firstMatch(path);
+              if (stepMatch != null) {
+                final stepNum = int.parse(stepMatch.group(1)!) + 1;
+                final statusIcon = value == 'completed'
+                    ? '✅'
+                    : value == 'in_progress'
+                    ? '🔄'
+                    : value == 'enabled'
+                    ? '⚡'
+                    : '⏳';
+                updateInfo += '\n  $statusIcon Step $stepNum → $value';
               }
             }
           }
 
           if (updateInfo.isNotEmpty && index != -1) {
-            _messages[index] = lastState.copyWith(
+            messages[index] = lastState.copyWith(
               content: lastState.content + updateInfo,
             );
           }
         }
       }
-    } else if (event is RunStartedEvent || event is RunFinishedEvent) {
+    } else if (event is RunFinishedEvent || event is RunStartedEvent) {
       // These are lifecycle events, we can ignore them or show status
     } else if (event is TextMessageChunkEvent) {
       // Handle chunk events similar to content events
       if (_currentStreamingMessage == null) {
         _currentStreamingMessage = ChatMessage(
-          id: event.messageId ?? 'assistant_${DateTime.now().millisecondsSinceEpoch}',
+          id:
+              event.messageId ??
+              'assistant_${DateTime.now().millisecondsSinceEpoch}',
           type: ChatMessageType.assistant,
           content: event.delta ?? '',
           timestamp: DateTime.now(),
           isStreaming: true,
         );
-        _messages.add(_currentStreamingMessage!);
+        messages.add(_currentStreamingMessage!);
       } else {
-        final index = _messages.indexOf(_currentStreamingMessage!);
+        final index = messages.indexOf(_currentStreamingMessage!);
         if (index != -1) {
           _currentStreamingMessage = _currentStreamingMessage!.copyWith(
             content: _currentStreamingMessage!.content + (event.delta ?? ''),
           );
-          _messages[index] = _currentStreamingMessage!;
+          messages[index] = _currentStreamingMessage!;
         }
       }
     }
@@ -495,9 +486,46 @@ class ChatPageState extends ChangeNotifier {
     notifyListeners();
   }
 
+  void _upsert(ChatMessage message) {
+    final index = messages.indexWhere((item) => item.id == message.id);
+    if (index < 0) {
+      messages.add(message);
+    } else {
+      messages[index] = message;
+    }
+  }
+
+  void _replaceHistory(Message message) {
+    final id = message.id;
+    if (id == null) return;
+    final index = _history.indexWhere((item) => item.id == id);
+    if (index < 0) {
+      _history.add(message);
+    } else {
+      _history[index] = message;
+    }
+  }
+
+  bool _isValidImageDataUrl(String value) {
+    try {
+      final data = UriData.fromUri(Uri.parse(value));
+      return data.mimeType.startsWith('image/') &&
+          data.contentAsBytes().isNotEmpty;
+    } on FormatException {
+      return false;
+    }
+  }
+
+  void _finalizeStreaming() {
+    finishStreaming();
+    _currentStreamingMessage = null;
+  }
+
   @override
   void dispose() {
     _disposed = true;
+    disposed = true;
+    _connectionSubscription.cancel();
     _service.dispose();
     super.dispose();
   }
@@ -505,27 +533,53 @@ class ChatPageState extends ChangeNotifier {
 
 class MultimodalChatPageState extends ChatPageState {
   Uint8List? _pickedBytes;
-  String?    _pickedFileName;
-  String?    _pickedMimeType;
+  String? _pickedFileName;
+  String? _pickedMimeType;
+  final Future<PlatformFile?> Function(List<String> allowedExtensions)
+  _pickFile;
 
-  MultimodalChatPageState({required super.endpoint});
+  MultimodalChatPageState({
+    required super.endpoint,
+    super.service,
+    Future<PlatformFile?> Function(List<String> allowedExtensions)? filePicker,
+  }) : _pickFile = filePicker ?? _defaultPickFile;
 
-  Uint8List? get pickedBytes    => _pickedBytes;
-  String?    get pickedFileName => _pickedFileName;
-  String?    get pickedMimeType => _pickedMimeType;
-  bool       get hasFile        => _pickedBytes != null;
+  static Future<PlatformFile?> _defaultPickFile(List<String> extensions) async {
+    final result = await FilePicker.platform.pickFiles(
+      type: FileType.custom,
+      allowedExtensions: extensions,
+      withData: true,
+    );
+    return result == null || result.files.isEmpty ? null : result.files.first;
+  }
+
+  Uint8List? get pickedBytes => _pickedBytes;
+  String? get pickedFileName => _pickedFileName;
+  String? get pickedMimeType => _pickedMimeType;
+  bool get hasFile => _pickedBytes != null;
 
   Future<void> pickFile(
     List<String> allowedExtensions,
     BuildContext context,
   ) async {
-    final result = await FilePicker.platform.pickFiles(
-      type: FileType.custom,
-      allowedExtensions: allowedExtensions,
-      withData: true,
-    );
-    if (result == null || result.files.isEmpty) return;
-    final file = result.files.first;
+    PlatformFile? file;
+    try {
+      file = await _pickFile(List<String>.unmodifiable(allowedExtensions));
+    } catch (error) {
+      if (!_disposed) {
+        messages.add(
+          ChatMessage(
+            id: uid('error'),
+            type: ChatMessageType.system,
+            content: 'Could not pick file: $error',
+            timestamp: DateTime.now(),
+          ),
+        );
+        notifyListeners();
+      }
+      return;
+    }
+    if (_disposed || file == null) return;
     final bytes = file.bytes;
     if (bytes == null) return;
 
@@ -533,20 +587,23 @@ class MultimodalChatPageState extends ChatPageState {
     if (bytes.length > maxBytes) {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('File too large — pick a file under 5 MB')),
+          const SnackBar(
+            content: Text('File too large — pick a file under 5 MB'),
+          ),
         );
       }
       return;
     }
 
-    _pickedBytes    = bytes;
+    _pickedBytes = bytes;
     _pickedFileName = file.name;
     _pickedMimeType = _mimeTypeFor(file.extension ?? '');
     notifyListeners();
   }
 
   void clearPicked() {
-    _pickedBytes    = null;
+    if (_disposed) return;
+    _pickedBytes = null;
     _pickedFileName = null;
     _pickedMimeType = null;
     notifyListeners();
@@ -554,27 +611,30 @@ class MultimodalChatPageState extends ChatPageState {
 
   void sendMultimodal(String questionText) async {
     if (_pickedBytes == null) return;
-    if (_isLoading)           return;
+    if (_isLoading || _disposed) return;
+    beginRun();
 
-    final bytes    = _pickedBytes!;
-    final mime     = _pickedMimeType ?? 'application/octet-stream';
+    final bytes = _pickedBytes!;
+    final mime = _pickedMimeType ?? 'application/octet-stream';
     final fileName = _pickedFileName ?? 'file';
-    final b64      = base64Encode(bytes);
-    final source   = DataSource(value: b64, mimeType: mime);
+    final b64 = base64Encode(bytes);
+    final source = DataSource(value: b64, mimeType: mime);
 
     final List<InputContent> parts;
     switch (endpoint.path) {
       case 'vision':
         parts = [
           ImageInputContent(source: source),
-          if (questionText.trim().isNotEmpty) TextInputContent(questionText.trim()),
+          if (questionText.trim().isNotEmpty)
+            TextInputContent(questionText.trim()),
         ];
       case 'audio':
         parts = [AudioInputContent(source: source)];
       case 'document':
         parts = [
           DocumentInputContent(source: source),
-          if (questionText.trim().isNotEmpty) TextInputContent(questionText.trim()),
+          if (questionText.trim().isNotEmpty)
+            TextInputContent(questionText.trim()),
         ];
       default:
         parts = [ImageInputContent(source: source)];
@@ -582,29 +642,35 @@ class MultimodalChatPageState extends ChatPageState {
 
     switch (endpoint.path) {
       case 'vision':
-        _messages.add(ChatMessage(
-          id: 'attachment_${DateTime.now().millisecondsSinceEpoch}',
-          type: ChatMessageType.imageAttachment,
-          content: fileName,
-          imageBytes: bytes,
-          timestamp: DateTime.now(),
-        ));
+        messages.add(
+          ChatMessage(
+            id: 'attachment_${DateTime.now().millisecondsSinceEpoch}',
+            type: ChatMessageType.imageAttachment,
+            content: fileName,
+            imageBytes: bytes,
+            timestamp: DateTime.now(),
+          ),
+        );
       case 'audio':
-        _messages.add(ChatMessage(
-          id: 'attachment_${DateTime.now().millisecondsSinceEpoch}',
-          type: ChatMessageType.audioAttachment,
-          content: fileName,
-          fileName: fileName,
-          timestamp: DateTime.now(),
-        ));
+        messages.add(
+          ChatMessage(
+            id: 'attachment_${DateTime.now().millisecondsSinceEpoch}',
+            type: ChatMessageType.audioAttachment,
+            content: fileName,
+            fileName: fileName,
+            timestamp: DateTime.now(),
+          ),
+        );
       case 'document':
-        _messages.add(ChatMessage(
-          id: 'attachment_${DateTime.now().millisecondsSinceEpoch}',
-          type: ChatMessageType.documentAttachment,
-          content: fileName,
-          fileName: fileName,
-          timestamp: DateTime.now(),
-        ));
+        messages.add(
+          ChatMessage(
+            id: 'attachment_${DateTime.now().millisecondsSinceEpoch}',
+            type: ChatMessageType.documentAttachment,
+            content: fileName,
+            fileName: fileName,
+            timestamp: DateTime.now(),
+          ),
+        );
     }
 
     _isLoading = true;
@@ -612,18 +678,35 @@ class MultimodalChatPageState extends ChatPageState {
     notifyListeners();
 
     try {
-      await for (final event in _service.sendMultimodalMessage(endpoint.path, parts)) {
+      await for (final event in _service.sendMultimodalMessage(
+        endpoint.path,
+        parts,
+      )) {
         if (_disposed) break;
         _handleEvent(event);
+        if (runIsTerminal) break;
+      }
+      if (!runIsTerminal && !_disposed) {
+        finishStreaming();
+        messages.add(
+          ChatMessage(
+            id: uid('interrupted'),
+            type: ChatMessageType.system,
+            content: 'Connection closed before the run finished.',
+            timestamp: DateTime.now(),
+          ),
+        );
       }
     } catch (e) {
       if (!_disposed) {
-        _messages.add(ChatMessage(
-          id: 'error_${DateTime.now().millisecondsSinceEpoch}',
-          type: ChatMessageType.system,
-          content: 'Error: ${e.toString()}',
-          timestamp: DateTime.now(),
-        ));
+        messages.add(
+          ChatMessage(
+            id: 'error_${DateTime.now().millisecondsSinceEpoch}',
+            type: ChatMessageType.system,
+            content: 'Error: ${e.toString()}',
+            timestamp: DateTime.now(),
+          ),
+        );
       }
     } finally {
       if (!_disposed) {
@@ -634,17 +717,19 @@ class MultimodalChatPageState extends ChatPageState {
     }
   }
 
-  static String _mimeTypeFor(String ext) => const {
-    'jpg':  'image/jpeg',
-    'jpeg': 'image/jpeg',
-    'png':  'image/png',
-    'gif':  'image/gif',
-    'webp': 'image/webp',
-    'mp3':  'audio/mpeg',
-    'wav':  'audio/wav',
-    'm4a':  'audio/mp4',
-    'ogg':  'audio/ogg',
-    'webm': 'audio/webm',
-    'pdf':  'application/pdf',
-  }[ext.toLowerCase()] ?? 'application/octet-stream';
+  static String _mimeTypeFor(String ext) =>
+      const {
+        'jpg': 'image/jpeg',
+        'jpeg': 'image/jpeg',
+        'png': 'image/png',
+        'gif': 'image/gif',
+        'webp': 'image/webp',
+        'mp3': 'audio/mpeg',
+        'wav': 'audio/wav',
+        'm4a': 'audio/mp4',
+        'ogg': 'audio/ogg',
+        'webm': 'audio/webm',
+        'pdf': 'application/pdf',
+      }[ext.toLowerCase()] ??
+      'application/octet-stream';
 }

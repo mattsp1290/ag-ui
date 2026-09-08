@@ -97,23 +97,15 @@ class ChatMessage {
       );
     } else if (event is TextMessageEndEvent) {
       return ChatMessage(
-        id: event.messageId ?? 'assistant_${DateTime.now().millisecondsSinceEpoch}',
+        id: event.messageId,
         type: ChatMessageType.assistant,
         content: '',
         timestamp: timestamp,
         isStreaming: false,
       );
-    } else if (event is ThinkingContentEvent) {
-      return ChatMessage(
-        id: 'thinking_${event.timestamp ?? DateTime.now().millisecondsSinceEpoch}',
-        type: ChatMessageType.thinking,
-        content: event.delta,
-        timestamp: timestamp,
-        isStreaming: true,
-      );
     } else if (event is ToolCallResultEvent) {
       return ChatMessage(
-        id: event.toolCallId ?? 'tool_${DateTime.now().millisecondsSinceEpoch}',
+        id: event.toolCallId,
         type: ChatMessageType.tool,
         content: 'Tool Result',
         timestamp: timestamp,

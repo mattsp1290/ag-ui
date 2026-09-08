@@ -1,0 +1,242 @@
+import 'dart:async';
+import 'dart:convert';
+import 'dart:typed_data';
+
+import 'package:ag_ui/ag_ui.dart';
+import 'package:file_picker/file_picker.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter_test/flutter_test.dart';
+
+import 'package:ag_ui_example/models/endpoint_config.dart';
+import 'package:ag_ui_example/pages/chat_page.dart';
+import 'package:ag_ui_example/services/ag_ui_service.dart';
+
+class _CapturingService extends AgUiService {
+  final List<Stream<BaseEvent>> responses;
+  final List<(String, List<InputContent>)> requests = [];
+  _CapturingService(this.responses);
+
+  @override
+  Stream<BaseEvent> sendMultimodalMessage(
+    String endpoint,
+    List<InputContent> parts,
+  ) {
+    requests.add((endpoint, List<InputContent>.unmodifiable(parts)));
+    return responses.removeAt(0);
+  }
+}
+
+Stream<BaseEvent> _success(String id, String text) => Stream.fromIterable([
+  TextMessageStartEvent(messageId: id),
+  TextMessageContentEvent(messageId: id, delta: text),
+  TextMessageEndEvent(messageId: id),
+  const RunFinishedEvent(threadId: 'thread', runId: 'run'),
+]);
+
+void main() {
+  testWidgets('picker cancellation and removal leave no selected file', (
+    tester,
+  ) async {
+    final endpoint = EndpointConfig.availableEndpoints.firstWhere(
+      (item) => item.path == 'vision',
+    );
+    final state = MultimodalChatPageState(
+      endpoint: endpoint,
+      service: AgUiService(),
+      filePicker: (_) async => null,
+    );
+    addTearDown(state.dispose);
+    await tester.pumpWidget(
+      const MaterialApp(home: Scaffold(body: Text('host'))),
+    );
+    final context = tester.element(find.byType(Scaffold));
+    await state.pickFile(['png'], context);
+    expect(state.hasFile, isFalse);
+
+    final selected = MultimodalChatPageState(
+      endpoint: endpoint,
+      service: AgUiService(),
+      filePicker: (_) async => PlatformFile(
+        name: 'tiny.png',
+        size: 2,
+        bytes: Uint8List.fromList([1, 2]),
+      ),
+    );
+    addTearDown(selected.dispose);
+    await selected.pickFile(['png'], context);
+    expect(selected.hasFile, isTrue);
+    selected.clearPicked();
+    expect(selected.hasFile, isFalse);
+  });
+
+  testWidgets('picker enforces the five MiB limit and recovers picker errors', (
+    tester,
+  ) async {
+    final endpoint = EndpointConfig.availableEndpoints.firstWhere(
+      (item) => item.path == 'document',
+    );
+    final tooLarge = MultimodalChatPageState(
+      endpoint: endpoint,
+      service: AgUiService(),
+      filePicker: (_) async => PlatformFile(
+        name: 'large.pdf',
+        size: 5 * 1024 * 1024 + 1,
+        bytes: Uint8List(5 * 1024 * 1024 + 1),
+      ),
+    );
+    addTearDown(tooLarge.dispose);
+    await tester.pumpWidget(
+      const MaterialApp(home: Scaffold(body: Text('host'))),
+    );
+    final context = tester.element(find.byType(Scaffold));
+    await tooLarge.pickFile(['pdf'], context);
+    await tester.pump();
+    expect(tooLarge.hasFile, isFalse);
+    expect(find.textContaining('under 5 MB'), findsOneWidget);
+
+    final failed = MultimodalChatPageState(
+      endpoint: endpoint,
+      service: AgUiService(),
+      filePicker: (_) async => throw StateError('picker unavailable'),
+    );
+    addTearDown(failed.dispose);
+    await failed.pickFile(['pdf'], context);
+    expect(failed.messages.single.content, contains('Could not pick file'));
+  });
+
+  testWidgets('disposing while picker is pending ignores its completion', (
+    tester,
+  ) async {
+    final pending = Completer<PlatformFile?>();
+    final state = MultimodalChatPageState(
+      endpoint: EndpointConfig.availableEndpoints.firstWhere(
+        (item) => item.path == 'vision',
+      ),
+      service: AgUiService(),
+      filePicker: (_) => pending.future,
+    );
+    await tester.pumpWidget(
+      const MaterialApp(home: Scaffold(body: Text('host'))),
+    );
+    final pick = state.pickFile(['png'], tester.element(find.byType(Scaffold)));
+    state.dispose();
+    pending.complete(
+      PlatformFile(name: 'late.png', size: 1, bytes: Uint8List.fromList([1])),
+    );
+    await pick;
+    expect(state.hasFile, isFalse);
+  });
+
+  for (final testCase in [
+    ('vision', 'tiny.png', 'png', 'image/png', ImageInputContent),
+    ('audio', 'tiny.wav', 'wav', 'audio/wav', AudioInputContent),
+    ('document', 'tiny.pdf', 'pdf', 'application/pdf', DocumentInputContent),
+  ]) {
+    testWidgets('${testCase.$1} sends typed inline data and renders success', (
+      tester,
+    ) async {
+      final endpoint = EndpointConfig.availableEndpoints.firstWhere(
+        (item) => item.path == testCase.$1,
+      );
+      final service = _CapturingService([
+        _success('answer-${testCase.$1}', 'visible reply'),
+      ]);
+      final state = MultimodalChatPageState(
+        endpoint: endpoint,
+        service: service,
+        filePicker: (_) async => PlatformFile(
+          name: testCase.$2,
+          size: 3,
+          bytes: Uint8List.fromList([1, 2, 3]),
+        ),
+      );
+      addTearDown(state.dispose);
+      await tester.pumpWidget(
+        const MaterialApp(home: Scaffold(body: Text('host'))),
+      );
+      await state.pickFile(
+        endpoint.allowedExtensions,
+        tester.element(find.byType(Scaffold)),
+      );
+      state.sendMultimodal('What is this?');
+      await tester.pump();
+      await tester.pump();
+
+      final request = service.requests.single;
+      expect(request.$1, testCase.$1);
+      expect(request.$2.first.runtimeType, testCase.$5);
+      final media = request.$2.first;
+      final InputContentSource source = switch (media) {
+        ImageInputContent() => media.source,
+        AudioInputContent() => media.source,
+        DocumentInputContent() => media.source,
+        _ => throw StateError('unexpected media part'),
+      };
+      expect(source, isA<DataSource>());
+      expect((source as DataSource).mimeType, testCase.$4);
+      expect(base64Decode(source.value), [1, 2, 3]);
+      if (testCase.$1 == 'audio') {
+        expect(request.$2.whereType<TextInputContent>(), isEmpty);
+      } else {
+        expect(
+          request.$2.whereType<TextInputContent>().single.text,
+          'What is this?',
+        );
+      }
+      expect(
+        state.messages.any((message) => message.content == 'visible reply'),
+        isTrue,
+      );
+    });
+  }
+
+  testWidgets(
+    'media RUN_ERROR ignores trailing events and next interruption recovers',
+    (tester) async {
+      final endpoint = EndpointConfig.availableEndpoints.firstWhere(
+        (item) => item.path == 'vision',
+      );
+      Future<PlatformFile> picker(List<String> _) async => PlatformFile(
+        name: 'tiny.png',
+        size: 1,
+        bytes: Uint8List.fromList([1]),
+      );
+      final service = _CapturingService([
+        Stream.fromIterable(const [
+          RunErrorEvent(message: 'media failed'),
+          TextMessageStartEvent(messageId: 'late'),
+          TextMessageContentEvent(messageId: 'late', delta: 'ignored'),
+        ]),
+        const Stream<BaseEvent>.empty(),
+      ]);
+      final state = MultimodalChatPageState(
+        endpoint: endpoint,
+        service: service,
+        filePicker: picker,
+      );
+      addTearDown(state.dispose);
+      await tester.pumpWidget(
+        const MaterialApp(home: Scaffold(body: Text('host'))),
+      );
+      final context = tester.element(find.byType(Scaffold));
+      await state.pickFile(['png'], context);
+      state.sendMultimodal('first');
+      await tester.pump();
+      await tester.pump();
+      expect(
+        state.messages.any(
+          (message) => message.content.contains('media failed'),
+        ),
+        isTrue,
+      );
+      expect(state.messages.any((message) => message.id == 'late'), isFalse);
+
+      await state.pickFile(['png'], context);
+      state.sendMultimodal('second');
+      await tester.pump();
+      await tester.pump();
+      expect(state.messages.last.content, contains('before the run finished'));
+      expect(state.isLoading, isFalse);
+    },
+  );
+}

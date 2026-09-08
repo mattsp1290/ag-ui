@@ -1,0 +1,27 @@
+# Allow only the parent SDK and nested example server inputs required by the
+# production and contract images. The build context is sdks/community/go.
+**
+!go.mod
+!go.sum
+!pkg/
+!pkg/**
+!example/
+!example/server/
+!example/server/go.mod
+!example/server/go.sum
+!example/server/Dockerfile
+!example/server/Dockerfile.contract
+!example/server/cmd/
+!example/server/cmd/**
+!example/server/internal/
+!example/server/internal/**
+
+# Re-included source directories must still exclude local credentials/state and
+# compiler outputs. These rules also protect documented direct Docker builds.
+**/.*
+**/*.test
+**/*.out
+**/build
+**/dist
+**/coverage
+**/node_modules

@@ -81,11 +81,6 @@ class EndpointConfig {
       description: 'Agent proposes consequential actions; you approve or deny',
       icon: Icons.person_add,
       featureKind: FeatureKind.approval,
-      // A dedicated approval tool, matching the server's HITL system prompt ("call the
-      // provided approval tool with a human-readable summary and wait for the result").
-      // Verified empirically: the model reliably calls request_approval under this
-      // prompt, whereas bare action tools (send_email/delete_file) were NOT gated —
-      // the model answered in prose instead. See plan 03 §"design tension".
       tools: [
         Tool(
           name: 'request_approval',
@@ -99,7 +94,8 @@ class EndpointConfig {
             'properties': {
               'summary': {
                 'type': 'string',
-                'description': 'Human-readable description of the intended action',
+                'description':
+                    'Human-readable description of the intended action',
               },
               'action': {
                 'type': 'string',
@@ -169,13 +165,13 @@ class EndpointConfig {
     EndpointConfig(
       name: 'Image Gen',
       path: 'image-gen',
-      description: 'Generate images from a text prompt using GPT-4o',
+      description: 'Generate an image from a text prompt',
       icon: Icons.image_outlined,
     ),
     EndpointConfig(
       name: 'Vision',
       path: 'vision',
-      description: 'Analyze images with GPT-4o vision',
+      description: 'Ask a question about an image',
       icon: Icons.image_search,
       isMultimodal: true,
       allowedExtensions: ['jpg', 'jpeg', 'png', 'gif', 'webp'],
@@ -202,8 +198,7 @@ class EndpointConfig {
     EndpointConfig(
       name: 'Reasoning Demo',
       path: 'reasoning',
-      description: 'Streams live reasoning events and includes a ReasoningMessage '
-          'in MESSAGES_SNAPSHOT. Exercises the new Dart ReasoningMessage type.',
+      description: 'A scripted stream of reasoning followed by an answer',
       icon: Icons.psychology,
     ),
   ];

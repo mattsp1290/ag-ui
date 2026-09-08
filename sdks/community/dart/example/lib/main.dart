@@ -5,16 +5,42 @@ import 'pages/chat_page.dart';
 import 'pages/multimodal_chat_page.dart';
 import 'pages/client_tools_page.dart';
 import 'pages/live_state_page.dart';
+import 'services/ag_ui_service.dart';
 
 void main() {
-  runApp(MyApp());
+  runApp(const MyApp());
 }
 
 class MyApp extends StatelessWidget {
-  const MyApp({super.key});
+  /// Injects only startup validation; requests use compiled AG_UI_BASE_URL.
+  @visibleForTesting
+  final String? baseUrlForValidation;
+
+  const MyApp({super.key, this.baseUrlForValidation});
 
   @override
   Widget build(BuildContext context) {
+    try {
+      AgUiService.resolveBaseUrl(baseUrlForValidation);
+    } on ArgumentError catch (error) {
+      return MaterialApp(
+        title: 'AG-UI Flutter Dojo',
+        home: Scaffold(
+          key: const Key('configuration-error'),
+          body: Center(
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: SelectableText(
+                'Cannot start the AG-UI Flutter Dojo.\n\n'
+                'AG_UI_BASE_URL must be a valid HTTP or HTTPS URL, for example '
+                'http://127.0.0.1:8080.\n\n$error',
+                textAlign: TextAlign.center,
+              ),
+            ),
+          ),
+        ),
+      );
+    }
     return ChangeNotifierProvider(
       create: (context) => ChatAppState(),
       child: MaterialApp(
@@ -50,6 +76,8 @@ class MyHomePage extends StatefulWidget {
 }
 
 class _MyHomePageState extends State<MyHomePage> {
+  final _scaffoldKey = GlobalKey<ScaffoldState>();
+
   @override
   Widget build(BuildContext context) {
     final appState = context.watch<ChatAppState>();
@@ -72,31 +100,134 @@ class _MyHomePageState extends State<MyHomePage> {
 
     return LayoutBuilder(
       builder: (context, constraints) {
+        final narrow = constraints.maxWidth < 600;
+        final drawer = _NavigationDrawer(
+          endpoints: appState.endpoints,
+          selectedIndex: selectedIndex,
+          onDestinationSelected: appState.selectEndpoint,
+          onClose: () => _scaffoldKey.currentState?.closeEndDrawer(),
+        );
+
+        if (narrow) {
+          return Scaffold(
+            key: _scaffoldKey,
+            endDrawer: Drawer(width: 320, child: drawer),
+            body: Stack(
+              children: [
+                Positioned.fill(child: page),
+                Positioned.fill(
+                  child: SafeArea(
+                    child: Align(
+                      alignment: Alignment.topRight,
+                      child: IconButton(
+                        key: const Key('open-navigation-menu'),
+                        tooltip: 'Open navigation menu',
+                        icon: const Icon(Icons.menu),
+                        onPressed: () =>
+                            _scaffoldKey.currentState?.openEndDrawer(),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          );
+        }
+
         return Scaffold(
           body: Row(
             children: [
               SafeArea(
-                child: NavigationRail(
-                  extended: constraints.maxWidth >= 900,
-                  destinations: appState.endpoints.map((endpoint) {
-                    return NavigationRailDestination(
-                      icon: Icon(endpoint.icon),
-                      label: Text(endpoint.name),
-                    );
-                  }).toList(),
+                child: _DesktopNavigation(
+                  endpoints: appState.endpoints,
                   selectedIndex: selectedIndex,
-                  onDestinationSelected: (value) {
-                    appState.selectEndpoint(value);
-                  },
+                  onDestinationSelected: appState.selectEndpoint,
                 ),
               ),
-              Expanded(
-                child: page,
-              ),
+              Expanded(child: page),
             ],
           ),
         );
       },
+    );
+  }
+}
+
+class _DesktopNavigation extends StatelessWidget {
+  final List<EndpointConfig> endpoints;
+  final int selectedIndex;
+  final ValueChanged<int> onDestinationSelected;
+
+  const _DesktopNavigation({
+    required this.endpoints,
+    required this.selectedIndex,
+    required this.onDestinationSelected,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      key: const Key('desktop-navigation'),
+      width: 256,
+      child: ListView.builder(
+        padding: const EdgeInsets.symmetric(vertical: 12),
+        itemCount: endpoints.length,
+        itemBuilder: (context, index) {
+          final endpoint = endpoints[index];
+          return ListTile(
+            key: ValueKey('nav-${endpoint.path}'),
+            leading: Icon(endpoint.icon),
+            title: Text(endpoint.name),
+            selected: index == selectedIndex,
+            onTap: () => onDestinationSelected(index),
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _NavigationDrawer extends StatelessWidget {
+  final List<EndpointConfig> endpoints;
+  final int selectedIndex;
+  final ValueChanged<int> onDestinationSelected;
+  final VoidCallback onClose;
+
+  const _NavigationDrawer({
+    required this.endpoints,
+    required this.selectedIndex,
+    required this.onDestinationSelected,
+    required this.onClose,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.symmetric(vertical: 12),
+        child: Column(
+          children: [
+            const Padding(
+              padding: EdgeInsets.fromLTRB(28, 8, 20, 16),
+              child: Text(
+                'AG-UI Flutter Dojo',
+                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+              ),
+            ),
+            for (var index = 0; index < endpoints.length; index++)
+              ListTile(
+                key: ValueKey('drawer-nav-${endpoints[index].path}'),
+                leading: Icon(endpoints[index].icon),
+                title: Text(endpoints[index].name),
+                selected: index == selectedIndex,
+                onTap: () {
+                  onDestinationSelected(index);
+                  onClose();
+                },
+              ),
+          ],
+        ),
+      ),
     );
   }
 }

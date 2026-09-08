@@ -97,12 +97,10 @@ func (s InputContentSource) MarshalJSON() ([]byte, error) {
 	if s.Type != InputContentSourceTypeData {
 		return json.Marshal(sourceAlias(s))
 	}
-
 	return json.Marshal(struct {
-		Type     string `json:"type"`
-		Value    string `json:"value"`
+		sourceAlias
 		MimeType string `json:"mimeType"`
-	}{Type: s.Type, Value: s.Value, MimeType: s.MimeType})
+	}{sourceAlias: sourceAlias(s), MimeType: s.MimeType})
 }
 
 // UnmarshalJSON implements json.Unmarshaler and supports snake_case compatibility.
@@ -155,21 +153,18 @@ func (c InputContent) MarshalJSON() ([]byte, error) {
 	case InputContentTypeText:
 		return json.Marshal(struct {
 			contentAlias
-			Type string `json:"type"`
 			Text string `json:"text"`
-		}{contentAlias: contentAlias(c), Type: c.Type, Text: c.Text})
+		}{contentAlias: contentAlias(c), Text: c.Text})
 	case InputContentTypeBinary:
 		return json.Marshal(struct {
 			contentAlias
-			Type     string `json:"type"`
 			MimeType string `json:"mimeType"`
-		}{contentAlias: contentAlias(c), Type: c.Type, MimeType: c.MimeType})
+		}{contentAlias: contentAlias(c), MimeType: c.MimeType})
 	case InputContentTypeImage, InputContentTypeAudio, InputContentTypeVideo, InputContentTypeDocument:
 		return json.Marshal(struct {
 			contentAlias
-			Type   string              `json:"type"`
 			Source *InputContentSource `json:"source"`
-		}{contentAlias: contentAlias(c), Type: c.Type, Source: c.Source})
+		}{contentAlias: contentAlias(c), Source: c.Source})
 	default:
 		return json.Marshal(contentAlias(c))
 	}
@@ -447,17 +442,15 @@ type RunAgentInput struct {
 // MarshalJSON normalizes required collection fields without mutating the
 // request and preserves the distinction between an absent and empty resume.
 func (r RunAgentInput) MarshalJSON() ([]byte, error) {
-	messages := r.Messages
-	if messages == nil {
-		messages = []Message{}
+	// r is a value copy; replacing these slice headers does not mutate callers.
+	if r.Messages == nil {
+		r.Messages = []Message{}
 	}
-	tools := r.Tools
-	if tools == nil {
-		tools = []Tool{}
+	if r.Tools == nil {
+		r.Tools = []Tool{}
 	}
-	context := r.Context
-	if context == nil {
-		context = []Context{}
+	if r.Context == nil {
+		r.Context = []Context{}
 	}
 	var resume *[]ResumeEntry
 	if r.Resume != nil {
@@ -471,22 +464,12 @@ func (r RunAgentInput) MarshalJSON() ([]byte, error) {
 		state = nil
 	}
 
-	type requestWire struct {
-		ThreadID       string          `json:"threadId"`
-		RunID          string          `json:"runId"`
-		ParentRunID    *string         `json:"parentRunId,omitempty"`
-		State          json.RawMessage `json:"state,omitempty"`
-		Messages       []Message       `json:"messages"`
-		Tools          []Tool          `json:"tools"`
-		Context        []Context       `json:"context"`
-		ForwardedProps any             `json:"forwardedProps"`
-		Resume         *[]ResumeEntry  `json:"resume,omitempty"`
-	}
-	return json.Marshal(requestWire{
-		ThreadID: r.ThreadID, RunID: r.RunID, ParentRunID: r.ParentRunID,
-		State: state, Messages: messages, Tools: tools, Context: context,
-		ForwardedProps: r.ForwardedProps, Resume: resume,
-	})
+	type requestAlias RunAgentInput
+	return json.Marshal(struct {
+		requestAlias
+		State  json.RawMessage `json:"state,omitempty"`
+		Resume *[]ResumeEntry  `json:"resume,omitempty"`
+	}{requestAlias: requestAlias(r), State: state, Resume: resume})
 }
 
 // UnmarshalJSON implements json.Unmarshaler and supports snake_case compatibility.

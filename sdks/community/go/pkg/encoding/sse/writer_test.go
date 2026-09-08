@@ -13,6 +13,8 @@ import (
 	"time"
 
 	"github.com/ag-ui-protocol/ag-ui/sdks/community/go/pkg/core/events"
+	"github.com/ag-ui-protocol/ag-ui/sdks/community/go/pkg/encoding/encoder"
+	"github.com/stretchr/testify/require"
 )
 
 type mockEvent struct {
@@ -704,4 +706,36 @@ func TestCreateSSEFrame(t *testing.T) {
 
 func ptr[T any](v T) *T {
 	return &v
+}
+
+// Attribution, outcomes and token usage must survive both public writer layers.
+func TestProtocolMetadataThroughWriters(t *testing.T) {
+	usage := []events.TokenUsage{{Provider: "provider", Model: "model", InputTokens: events.TokenCount(0), OutputTokens: events.TokenCount(9)}}
+	cases := []events.Event{
+		events.NewSubagentStartedEvent("sub", "researcher", events.WithParentSubagentRunID("parent"), events.WithParentToolCall("tool", "message")),
+		events.NewSubagentFinishedEvent("sub", events.WithSubagentSuspendedOutcome([]string{"interrupt"})),
+		events.NewSubagentErrorEvent("sub", "failed"),
+		events.NewRunFinishedEventWithOptions("thread", "run", events.WithUsage(usage), events.WithSuccessOutcome()),
+		events.NewRunErrorEvent("failed", events.WithErrorUsage(usage)),
+	}
+	for _, event := range cases {
+		t.Run(string(event.Type()), func(t *testing.T) {
+			event.GetBaseEvent().Metadata = map[string]any{"trace": "trace-id", "nested": map[string]any{"active": true}}
+			expected, err := event.ToJSON()
+			require.NoError(t, err)
+			data, err := encoder.NewEventEncoder().EncodeEvent(context.Background(), event, "application/json")
+			require.NoError(t, err)
+			require.JSONEq(t, string(expected), string(data))
+			var output bytes.Buffer
+			require.NoError(t, NewSSEWriter().WriteEvent(context.Background(), &output, event))
+			found := false
+			for _, line := range strings.Split(output.String(), "\n") {
+				if strings.HasPrefix(line, "data: ") {
+					require.JSONEq(t, string(expected), strings.TrimPrefix(line, "data: "))
+					found = true
+				}
+			}
+			require.True(t, found, "SSE payload missing")
+		})
+	}
 }

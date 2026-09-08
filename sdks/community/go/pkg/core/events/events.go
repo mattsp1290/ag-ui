@@ -81,46 +81,6 @@ const (
 	EventTypeUnknown EventType = "UNKNOWN"
 )
 
-// validEventTypes is a map for O(1) lookup of valid event types
-var validEventTypes = map[EventType]bool{
-	EventTypeTextMessageStart:           true,
-	EventTypeTextMessageContent:         true,
-	EventTypeTextMessageEnd:             true,
-	EventTypeTextMessageChunk:           true,
-	EventTypeToolCallStart:              true,
-	EventTypeToolCallArgs:               true,
-	EventTypeToolCallEnd:                true,
-	EventTypeToolCallChunk:              true,
-	EventTypeToolCallResult:             true,
-	EventTypeStateSnapshot:              true,
-	EventTypeStateDelta:                 true,
-	EventTypeMessagesSnapshot:           true,
-	EventTypeActivitySnapshot:           true,
-	EventTypeActivityDelta:              true,
-	EventTypeRaw:                        true,
-	EventTypeCustom:                     true,
-	EventTypeRunStarted:                 true,
-	EventTypeRunFinished:                true,
-	EventTypeRunError:                   true,
-	EventTypeStepStarted:                true,
-	EventTypeStepFinished:               true,
-	EventTypeThinkingStart:              true,
-	EventTypeThinkingEnd:                true,
-	EventTypeThinkingTextMessageStart:   true,
-	EventTypeThinkingTextMessageContent: true,
-	EventTypeThinkingTextMessageEnd:     true,
-	EventTypeReasoningStart:             true,
-	EventTypeReasoningMessageStart:      true,
-	EventTypeReasoningMessageContent:    true,
-	EventTypeReasoningMessageEnd:        true,
-	EventTypeReasoningMessageChunk:      true,
-	EventTypeReasoningEnd:               true,
-	EventTypeReasoningEncryptedValue:    true,
-	EventTypeSubagentStarted:            true,
-	EventTypeSubagentFinished:           true,
-	EventTypeSubagentError:              true,
-}
-
 // Event defines the common interface for all AG-UI events
 type Event interface {
 	// Type returns the event type
@@ -230,6 +190,9 @@ func NewBaseEvent(eventType EventType) *BaseEvent {
 
 // Validate validates the base event structure
 func (b *BaseEvent) Validate() error {
+	if b == nil {
+		return fmt.Errorf("BaseEvent validation failed: base event is required")
+	}
 	if b.EventType == "" {
 		return fmt.Errorf("BaseEvent validation failed: type field is required")
 	}
@@ -243,7 +206,8 @@ func (b *BaseEvent) Validate() error {
 
 // isValidEventType checks if the given event type is valid
 func isValidEventType(eventType EventType) bool {
-	return validEventTypes[eventType]
+	_, ok := eventConstructors[eventType]
+	return ok
 }
 
 // ValidateSequence validates a sequence of events according to AG-UI protocol rules
@@ -486,71 +450,9 @@ func EventFromJSON(data []byte) (Event, error) {
 		return nil, fmt.Errorf("failed to parse event type: %w", err)
 	}
 
-	// Create the appropriate event type based on the type field
-	var event Event
-	switch base.Type {
-	case EventTypeRunStarted:
-		event = &RunStartedEvent{}
-	case EventTypeRunFinished:
-		event = &RunFinishedEvent{}
-	case EventTypeRunError:
-		event = &RunErrorEvent{}
-	case EventTypeStepStarted:
-		event = &StepStartedEvent{}
-	case EventTypeStepFinished:
-		event = &StepFinishedEvent{}
-	case EventTypeTextMessageStart:
-		event = &TextMessageStartEvent{}
-	case EventTypeTextMessageContent:
-		event = &TextMessageContentEvent{}
-	case EventTypeTextMessageChunk:
-		event = &TextMessageChunkEvent{}
-	case EventTypeTextMessageEnd:
-		event = &TextMessageEndEvent{}
-	case EventTypeToolCallStart:
-		event = &ToolCallStartEvent{}
-	case EventTypeToolCallArgs:
-		event = &ToolCallArgsEvent{}
-	case EventTypeToolCallEnd:
-		event = &ToolCallEndEvent{}
-	case EventTypeToolCallResult:
-		event = &ToolCallResultEvent{}
-	case EventTypeStateSnapshot:
-		event = &StateSnapshotEvent{}
-	case EventTypeStateDelta:
-		event = &StateDeltaEvent{}
-	case EventTypeMessagesSnapshot:
-		event = &MessagesSnapshotEvent{}
-	case EventTypeActivitySnapshot:
-		event = &ActivitySnapshotEvent{}
-	case EventTypeActivityDelta:
-		event = &ActivityDeltaEvent{}
-	case EventTypeRaw:
-		event = &RawEvent{}
-	case EventTypeCustom:
-		event = &CustomEvent{}
-	case EventTypeReasoningStart:
-		event = &ReasoningStartEvent{}
-	case EventTypeReasoningMessageStart:
-		event = &ReasoningMessageStartEvent{}
-	case EventTypeReasoningMessageContent:
-		event = &ReasoningMessageContentEvent{}
-	case EventTypeReasoningMessageEnd:
-		event = &ReasoningMessageEndEvent{}
-	case EventTypeReasoningMessageChunk:
-		event = &ReasoningMessageChunkEvent{}
-	case EventTypeReasoningEnd:
-		event = &ReasoningEndEvent{}
-	case EventTypeReasoningEncryptedValue:
-		event = &ReasoningEncryptedValueEvent{}
-	case EventTypeSubagentStarted:
-		event = &SubagentStartedEvent{}
-	case EventTypeSubagentFinished:
-		event = &SubagentFinishedEvent{}
-	case EventTypeSubagentError:
-		event = &SubagentErrorEvent{}
-	default:
-		return nil, fmt.Errorf("unknown event type: %s", base.Type)
+	event, err := NewEventForType(base.Type)
+	if err != nil {
+		return nil, err
 	}
 
 	// Unmarshal into the specific event type

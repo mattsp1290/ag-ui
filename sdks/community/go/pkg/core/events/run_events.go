@@ -12,6 +12,10 @@ type RunStartedEvent struct {
 	*BaseEvent
 	ThreadIDValue string `json:"threadId"`
 	RunIDValue    string `json:"runId"`
+	// ParentRunID identifies the run that spawned this run, when present.
+	ParentRunID *string `json:"parentRunId,omitempty"`
+	// Input carries the protocol request that started this run.
+	Input *types.RunAgentInput `json:"input,omitempty"`
 }
 
 // NewRunStartedEvent creates a new run started event
@@ -40,6 +44,16 @@ func NewRunStartedEventWithOptions(threadID, runID string, options ...RunStarted
 
 // RunStartedOption defines options for creating run started events
 type RunStartedOption func(*RunStartedEvent)
+
+// WithParentRunID sets the parent run identifier, preserving an explicit empty string.
+func WithParentRunID(parentRunID string) RunStartedOption {
+	return func(e *RunStartedEvent) { e.ParentRunID = &parentRunID }
+}
+
+// WithRunInput attaches the original request. A nil input is omitted on the wire.
+func WithRunInput(input *types.RunAgentInput) RunStartedOption {
+	return func(e *RunStartedEvent) { e.Input = input }
+}
 
 // WithAutoRunID automatically generates a unique run ID if the provided runID is empty
 func WithAutoRunID() RunStartedOption {

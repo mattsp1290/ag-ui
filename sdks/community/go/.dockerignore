@@ -1,27 +1,16 @@
-# Allow only the parent SDK and nested example server inputs required by the
-# production and contract images. The build context is sdks/community/go.
+# SDK-root context: only module metadata, Go source and reviewed fixture trees.
+# Add any future go:embed inputs explicitly instead of admitting arbitrary files.
 **
 !go.mod
 !go.sum
-!pkg/
-!pkg/**
-!example/
-!example/server/
+!pkg/**/*.go
+!pkg/**/testdata/**
 !example/server/go.mod
 !example/server/go.sum
 !example/server/Dockerfile
 !example/server/Dockerfile.contract
-!example/server/cmd/
-!example/server/cmd/**
-!example/server/internal/
-!example/server/internal/**
-
-# Re-included source directories must still exclude local credentials/state and
-# compiler outputs. These rules also protect documented direct Docker builds.
+!example/server/cmd/**/*.go
+!example/server/cmd/**/testdata/**
+!example/server/internal/**/*.go
+!example/server/internal/**/testdata/**
 **/.*
-**/*.test
-**/*.out
-**/build
-**/dist
-**/coverage
-**/node_modules

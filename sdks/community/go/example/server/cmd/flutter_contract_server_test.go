@@ -241,12 +241,12 @@ func TestContractModelIsContentAddressed(t *testing.T) {
 }
 
 func TestContractModelRepeatsToolsWithDistinctIDs(t *testing.T) {
-	for _, tc := range []struct{ prompt, name, id string }{
-		{promptCalculate, "calculate", "fixture-calculate-1"},
-		{promptTime, "get_current_time", "fixture-time-1"},
-		{promptApproval, "request_approval", "fixture-approval-1"},
-		{promptCard, "render_card", "fixture-card-1"},
-		{promptSharedState, "apply_recipe_changes", "fixture-recipe-1"},
+	for _, tc := range []struct{ prompt, name, id, answer string }{
+		{promptCalculate, "calculate", "fixture-calculate-1", "The calculated result is 42."},
+		{promptTime, "get_current_time", "fixture-time-1", "The fixture time is 09:30 UTC."},
+		{promptApproval, "request_approval", "fixture-approval-1", "The action was approved and continued."},
+		{promptCard, "render_card", "fixture-card-1", "The card was rendered once."},
+		{promptSharedState, "apply_recipe_changes", "fixture-recipe-1", "The shared recipe was updated."},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			fixture := contractModel{toolNames: map[string]bool{tc.name: true}}
@@ -262,7 +262,7 @@ func TestContractModelRepeatsToolsWithDistinctIDs(t *testing.T) {
 			}
 			messages = append(messages, second[0], schema.ToolMessage(`{"approved":true}`, tc.id+"-turn-2"))
 			answer, err := fixture.chunks(messages)
-			if err != nil || len(answer) != 1 || answer[0].Content == "" || len(answer[0].ToolCalls) != 0 {
+			if err != nil || len(answer) != 1 || answer[0].Content != tc.answer || len(answer[0].ToolCalls) != 0 {
 				t.Fatalf("repeat continuation = %#v, %v", answer, err)
 			}
 		})
@@ -279,7 +279,9 @@ func TestServeFlutterContract(t *testing.T) {
 	fixture := contractModel{}
 	deps := &agent.Deps{
 		Model: fixture, BaseModel: fixture, Tools: tools, Store: runstore.New(),
-		AutoApprove: false, MaxIterations: 8, Logger: logger, Provider: "openai",
+		AutoApprove: false, MaxIterations: 8, Logger: logger,
+		// This field enables multimodal conversion; both models above are local fixtures.
+		Provider: "openai",
 	}
 	cfg := config.Config{
 		Host: "0.0.0.0", Port: 8080, Provider: "fixture", Model: "content-addressed",

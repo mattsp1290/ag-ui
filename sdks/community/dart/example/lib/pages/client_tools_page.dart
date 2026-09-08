@@ -86,7 +86,8 @@ class ClientToolsPageView extends StatelessWidget {
                     padding: const EdgeInsets.symmetric(vertical: 16),
                     itemCount: state.messages.length,
                     itemBuilder: (context, index) {
-                      final msg = state.messages[state.messages.length - 1 - index];
+                      final msg =
+                          state.messages[state.messages.length - 1 - index];
                       if (msg.type == ChatMessageType.card &&
                           msg.cardData != null) {
                         return CardWidget(data: msg.cardData!);
@@ -128,8 +129,9 @@ class _EmptyState extends StatelessWidget {
             endpoint.featureKind == FeatureKind.approval
                 ? 'Ask the agent to do something consequential'
                 : 'Ask the agent something it can use a tool for',
-            style: theme.textTheme.titleMedium
-                ?.copyWith(color: theme.colorScheme.outline),
+            style: theme.textTheme.titleMedium?.copyWith(
+              color: theme.colorScheme.outline,
+            ),
           ),
         ],
       ),
@@ -140,37 +142,21 @@ class _EmptyState extends StatelessWidget {
 class ClientToolsPageState extends ChangeNotifier with AgUiEventHandling {
   final EndpointConfig endpoint;
   final AgUiService _service;
-  final String _threadId = 'thread_${DateTime.now().millisecondsSinceEpoch}';
-
-  /// Conversation history sent on every run (grows across the round-trip).
+  final String _threadId = uid('thread');
   final List<Message> _history = [];
-
+  final Set<String> _settledCalls = {};
   List<ToolCall> _pendingCalls = const [];
-  AssistantMessage? _pendingAssistant;
-
-  /// Reasoning message ids already rendered, so a cumulative MESSAGES_SNAPSHOT
-  /// (the full history each round) doesn't re-append earlier reasoning blocks.
-  final Set<String> _seenReasoningIds = {};
-
-  /// Loading flag spanning the whole exchange (first send → last re-run).
   bool _busy = false;
-
-  /// True only while [_resolveToolCalls] is running — the launch re-entrancy guard and
-  /// the signal that the initial-send loop (and [onRunReset]) must NOT clear [_busy].
-  bool _resolving = false;
-
-  /// Set when a run errors (RUN_ERROR via the stream). The resolve loop checks it after
-  /// each event so it stops consuming a post-error stream instead of looping again.
   bool _aborted = false;
 
-  // Approval (human_in_the_loop) state.
-  bool _approvalGate = true; // gate on by default
-  String? _pendingApproval; // human-readable summary; non-null while awaiting decision
+  static const maxFollowUpRuns = 8;
+
+  bool _approvalGate = true;
+  String? _pendingApproval;
   Completer<bool>? _approvalCompleter;
 
-  /// [service] is injectable for tests; production constructs the default.
   ClientToolsPageState({required this.endpoint, AgUiService? service})
-      : _service = service ?? AgUiService();
+    : _service = service ?? AgUiService();
 
   bool get busy => _busy;
   bool get isApproval => endpoint.featureKind == FeatureKind.approval;
@@ -181,200 +167,220 @@ class ClientToolsPageState extends ChangeNotifier with AgUiEventHandling {
     if (!disposed) notifyListeners();
   }
 
-  void setApprovalGate(bool v) {
-    _approvalGate = v;
+  void setApprovalGate(bool value) {
+    if (disposed || _busy) return;
+    _approvalGate = value;
     _notify();
   }
 
   @override
   void onRunReset() {
-    // Called by the mixin on RUN_ERROR. Mark aborted and clear pending work, but do NOT
-    // touch _busy/_resolving while a resolve loop owns them — its finally tears down.
     _aborted = true;
+    _settleAbandonedProposals();
     _pendingCalls = const [];
-    _pendingAssistant = null;
-    if (!_resolving) _busy = false;
   }
 
-  void sendMessage(String text) async {
-    if (text.trim().isEmpty || _busy) return;
-
-    // A new turn: drop any pending calls left stale by a prior stream that closed
-    // without RUN_FINISHED (network drop), so they can't replay against this turn.
+  /// One owner awaits the entire exchange, including local approval decisions.
+  Future<void> sendMessage(String text) async {
+    if (disposed || text.trim().isEmpty || _busy) return;
     _pendingCalls = const [];
-    _pendingAssistant = null;
     _aborted = false;
-
+    _busy = true;
     final id = uid('user');
     _history.add(UserMessage(id: id, content: text.trim()));
-    messages.add(ChatMessage(
-      id: id,
-      type: ChatMessageType.user,
-      content: text.trim(),
-      timestamp: DateTime.now(),
-    ));
-    _busy = true;
+    messages.add(
+      ChatMessage(
+        id: id,
+        type: ChatMessageType.user,
+        content: text.trim(),
+        timestamp: DateTime.now(),
+      ),
+    );
     _notify();
 
     try {
-      await for (final event in _run()) {
-        if (disposed || _aborted) return;
-        _handleEvent(event);
-      }
-    } catch (e) {
-      if (!disposed) _addError(e);
-    } finally {
-      // Clear _busy only if no round-trip is in flight (a launched _resolveToolCalls
-      // owns the flag and clears it when the exchange converges).
-      if (!disposed && !_resolving) {
-        _busy = false;
-        _notify();
-      }
-    }
-  }
-
-  Stream<BaseEvent> _run() {
-    beginRun();
-    return _service.run(
-        endpoint.path,
-        threadId: _threadId,
-        messages: _history,
-        tools: endpoint.tools,
-        extraQuery: isApproval && !_approvalGate ? {'approval': 'off'} : const {},
-      );
-  }
-
-  void _handleEvent(BaseEvent event) {
-    if (handleCommonEvent(event)) {
-      _notify();
-      return;
-    }
-
-    if (event is MessagesSnapshotEvent) {
-      // LOAD-BEARING SERVER CONTRACT: the round-trip fires only because the dojo server
-      // emits MESSAGES_SNAPSHOT (carrying the assistant's toolCalls) before RUN_FINISHED
-      // (loop.go:229-249). We read the authoritative tool-call list from the snapshot,
-      // NOT from the streamed TOOL_CALL_* events. .messages is non-nullable.
-      final assistant = event.messages.whereType<AssistantMessage>().lastOrNull;
-      final calls = assistant?.toolCalls ?? const [];
-      if (calls.isNotEmpty) {
-        // Overwrite (not append) — a cumulative snapshot carries the latest call list.
-        _pendingAssistant = assistant;
-        _pendingCalls = calls;
-      }
-      // Reasoning messages: a snapshot is the FULL history, so dedup by id or each
-      // round would re-render earlier reasoning blocks.
-      for (final m in event.messages.whereType<ReasoningMessage>()) {
-        final rid = m.id;
-        if (rid != null && !_seenReasoningIds.add(rid)) continue;
-        addReasoningMessage(m.content ?? '');
-      }
-    } else if (event is RunFinishedEvent && !_resolving) {
-      if (_pendingCalls.isNotEmpty) {
-        // Launch the round-trip ONCE; the while-loop inside drives subsequent rounds.
-        _resolveToolCalls();
-      } else {
-        // Tripwire: if a future server streamed TOOL_CALL_* without a terminating
-        // MESSAGES_SNAPSHOT, _pendingCalls would be empty here and the round-trip would
-        // silently no-op. Today's server always emits the snapshot first.
-        assert(() {
-          // No-op in release; documents the invariant in debug.
-          return true;
-        }());
-      }
-    }
-
-    _notify();
-  }
-
-  Future<void> _resolveToolCalls() async {
-    _resolving = true;
-    try {
-      while (!_aborted && !disposed && _pendingCalls.isNotEmpty) {
-        // The assistant message that requested the calls must precede the tool
-        // results in history (the model provider enforces this ordering, not the
-        // Go server).
-        _history.add(_pendingAssistant!);
+      for (var followUps = 0; ; followUps++) {
+        if (!await _consumeRun()) return;
+        if (_pendingCalls.isEmpty) return;
+        if (followUps == maxFollowUpRuns) {
+          throw StateError(
+            'Stopped after $maxFollowUpRuns tool follow-up runs. Submit another message to continue.',
+          );
+        }
         final calls = _pendingCalls;
         _pendingCalls = const [];
-        _pendingAssistant = null;
-
         for (final call in calls) {
-          final result = await _execute(call); // may await a user decision (approval)
-          if (disposed || _aborted) return; // stop processing remaining calls
-          _history.add(ToolMessage(
-            id: uid('tool'),
-            toolCallId: call.id,
-            content: result,
-          ));
+          if (!_settledCalls.add(call.id)) continue;
+          final result = await _execute(call);
+          if (disposed || _aborted) return;
+          _history.add(
+            ToolMessage(id: uid('tool'), toolCallId: call.id, content: result),
+          );
         }
-
         if (disposed || _aborted) return;
-
-        // Re-run with the full history. _handleEvent may repopulate _pendingCalls
-        // (another tool round) → the while-loop continues.
-        await for (final event in _run()) {
-          if (disposed || _aborted) return; // stop consuming a post-error stream
-          _handleEvent(event);
-        }
       }
-    } catch (e) {
-      if (!disposed) _addError(e);
+    } catch (error) {
+      if (!disposed) _addError(error);
     } finally {
-      _resolving = false;
-      // This loop owns _busy once launched; on exit the exchange is converged,
-      // aborted, or disposed.
-      if (!disposed) {
-        _busy = false;
-        _notify();
+      _pendingCalls = const [];
+      if (!disposed) finishStreaming();
+      _busy = false;
+      _notify();
+    }
+  }
+
+  Future<bool> _consumeRun() async {
+    final priorMessageIds = messages.map((message) => message.id).toSet();
+    beginRun();
+    _pendingCalls = const [];
+    await for (final event in _service.run(
+      endpoint.path,
+      threadId: _threadId,
+      messages: _history,
+      tools: endpoint.tools,
+      extraQuery: isApproval && !_approvalGate ? {'approval': 'off'} : const {},
+    )) {
+      if (disposed || _aborted) return false;
+      if (event is MessagesSnapshotEvent) {
+        _mergeHistory(event.messages);
+        reconcileSnapshot(event.messages);
+        final assistant = event.messages
+            .whereType<AssistantMessage>()
+            .lastOrNull;
+        _pendingCalls = (assistant?.toolCalls ?? const <ToolCall>[])
+            .where((call) => !_settledCalls.contains(call.id))
+            .toList();
+      } else {
+        handleCommonEvent(event);
       }
+      _notify();
+      if (event is RunErrorEvent || _aborted) return false;
+      if (event is RunFinishedEvent) {
+        // Production sends a final snapshot; preserve streamed replies too when
+        // a peer finishes a valid text-only run without a snapshot.
+        for (final message in messages) {
+          if (priorMessageIds.contains(message.id)) continue;
+          if (_history.any((existing) => existing.id == message.id)) continue;
+          if (message.type == ChatMessageType.assistant) {
+            _history.add(
+              AssistantMessage(id: message.id, content: message.content),
+            );
+          } else if (message.type == ChatMessageType.reasoning) {
+            _history.add(
+              ReasoningMessage(id: message.id, content: message.content),
+            );
+          }
+        }
+        finishStreaming();
+        return true;
+      }
+    }
+    if (!disposed && !_aborted) {
+      throw StateError('The run was interrupted before it completed.');
+    }
+    return false;
+  }
+
+  void _mergeHistory(List<Message> snapshot) {
+    for (final message in snapshot) {
+      final id = message.id;
+      if (id == null || id.isEmpty) {
+        throw const FormatException(
+          'Snapshot message is missing its protocol ID.',
+        );
+      }
+      final index = _history.indexWhere((previous) => previous.id == id);
+      if (index < 0) {
+        _history.add(message);
+      } else {
+        _history[index] = message;
+      }
+      if (message is ToolMessage) _settledCalls.add(message.toolCallId);
     }
   }
 
   /// Execute one tool call and return the JSON result string the model will read.
   Future<String> _execute(ToolCall call) async {
-    final name = call.function.name;
-    final args = _parseArgs(call.function.arguments);
-
-    if (isApproval && _approvalGate) {
-      return _executeWithApproval(name, args);
-    }
-
-    switch (name) {
-      case 'get_current_time':
-        final r = jsonEncode({'time': DateTime.now().toIso8601String()});
-        _addToolBubble(name, args, r);
-        return r;
-      case 'calculate':
-        final r = _calculate(args['expression'] as String? ?? '');
-        _addToolBubble(name, args, r);
-        return r;
-      case 'render_card':
-        // The card IS the result: render it, then acknowledge so the model can close.
-        messages.add(ChatMessage(
-          id: uid('card'),
-          type: ChatMessageType.card,
-          content: args['title'] as String? ?? 'Card',
-          timestamp: DateTime.now(),
-          cardData: args,
-        ));
-        _notify();
-        return jsonEncode({'rendered': true});
-      default:
-        // Ungated approval route (gate off) or unknown tool: perform the demo action.
-        if (isApproval) {
-          return jsonEncode({'result': _performDemoAction(name, args)});
-        }
-        return jsonEncode({'error': 'unknown tool $name'});
+    try {
+      final name = call.function.name;
+      if (!endpoint.tools.any((tool) => tool.name == name)) {
+        throw FormatException('Unknown tool: $name');
+      }
+      final args = _parseArgs(call.function.arguments);
+      switch (name) {
+        case 'get_current_time':
+          final result = jsonEncode({'time': DateTime.now().toIso8601String()});
+          _addToolBubble(name, args, result);
+          return result;
+        case 'calculate':
+          final expression = _requiredString(args, 'expression');
+          final result = _calculate(expression);
+          _addToolBubble(name, args, result);
+          return result;
+        case 'render_card':
+          final title = _requiredString(args, 'title');
+          final facts = args['facts'];
+          if (facts != null &&
+              (facts is! List ||
+                  facts.any(
+                    (fact) =>
+                        fact is! Map<String, dynamic> ||
+                        fact['label'] is! String ||
+                        fact['value'] is! String,
+                  ))) {
+            throw const FormatException(
+              'facts must contain label/value strings',
+            );
+          }
+          for (final key in ['subtitle', 'imageUrl']) {
+            if (args[key] != null && args[key] is! String) {
+              throw FormatException('$key must be a string');
+            }
+          }
+          messages.add(
+            ChatMessage(
+              id: uid('card'),
+              type: ChatMessageType.card,
+              content: title,
+              timestamp: DateTime.now(),
+              cardData: args,
+            ),
+          );
+          _notify();
+          return jsonEncode({'rendered': true});
+        case 'request_approval':
+          final summary = _requiredString(args, 'summary');
+          final action = _requiredString(args, 'action');
+          if (isApproval && _approvalGate) {
+            return await _requestApproval(summary, action);
+          }
+          return jsonEncode({
+            'approved': true,
+            'result': 'Local demonstration only; approval gate is off.',
+          });
+        default:
+          throw FormatException('Unknown tool: $name');
+      }
+    } catch (error) {
+      return jsonEncode({
+        'error': {'code': 'invalid_tool_call', 'message': error.toString()},
+      });
     }
   }
 
-  Future<String> _executeWithApproval(
-      String name, Map<String, dynamic> args) async {
+  String _requiredString(Map<String, dynamic> args, String key) {
+    final value = args[key];
+    if (value is! String || value.trim().isEmpty) {
+      throw FormatException('$key must be a nonempty string');
+    }
+    return value;
+  }
+
+  Future<String> _requestApproval(String summary, String action) async {
     // Guard the whole flow against disposal so a multi-approval batch can't hang or
     // notify after dispose. dispose() completes any in-flight completer with false.
     if (disposed) return jsonEncode({'approved': false, 'reason': 'cancelled'});
-    _pendingApproval = _summarize(name, args);
+    _pendingApproval = '$summary\n\nAction: $action';
     _approvalCompleter = Completer<bool>();
     _notify();
 
@@ -383,33 +389,44 @@ class ClientToolsPageState extends ChangeNotifier with AgUiEventHandling {
     _approvalCompleter = null;
     if (disposed) return jsonEncode({'approved': false, 'reason': 'cancelled'});
 
-    messages.add(ChatMessage(
-      id: uid('decision'),
-      type: ChatMessageType.system,
-      content: approved ? '✅ Approved: $name' : '🚫 Denied: $name',
-      timestamp: DateTime.now(),
-    ));
+    messages.add(
+      ChatMessage(
+        id: uid('decision'),
+        type: ChatMessageType.system,
+        content: approved
+            ? '✅ Approved: request_approval'
+            : '🚫 Denied: request_approval',
+        timestamp: DateTime.now(),
+      ),
+    );
     _notify();
 
     if (!approved) {
-      return jsonEncode(
-          {'approved': false, 'reason': 'The user declined this action.'});
+      return jsonEncode({
+        'approved': false,
+        'reason': 'The user declined this action.',
+      });
     }
-    return jsonEncode({'approved': true, 'result': _performDemoAction(name, args)});
+    return jsonEncode({
+      'approved': true,
+      'result': 'The user approved. You may proceed with: $action.',
+    });
   }
 
   /// Renders an agentic_chat tool call + its result as a visible bubble, so the
   /// invocation is shown (plan 02), not just the model's final text.
   void _addToolBubble(String name, Map<String, dynamic> args, String result) {
-    messages.add(ChatMessage(
-      id: uid('tool'),
-      type: ChatMessageType.tool,
-      content: args.isEmpty
-          ? '$name()\n→ $result'
-          : '$name(${jsonEncode(args)})\n→ $result',
-      timestamp: DateTime.now(),
-      toolName: name,
-    ));
+    messages.add(
+      ChatMessage(
+        id: uid('tool'),
+        type: ChatMessageType.tool,
+        content: args.isEmpty
+            ? '$name()\n→ $result'
+            : '$name(${jsonEncode(args)})\n→ $result',
+        timestamp: DateTime.now(),
+        toolName: name,
+      ),
+    );
     _notify();
   }
 
@@ -422,26 +439,6 @@ class ClientToolsPageState extends ChangeNotifier with AgUiEventHandling {
   void _resolveDecision(bool v) {
     final c = _approvalCompleter;
     if (c != null && !c.isCompleted) c.complete(v);
-  }
-
-  String _summarize(String name, Map<String, dynamic> args) {
-    switch (name) {
-      case 'request_approval':
-        return (args['summary'] as String?)?.trim().isNotEmpty == true
-            ? args['summary'] as String
-            : 'Approve action: ${args['action'] ?? name}?';
-      default:
-        return 'Run $name with ${jsonEncode(args)}';
-    }
-  }
-
-  String _performDemoAction(String name, Map<String, dynamic> args) {
-    switch (name) {
-      case 'request_approval':
-        return 'The user approved. You may proceed with: ${args['action'] ?? 'the action'}.';
-      default:
-        return 'Done.';
-    }
   }
 
   /// Tiny arithmetic evaluator for the `calculate` demo tool. Returns a JSON result;
@@ -458,23 +455,60 @@ class ClientToolsPageState extends ChangeNotifier with AgUiEventHandling {
   Map<String, dynamic> _parseArgs(String raw) {
     if (raw.trim().isEmpty) return <String, dynamic>{};
     final decoded = jsonDecode(raw);
-    return decoded is Map<String, dynamic> ? decoded : <String, dynamic>{};
+    if (decoded is! Map<String, dynamic>) {
+      throw const FormatException('Tool arguments must be an object');
+    }
+    return decoded;
+  }
+
+  // A failed/incomplete run must not leave dangling proposals in the next
+  // request's provider history. Record cancellation as data without executing.
+  void _settleAbandonedProposals() {
+    final results = _history
+        .whereType<ToolMessage>()
+        .map((m) => m.toolCallId)
+        .toSet();
+    final calls = _history
+        .whereType<AssistantMessage>()
+        .expand((message) => message.toolCalls ?? const <ToolCall>[])
+        .toList();
+    for (final call in calls) {
+      if (!results.add(call.id)) continue;
+      _settledCalls.add(call.id);
+      _history.add(
+        ToolMessage(
+          id: uid('tool'),
+          toolCallId: call.id,
+          content: jsonEncode({
+            'error': {
+              'code': 'exchange_stopped',
+              'message':
+                  'The local exchange ended before this tool could complete.',
+            },
+          }),
+        ),
+      );
+    }
   }
 
   void _addError(Object e) {
-    messages.add(ChatMessage(
-      id: uid('error'),
-      type: ChatMessageType.system,
-      content: 'Error: $e',
-      timestamp: DateTime.now(),
-    ));
+    _settleAbandonedProposals();
+    messages.add(
+      ChatMessage(
+        id: uid('error'),
+        type: ChatMessageType.system,
+        content: 'Error: $e',
+        timestamp: DateTime.now(),
+      ),
+    );
     _notify();
   }
 
   @override
   void dispose() {
+    if (disposed) return;
     disposed = true;
-    // Unwind any awaiting approval so _resolveToolCalls doesn't leak.
+    // Unwind the exchange without running a continuation after navigation.
     if (_approvalCompleter != null && !_approvalCompleter!.isCompleted) {
       _approvalCompleter!.complete(false);
     }
@@ -566,7 +600,8 @@ List<Object> _tokenize(String input) {
     } else if ('+-*/()'.contains(c)) {
       tokens.add(c);
       i++;
-      expectValue = c != ')'; // after ')' a value is not expected; after op/'(' it is
+      expectValue =
+          c != ')'; // after ')' a value is not expected; after op/'(' it is
     } else {
       final start = i;
       while (i < s.length && _numChar.hasMatch(s[i])) {

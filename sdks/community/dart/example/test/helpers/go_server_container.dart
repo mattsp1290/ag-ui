@@ -40,7 +40,10 @@ class GoServerContainer {
     if (_validatedImages.contains(kind)) return;
     if (_client == null) await _prepareDocker();
     if (!_contextReady) {
-      _context ??= await Directory.systemTemp.createTemp('ag-ui-go-$id-');
+      if (_context != null && await _context!.exists()) {
+        await _context!.delete(recursive: true);
+      }
+      _context = await Directory.systemTemp.createTemp('ag-ui-go-$id-');
       await copyGoBuildContext(source, _context!);
       _contextReady = true;
     }

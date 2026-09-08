@@ -17,6 +17,8 @@ import (
 
 	aguitypes "github.com/ag-ui-protocol/ag-ui/sdks/community/go/pkg/core/types"
 	"github.com/cloudwego/eino/schema"
+
+	"github.com/ag-ui-protocol/ag-ui/sdks/community/go/example/server/internal/wireclone"
 )
 
 const (
@@ -94,23 +96,11 @@ func (s *Store) Save(key string, saved *Saved) {
 	}
 	stored := &Saved{
 		Messages:     append([]*schema.Message(nil), saved.Messages...),
-		WireMessages: cloneWireMessages(saved.WireMessages),
+		WireMessages: wireclone.Messages(saved.WireMessages),
 		Pending:      append([]schema.ToolCall(nil), saved.Pending...),
 		State:        state,
 	}
 	s.m[key] = &entry{saved: stored, at: now}
-}
-
-func cloneWireMessages(in []aguitypes.Message) []aguitypes.Message {
-	out := make([]aguitypes.Message, len(in))
-	for i := range in {
-		out[i] = in[i]
-		out[i].ToolCalls = append([]aguitypes.ToolCall(nil), in[i].ToolCalls...)
-		if parts, ok := in[i].Content.([]aguitypes.InputContent); ok {
-			out[i].Content = append([]aguitypes.InputContent(nil), parts...)
-		}
-	}
-	return out
 }
 
 // Load returns a paused run and whether it was present. An entry past its TTL is
@@ -159,7 +149,7 @@ func (s *Store) LoadAndDelete(key string) (*Saved, bool) {
 
 func cloneSavedForLoad(saved *Saved) *Saved {
 	out := *saved
-	out.WireMessages = cloneWireMessages(saved.WireMessages)
+	out.WireMessages = wireclone.Messages(saved.WireMessages)
 	return &out
 }
 

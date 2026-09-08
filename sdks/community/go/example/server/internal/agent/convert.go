@@ -9,23 +9,6 @@ import (
 	"github.com/cloudwego/eino/schema"
 )
 
-// cloneWireMessages gives the application ownership of the request transcript.
-// IDs are assigned once at ingress and retained for every later snapshot.
-func cloneWireMessages(in []aguitypes.Message) []aguitypes.Message {
-	out := make([]aguitypes.Message, len(in))
-	for i := range in {
-		out[i] = in[i]
-		if out[i].ID == "" {
-			out[i].ID = aguievents.GenerateMessageID()
-		}
-		out[i].ToolCalls = append([]aguitypes.ToolCall(nil), in[i].ToolCalls...)
-		if parts, ok := in[i].Content.([]aguitypes.InputContent); ok {
-			out[i].Content = append([]aguitypes.InputContent(nil), parts...)
-		}
-	}
-	return out
-}
-
 // supportsVision reports whether the named provider forwards multimodal
 // (image) content to the model. The OpenAI path honours UserInputMultiContent.
 func supportsVision(provider string) bool {

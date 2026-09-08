@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/ag-ui-protocol/ag-ui/sdks/community/go/example/server/internal/wireclone"
 	"sort"
 
 	"github.com/ag-ui-protocol/ag-ui/sdks/community/go/pkg/core/events"
@@ -52,7 +53,7 @@ func (s SharedState) Run(ctx context.Context, emit *Emitter, in *aguitypes.RunAg
 	// servings, ingredients, or steps it is supposed to collaborate on (it would answer
 	// questions blind and could not compute edits like "double the servings").
 	messages := ensureSystemPrompt(toEinoMessages(in.Messages, s.Deps.Provider), sharedStateSystemPrompt+currentRecipeContext(doc))
-	wireMessages := cloneWireMessages(in.Messages)
+	wireMessages := wireclone.Messages(in.Messages)
 
 	maxIter := s.Deps.MaxIterations
 	if maxIter <= 0 {
@@ -85,7 +86,7 @@ func (s SharedState) Run(ctx context.Context, emit *Emitter, in *aguitypes.RunAg
 		// events — so a malformed call must not leak a TOOL_CALL_RESULT.
 		wireMessages = append(wireMessages, turn.WireMessages...)
 		actionable := validateToolCallsQuiet(s.Deps.Logger, assistant, &messages, &wireMessages)
-		setWireToolCalls(wireMessages, turn.ToolOwnerID, assistant.ToolCalls)
+		wireMessages = setWireToolCalls(wireMessages, turn.ToolOwnerID, assistant.ToolCalls)
 		if len(assistant.ToolCalls) == 0 {
 			// Final text answer.
 			emit.MessagesSnapshot(wireMessages)

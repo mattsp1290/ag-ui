@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/ag-ui-protocol/ag-ui/sdks/community/go/example/server/internal/wireclone"
 	"io"
 	"log/slog"
 	"strconv"
@@ -173,7 +174,7 @@ func Run(ctx context.Context, emit *Emitter, in *aguitypes.RunAgentInput, deps *
 		st = NewState()
 		st.Seed(in.State)
 		messages = ensureSystemPrompt(toEinoMessages(in.Messages, deps.Provider), cfg.SystemPrompt)
-		wireMessages = cloneWireMessages(in.Messages)
+		wireMessages = wireclone.Messages(in.Messages)
 		emit.StateSnapshot(st.Snapshot())
 	}
 
@@ -219,7 +220,7 @@ func Run(ctx context.Context, emit *Emitter, in *aguitypes.RunAgentInput, deps *
 		// the calls kept on the message (each retaining a matching tool response).
 		wireMessages = append(wireMessages, turn.WireMessages...)
 		actionable := validateToolCalls(emit, deps.Logger, assistant, &messages, &wireMessages)
-		setWireToolCalls(wireMessages, turn.ToolOwnerID, assistant.ToolCalls)
+		wireMessages = setWireToolCalls(wireMessages, turn.ToolOwnerID, assistant.ToolCalls)
 
 		if len(assistant.ToolCalls) == 0 {
 			converged = true
@@ -368,10 +369,12 @@ func streamTurn(ctx context.Context, emit *Emitter, cm model.ToolCallingChatMode
 	// call across OPEN/delta/CLOSE chunks).
 	type tcStream struct {
 		started  bool
+		invalid  bool
 		id, name string
 		buffered []string // arg fragments held until id+name are known
 	}
 	tcs := map[string]*tcStream{}
+	toolCallKeysByID := map[string]string{}
 	var tcOrder []string
 
 	closeReasoning := func() {
@@ -411,6 +414,20 @@ func streamTurn(ctx context.Context, emit *Emitter, cm model.ToolCallingChatMode
 				st = &tcStream{}
 				tcs[key] = st
 				tcOrder = append(tcOrder, key)
+			}
+			if tc.ID != "" && tc.ID != st.id {
+				if st.id != "" {
+					// A provider changing the identity assigned to one stream index is
+					// ambiguous. Do not redirect later argument chunks to another call.
+					st.invalid = true
+				} else if ownerKey, exists := toolCallKeysByID[tc.ID]; exists && ownerKey != key {
+					st.invalid = true
+				} else {
+					toolCallKeysByID[tc.ID] = key
+				}
+			}
+			if st.invalid {
+				continue
 			}
 			if tc.Function.Name != "" {
 				st.name = tc.Function.Name
@@ -569,6 +586,7 @@ func validateToolCallsQuiet(logger *slog.Logger, assistant *schema.Message, mess
 func validateToolCallsOpt(emit *Emitter, logger *slog.Logger, assistant *schema.Message, messages *[]*schema.Message, wireMessages *[]aguitypes.Message, emitResults bool) []schema.ToolCall {
 	kept := make([]schema.ToolCall, 0, len(assistant.ToolCalls))
 	actionable := make([]schema.ToolCall, 0, len(assistant.ToolCalls))
+	seenIDs := make(map[string]bool, len(assistant.ToolCalls))
 	corrective := func(tc schema.ToolCall, result string) {
 		messageID := aguievents.GenerateMessageID()
 		if emitResults {
@@ -582,11 +600,20 @@ func validateToolCallsOpt(emit *Emitter, logger *slog.Logger, assistant *schema.
 		switch {
 		case tc.ID == "":
 			logger.Warn("dropping tool call with empty id", "name", tc.Function.Name)
+		case seenIDs[tc.ID]:
+			// The ID is the correlation identity for proposals, interrupts and
+			// results. Keeping a second call would make ownership ambiguous and can
+			// execute an unintended operation. Drop it without threading a second
+			// result under the same ID.
+			logger.Warn("dropping duplicate tool call id", "id", tc.ID, "name", tc.Function.Name)
 		case tc.Function.Name == "":
+			seenIDs[tc.ID] = true
 			corrective(tc, `{"error":"tool call had an empty function name"}`)
 		case !json.Valid([]byte(tc.Function.Arguments)):
+			seenIDs[tc.ID] = true
 			corrective(tc, fmt.Sprintf(`{"error":"tool arguments for %q were not valid JSON"}`, tc.Function.Name))
 		default:
+			seenIDs[tc.ID] = true
 			kept = append(kept, tc)
 			actionable = append(actionable, tc)
 		}
@@ -645,16 +672,28 @@ func toolOwnerID(messages []aguitypes.Message, toolCallID string) string {
 	return ""
 }
 
-func setWireToolCalls(messages []aguitypes.Message, ownerID string, calls []schema.ToolCall) {
+func setWireToolCalls(messages []aguitypes.Message, ownerID string, calls []schema.ToolCall) []aguitypes.Message {
 	if ownerID == "" {
-		return
+		return messages
 	}
 	for i := len(messages) - 1; i >= 0; i-- {
 		if messages[i].ID == ownerID {
+			if len(calls) == 0 && messages[i].Content == nil {
+				return append(messages[:i], messages[i+1:]...)
+			}
 			messages[i].ToolCalls = toAGUIToolCalls(calls)
-			return
+			for j := range messages[i].ToolCalls {
+				if messages[i].ToolCalls[j].Function.Name == "" {
+					// Keep the wire snapshot decoder-valid while retaining the ID that
+					// owns the corrective tool result. The provider transcript keeps
+					// the original malformed call so the model can repair it.
+					messages[i].ToolCalls[j].Function.Name = "invalid_tool_call"
+				}
+			}
+			return messages
 		}
 	}
+	return messages
 }
 
 // approvalsFromResume maps resume entries to per-tool-call approval. An entry is

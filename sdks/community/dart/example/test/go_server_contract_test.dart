@@ -503,6 +503,7 @@ void main() {
       ];
       for (final item in cases) {
         final service = _service();
+        addTearDown(service.close);
         final events = await _events(
           service.sendMultimodalMessage(item.$1, item.$2),
         );
@@ -511,6 +512,7 @@ void main() {
       }
 
       final imageService = _service();
+      addTearDown(imageService.close);
       final imageEvents = await _events(
         imageService.sendMessage('image-gen', 'fixture:plain'),
       );

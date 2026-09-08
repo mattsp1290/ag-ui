@@ -20,6 +20,7 @@ class GoServerContainer {
   final Map<String, DockerContainer?> _containers = {};
   final Set<Future<void>> _pending = {};
   Directory? _context;
+  bool _contextReady = false;
   DockerClient? _client;
   String? _host;
   Future<void>? _closeFuture;
@@ -38,9 +39,10 @@ class GoServerContainer {
     if (_closing) throw StateError('Container fixture is closing');
     if (_validatedImages.contains(kind)) return;
     if (_client == null) await _prepareDocker();
-    if (_context == null) {
-      _context = await Directory.systemTemp.createTemp('ag-ui-go-$id-');
+    if (!_contextReady) {
+      _context ??= await Directory.systemTemp.createTemp('ag-ui-go-$id-');
       await copyGoBuildContext(source, _context!);
+      _contextReady = true;
     }
     final tag = _images.putIfAbsent(
       kind,
@@ -83,10 +85,10 @@ class GoServerContainer {
     }
     final config = details['Config'] as Map<String, dynamic>;
     final user = config['User'] as String? ?? '';
-    if (user.isEmpty ||
-        user.split(':').first == '0' ||
-        user.split(':').first == 'root') {
-      throw StateError('Go image must run as a non-root user');
+    if (user != '65532:65532') {
+      throw StateError(
+        'Go image must use the pinned non-root user 65532:65532',
+      );
     }
     final entrypoint = (config['Entrypoint'] as List).cast<String>();
     final expected = kind == GoImage.production
@@ -229,12 +231,12 @@ class GoServerContainer {
         'Docker Engine is unavailable. Start Docker Desktop/Engine and verify docker version before running requires-go-server tests.',
       );
     }
-    _client = DockerClient();
     await dockerCommand(
       ['pull', testcontainersConfig.ryukImage],
       host: _host,
       timeout: const Duration(minutes: 2),
     );
+    _client = DockerClient();
   }
 
   static Future<String> _canonical(String endpoint) async {

@@ -86,6 +86,16 @@ func (d *JSONDecoder) Decode(ctx context.Context, data []byte) (events.Event, er
 		defer atomic.AddInt32(&d.activeOperations, -1)
 	}
 
+	return d.decode(ctx, data)
+}
+
+// decode performs one decode under the caller's concurrency admission.
+// Batch decoding calls it directly so a batch occupies only one slot.
+func (d *JSONDecoder) decode(ctx context.Context, data []byte) (events.Event, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, &encoding.DecodingError{Format: "json", Message: "context cancelled", Cause: err}
+	}
+
 	if len(data) == 0 {
 		return nil, &encoding.DecodingError{
 			Format:  "json",
@@ -194,7 +204,7 @@ func (d *JSONDecoder) DecodeMultiple(ctx context.Context, data []byte) ([]events
 	// Decode each event
 	events := make([]events.Event, 0, len(rawEvents))
 	for i, rawEvent := range rawEvents {
-		event, err := d.Decode(ctx, rawEvent)
+		event, err := d.decode(ctx, rawEvent)
 		if err != nil {
 			// Enhance error with index information
 			if decErr, ok := err.(*encoding.DecodingError); ok {
@@ -228,136 +238,14 @@ func (d *JSONDecoder) createEvent(eventType events.EventType, data []byte) (even
 		decoder.DisallowUnknownFields()
 	}
 
-	var err error
-	var event events.Event
-
-	switch eventType {
-	case events.EventTypeTextMessageStart:
-		var e events.TextMessageStartEvent
-		err = decoder.Decode(&e)
-		if err == nil {
-			event = &e
-		}
-
-	case events.EventTypeTextMessageChunk:
-		var e events.TextMessageChunkEvent
-		err = decoder.Decode(&e)
-		if err == nil {
-			event = &e
-		}
-
-	case events.EventTypeTextMessageContent:
-		var e events.TextMessageContentEvent
-		err = decoder.Decode(&e)
-		if err == nil {
-			event = &e
-		}
-
-	case events.EventTypeTextMessageEnd:
-		var e events.TextMessageEndEvent
-		err = decoder.Decode(&e)
-		if err == nil {
-			event = &e
-		}
-
-	case events.EventTypeToolCallStart:
-		var e events.ToolCallStartEvent
-		err = decoder.Decode(&e)
-		if err == nil {
-			event = &e
-		}
-
-	case events.EventTypeToolCallArgs:
-		var e events.ToolCallArgsEvent
-		err = decoder.Decode(&e)
-		if err == nil {
-			event = &e
-		}
-
-	case events.EventTypeToolCallEnd:
-		var e events.ToolCallEndEvent
-		err = decoder.Decode(&e)
-		if err == nil {
-			event = &e
-		}
-
-	case events.EventTypeStateSnapshot:
-		var e events.StateSnapshotEvent
-		err = decoder.Decode(&e)
-		if err == nil {
-			event = &e
-		}
-
-	case events.EventTypeStateDelta:
-		var e events.StateDeltaEvent
-		err = decoder.Decode(&e)
-		if err == nil {
-			event = &e
-		}
-
-	case events.EventTypeMessagesSnapshot:
-		var e events.MessagesSnapshotEvent
-		err = decoder.Decode(&e)
-		if err == nil {
-			event = &e
-		}
-
-	case events.EventTypeRaw:
-		var e events.RawEvent
-		err = decoder.Decode(&e)
-		if err == nil {
-			event = &e
-		}
-
-	case events.EventTypeCustom:
-		var e events.CustomEvent
-		err = decoder.Decode(&e)
-		if err == nil {
-			event = &e
-		}
-
-	case events.EventTypeRunStarted:
-		var e events.RunStartedEvent
-		err = decoder.Decode(&e)
-		if err == nil {
-			event = &e
-		}
-
-	case events.EventTypeRunFinished:
-		var e events.RunFinishedEvent
-		err = decoder.Decode(&e)
-		if err == nil {
-			event = &e
-		}
-
-	case events.EventTypeRunError:
-		var e events.RunErrorEvent
-		err = decoder.Decode(&e)
-		if err == nil {
-			event = &e
-		}
-
-	case events.EventTypeStepStarted:
-		var e events.StepStartedEvent
-		err = decoder.Decode(&e)
-		if err == nil {
-			event = &e
-		}
-
-	case events.EventTypeStepFinished:
-		var e events.StepFinishedEvent
-		err = decoder.Decode(&e)
-		if err == nil {
-			event = &e
-		}
-
-	default:
+	event, err := events.NewEventForType(eventType)
+	if err != nil {
 		return nil, &encoding.DecodingError{
-			Format:  "json",
-			Data:    data,
+			Format: "json", Data: data,
 			Message: fmt.Sprintf("unknown event type: %s", eventType),
 		}
 	}
+	err = decoder.Decode(event)
 
 	if err != nil {
 		return nil, &encoding.DecodingError{

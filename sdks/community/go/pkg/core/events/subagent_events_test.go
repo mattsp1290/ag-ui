@@ -211,3 +211,18 @@ func assertErrorContains(t *testing.T, err error, want string) {
 		assert.Contains(t, err.Error(), want)
 	}
 }
+
+func TestValidateSequenceSuspendedSubagentCanResume(t *testing.T) {
+	require.NoError(t, ValidateSequence([]Event{
+		NewRunStartedEvent("thread", "run-1"),
+		NewSubagentStartedEvent("sub", "researcher"),
+		NewSubagentFinishedEvent("sub", WithSubagentSuspendedOutcome([]string{"interrupt"})),
+		NewRunFinishedEvent("thread", "run-1"),
+		NewRunStartedEvent("thread", "run-2"),
+		NewSubagentStartedEvent("sub", "researcher"),
+		NewSubagentFinishedEvent("sub", WithSubagentSuccessOutcome()),
+		NewRunFinishedEvent("thread", "run-2"),
+	}))
+	// Open prefixes remain valid; sequence validation is not a completion gate.
+	require.NoError(t, ValidateSequence([]Event{NewSubagentStartedEvent("sub", "researcher")}))
+}

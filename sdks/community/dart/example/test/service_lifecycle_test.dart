@@ -56,7 +56,232 @@ class _StreamingClient extends http.BaseClient {
   }
 }
 
+class _ThrowingCloseClient extends _CountingClient {
+  @override
+  void close() {
+    super.close();
+    throw StateError('close failed');
+  }
+}
+
+class _CancelRetryClient extends http.BaseClient {
+  final never = Completer<http.StreamedResponse>();
+  int sends = 0;
+
+  @override
+  Future<http.StreamedResponse> send(http.BaseRequest request) {
+    sends++;
+    if (sends == 1) return never.future;
+    return Future.value(http.StreamedResponse(const Stream.empty(), 200));
+  }
+}
+
+class _StreamingRetryClient extends http.BaseClient {
+  final firstListened = Completer<void>();
+  final firstCancelled = Completer<void>();
+  late final StreamController<List<int>> firstBody;
+  int sends = 0;
+
+  _StreamingRetryClient() {
+    firstBody = StreamController<List<int>>(
+      onListen: () => firstListened.complete(),
+      onCancel: () => firstCancelled.complete(),
+    );
+  }
+
+  @override
+  Future<http.StreamedResponse> send(http.BaseRequest request) async {
+    sends++;
+    return http.StreamedResponse(
+      sends == 1 ? firstBody.stream : const Stream.empty(),
+      200,
+      headers: {'content-type': 'text/event-stream'},
+    );
+  }
+}
+
+class _LatePendingThenStreamingClient extends http.BaseClient {
+  final firstResponse = Completer<http.StreamedResponse>();
+  final secondListened = Completer<void>();
+  final secondCancelled = Completer<void>();
+  late final StreamController<List<int>> secondBody;
+  int sends = 0;
+
+  _LatePendingThenStreamingClient() {
+    secondBody = StreamController<List<int>>(
+      onListen: () => secondListened.complete(),
+      onCancel: () => secondCancelled.complete(),
+    );
+  }
+
+  @override
+  Future<http.StreamedResponse> send(http.BaseRequest request) {
+    sends++;
+    if (sends == 1) return firstResponse.future;
+    return Future.value(
+      http.StreamedResponse(
+        secondBody.stream,
+        200,
+        headers: {'content-type': 'text/event-stream'},
+      ),
+    );
+  }
+}
+
 void main() {
+  test(
+    'canceling a pending send releases ownership before HTTP completion',
+    () async {
+      final client = _CancelRetryClient();
+      final service = AgUiService(httpClient: client);
+      final subscription = service
+          .run('first', threadId: 't1', messages: const [])
+          .listen((_) {}, onError: (_) {});
+      await Future<void>.delayed(Duration.zero);
+      await subscription.cancel().timeout(const Duration(seconds: 1));
+      expect(service.isBusy, isFalse);
+      await service
+          .run('retry', threadId: 't2', messages: const [])
+          .drain<void>()
+          .timeout(const Duration(seconds: 1));
+      expect(client.sends, 2);
+      await service.close();
+    },
+  );
+
+  test(
+    'canceling active SSE suppresses late events and permits retry',
+    () async {
+      final client = _StreamingRetryClient();
+      final service = AgUiService(httpClient: client);
+      final events = <BaseEvent>[];
+      final subscription = service
+          .run('first', threadId: 't1', messages: const [])
+          .listen(events.add, onError: (_) {});
+      await client.firstListened.future.timeout(const Duration(seconds: 1));
+      try {
+        await subscription.cancel().timeout(const Duration(seconds: 1));
+        await client.firstCancelled.future.timeout(const Duration(seconds: 1));
+        client.firstBody.add(
+          utf8.encode(
+            'data: {"type":"RUN_STARTED","threadId":"t","runId":"late"}\n\n',
+          ),
+        );
+        await Future<void>.delayed(Duration.zero);
+        expect(events, isEmpty);
+        expect(service.isBusy, isFalse);
+        await service
+            .run('retry', threadId: 't2', messages: const [])
+            .drain<void>();
+        expect(client.sends, 2);
+      } finally {
+        await client.firstBody.close();
+        await service.close();
+      }
+    },
+  );
+
+  test(
+    'a late canceled response cannot take ownership from its retry',
+    () async {
+      final client = _LatePendingThenStreamingClient();
+      final service = AgUiService(httpClient: client);
+      final first = service
+          .run('first', threadId: 't1', messages: const [])
+          .listen((_) {}, onError: (_) {});
+      await Future<void>.delayed(Duration.zero);
+      await first.cancel().timeout(const Duration(seconds: 1));
+
+      final events = <BaseEvent>[];
+      final second = service
+          .run('second', threadId: 't2', messages: const [])
+          .listen(events.add, onError: (_) {});
+      await client.secondListened.future.timeout(const Duration(seconds: 1));
+      try {
+        client.firstResponse.complete(
+          http.StreamedResponse(const Stream.empty(), 200),
+        );
+        await Future<void>.delayed(Duration.zero);
+        expect(service.isBusy, isTrue);
+        expect(client.secondCancelled.isCompleted, isFalse);
+
+        client.secondBody.add(
+          utf8.encode(
+            'data: {"type":"RUN_STARTED","threadId":"t2","runId":"r2"}\n\n',
+          ),
+        );
+        await Future<void>.delayed(Duration.zero);
+        expect(events, hasLength(1));
+
+        await second.cancel().timeout(const Duration(seconds: 1));
+        await client.secondCancelled.future.timeout(const Duration(seconds: 1));
+        expect(service.isBusy, isFalse);
+      } finally {
+        await client.secondBody.close();
+        await service.close();
+      }
+    },
+  );
+
+  test('an unlistened cold stream does not reserve the service', () async {
+    final client = _CountingClient();
+    final service = AgUiService(httpClient: client);
+    service.run('unused', threadId: 'cold', messages: const []);
+    expect(service.isBusy, isFalse);
+    await service
+        .run('agentic_chat', threadId: 'active', messages: const [])
+        .drain<void>();
+    expect(client.requests, hasLength(1));
+    await service.close();
+  });
+
+  test('two cold streams claim one active exchange when listened', () async {
+    final client = _PendingClient();
+    final service = AgUiService(httpClient: client);
+    final first = service.run('first', threadId: 't1', messages: const []);
+    final second = service.run('second', threadId: 't2', messages: const []);
+    final firstDone = first.drain<void>().catchError((Object _) {});
+    await Future<void>.delayed(Duration.zero);
+    await expectLater(second, emitsError(isA<StateError>()));
+    client.response.complete(http.StreamedResponse(const Stream.empty(), 200));
+    await firstDone;
+    await service.close();
+  });
+
+  test(
+    'a stream prepared before close cannot send when later listened',
+    () async {
+      final client = _CountingClient();
+      final service = AgUiService(httpClient: client);
+      final cold = service.run(
+        'agentic_chat',
+        threadId: 't',
+        messages: const [],
+      );
+      await service.close();
+      await expectLater(cold, emitsError(isA<StateError>()));
+      expect(client.requests, isEmpty);
+    },
+  );
+
+  test(
+    'status controller closes even when the SDK HTTP client close fails',
+    () async {
+      final client = _ThrowingCloseClient();
+      final service = AgUiService(httpClient: client);
+      var statusDone = false;
+      final subscription = service.connectionStatus.listen(
+        (_) {},
+        onDone: () => statusDone = true,
+      );
+      await expectLater(service.close(), throwsStateError);
+      await Future<void>.delayed(Duration.zero);
+      expect(statusDone, isTrue);
+      expect(client.closeCount, 1);
+      await subscription.cancel();
+    },
+  );
+
   test(
     'default URL is used by the actual HTTP request and client closes once',
     () async {
@@ -105,16 +330,34 @@ void main() {
       final state = <String, dynamic>{
         'recipe': <String, dynamic>{'servings': 2},
       };
-      final history = <Message>[UserMessage(id: 'user-1', content: 'hello')];
+      final parts = <InputContent>[const TextInputContent('hello')];
+      final toolSchema = <String, dynamic>{
+        'type': 'object',
+        'properties': <String, dynamic>{
+          'value': <String, dynamic>{'type': 'string'},
+        },
+      };
+      final history = <Message>[
+        UserMessage.multimodal(id: 'user-1', parts: parts),
+      ];
       final firstRun = service.run(
         'human_in_the_loop',
         threadId: 'thread',
         messages: history,
+        tools: [
+          Tool(
+            name: 'nested',
+            description: 'snapshot test',
+            parameters: toolSchema,
+          ),
+        ],
         state: state,
         extraQuery: {'approval': 'off & later'},
       );
       state['recipe'] = {'servings': 99};
       history.add(UserMessage(id: 'too-late', content: 'mutation'));
+      parts.add(const TextInputContent('late nested part'));
+      (toolSchema['properties'] as Map<String, dynamic>).clear();
       await firstRun.drain<void>();
       await service
           .run(
@@ -134,8 +377,48 @@ void main() {
         'servings': 2,
       });
       expect(first['messages'], hasLength(1));
+      expect(
+        ((first['messages'] as List).single as Map)['content'],
+        hasLength(1),
+      );
+      expect(
+        ((((first['tools'] as List).single as Map)['parameters']
+                as Map)['properties']
+            as Map),
+        contains('value'),
+      );
       expect(first['runId'], isNot(second['runId']));
       await service.close();
+      await service.close();
+    },
+  );
+
+  test(
+    'an asynchronous transport error releases ownership for retry',
+    () async {
+      var sends = 0;
+      final client = MockClient((_) async {
+        sends++;
+        return http.Response(
+          '',
+          sends == 1 ? 503 : 200,
+          headers: {'content-type': 'text/event-stream'},
+        );
+      });
+      final service = AgUiService(httpClient: client);
+      final statuses = <ConnectionStatus>[];
+      final subscription = service.connectionStatus.listen(statuses.add);
+      await expectLater(
+        service.run('first', threadId: 't1', messages: const []),
+        emitsError(isA<AGUIError>()),
+      );
+      expect(service.isBusy, isFalse);
+      expect(statuses, contains(ConnectionStatus.error));
+      await service
+          .run('retry', threadId: 't2', messages: const [])
+          .drain<void>();
+      expect(sends, 2);
+      await subscription.cancel();
       await service.close();
     },
   );
@@ -181,6 +464,7 @@ void main() {
           .catchError((Object _) {});
       await Future<void>.delayed(Duration.zero);
       await service.close();
+      expect(service.isBusy, isFalse);
       final countAtClose = statuses.length;
       client.response.complete(
         http.StreamedResponse(const Stream.empty(), 200),
@@ -205,6 +489,7 @@ void main() {
           .listen(received.add, onError: (_) {});
       await Future<void>.delayed(Duration.zero);
       await service.close();
+      expect(service.isBusy, isFalse);
       bytes.add(
         utf8.encode(
           'data: {"type":"RUN_STARTED","threadId":"t","runId":"r"}\n\n',

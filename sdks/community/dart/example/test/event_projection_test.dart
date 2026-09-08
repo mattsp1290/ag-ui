@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:ag_ui/ag_ui.dart';
+import 'package:ag_ui_example/models/chat_message.dart';
 import 'package:ag_ui_example/models/endpoint_config.dart';
 import 'package:ag_ui_example/pages/agui_event_handling.dart';
 import 'package:ag_ui_example/pages/chat_page.dart';
@@ -14,6 +15,8 @@ class _Projection extends ChangeNotifier with AgUiEventHandling {}
 
 class _FakeService extends AgUiService {
   final List<Stream<BaseEvent>> runs;
+  final StreamController<ConnectionStatus> statuses =
+      StreamController<ConnectionStatus>.broadcast();
   int closeCalls = 0;
 
   _FakeService(this.runs)
@@ -30,9 +33,26 @@ class _FakeService extends AgUiService {
   }) => runs.removeAt(0);
 
   @override
+  Stream<ConnectionStatus> get connectionStatus => statuses.stream;
+
+  @override
   Future<void> close() async {
     closeCalls++;
   }
+}
+
+Stream<BaseEvent> _partialThenError() async* {
+  yield const TextMessageStartEvent(messageId: 'partial-answer');
+  yield const TextMessageContentEvent(
+    messageId: 'partial-answer',
+    delta: 'visible',
+  );
+  yield const ReasoningMessageStartEvent(messageId: 'partial-reasoning');
+  yield const ReasoningMessageContentEvent(
+    messageId: 'partial-reasoning',
+    delta: 'because',
+  );
+  throw StateError('transport failed');
 }
 
 const _endpoint = EndpointConfig(
@@ -133,11 +153,100 @@ void main() {
       await Future<void>.delayed(Duration.zero);
       state.dispose();
       final atDispose = notifications;
+      final statusAtDispose = state.connectionStatus;
+      service.statuses.add(ConnectionStatus.connected);
       controller.add(const TextMessageStartEvent(messageId: 'late'));
       await controller.close();
       await Future<void>.delayed(Duration.zero);
       expect(notifications, atDispose);
+      expect(state.connectionStatus, statusAtDispose);
       expect(service.closeCalls, 1);
+      await service.statuses.close();
+    },
+  );
+
+  test('transport errors finalize partial text and reasoning', () async {
+    final service = _FakeService([_partialThenError()]);
+    final state = ChatPageState(endpoint: _endpoint, service: service);
+    addTearDown(() async {
+      state.dispose();
+      await service.statuses.close();
+    });
+
+    state.sendMessage('hello');
+    await Future<void>.delayed(Duration.zero);
+    await Future<void>.delayed(Duration.zero);
+
+    expect(state.isLoading, isFalse);
+    expect(
+      state.messages.where((message) => message.id == 'partial-answer').single,
+      isA<ChatMessage>()
+          .having((message) => message.content, 'content', 'visible')
+          .having((message) => message.isStreaming, 'isStreaming', isFalse),
+    );
+    expect(
+      state.messages
+          .where((message) => message.id == 'partial-reasoning')
+          .single,
+      isA<ChatMessage>()
+          .having((message) => message.content, 'content', 'because')
+          .having((message) => message.isStreaming, 'isStreaming', isFalse),
+    );
+    expect(state.messages.last.content, contains('transport failed'));
+  });
+
+  test(
+    'tool lifecycle and cumulative snapshot retain one settled row',
+    () async {
+      const toolCall = ToolCall(
+        id: 'tool-1',
+        function: FunctionCall(
+          name: 'calculate',
+          arguments: '{"expression":"2+2"}',
+        ),
+      );
+      final service = _FakeService([
+        Stream<BaseEvent>.fromIterable([
+          const ToolCallStartEvent(
+            toolCallId: 'tool-1',
+            toolCallName: 'calculate',
+          ),
+          const ToolCallArgsEvent(
+            toolCallId: 'tool-1',
+            delta: '{"expression":',
+          ),
+          const ToolCallArgsEvent(toolCallId: 'tool-1', delta: '"2+2"}'),
+          const ToolCallEndEvent(toolCallId: 'tool-1'),
+          const ToolCallResultEvent(
+            messageId: 'tool-result-1',
+            toolCallId: 'tool-1',
+            content: '{"result":4}',
+          ),
+          MessagesSnapshotEvent(
+            messages: [
+              AssistantMessage(id: 'assistant-1', toolCalls: [toolCall]),
+            ],
+          ),
+          const RunFinishedEvent(threadId: 'thread', runId: 'run'),
+        ]),
+      ]);
+      final state = ChatPageState(endpoint: _endpoint, service: service);
+      addTearDown(() async {
+        state.dispose();
+        await service.statuses.close();
+      });
+
+      state.sendMessage('calculate');
+      await Future<void>.delayed(Duration.zero);
+      await Future<void>.delayed(Duration.zero);
+
+      final tool = state.messages
+          .where((message) => message.id == 'tool-1')
+          .single;
+      expect(tool.toolName, 'calculate');
+      expect(tool.toolArgs, '{"expression":"2+2"}');
+      expect(tool.toolResult, '{"result":4}');
+      expect(tool.isStreaming, isFalse);
     },
   );
 }

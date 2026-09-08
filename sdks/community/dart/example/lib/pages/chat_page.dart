@@ -157,7 +157,6 @@ class ChatPageState extends ChangeNotifier with AgUiEventHandling {
   bool _isLoading = false;
   bool _disposed = false;
   ConnectionStatus _connectionStatus = ConnectionStatus.disconnected;
-  ChatMessage? _currentStreamingMessage;
   final List<Message> _history = [];
   final String _threadId = uid('thread');
   late final StreamSubscription<ConnectionStatus> _connectionSubscription;
@@ -204,7 +203,7 @@ class ChatPageState extends ChangeNotifier with AgUiEventHandling {
         if (runIsTerminal) break;
       }
       if (!runIsTerminal && !_disposed) {
-        _finalizeStreaming();
+        finishStreaming();
         messages.add(
           ChatMessage(
             id: uid('interrupted'),
@@ -228,7 +227,7 @@ class ChatPageState extends ChangeNotifier with AgUiEventHandling {
     } finally {
       if (!_disposed) {
         _isLoading = false;
-        _currentStreamingMessage = null;
+        finishStreaming();
         notifyListeners();
       }
     }
@@ -242,117 +241,38 @@ class ChatPageState extends ChangeNotifier with AgUiEventHandling {
       return;
     }
     if (event is ToolCallResultEvent) {
-      messages.add(ChatMessage.fromAssistantEvent(event));
+      _updateTool(event.toolCallId, result: event.content, isStreaming: false);
     } else if (event is ToolCallStartEvent) {
-      messages.add(
-        ChatMessage(
-          id: event.toolCallId,
-          type: ChatMessageType.tool,
-          content: '🔧 Calling tool: ${event.toolCallName}',
-          timestamp: DateTime.now(),
-          isStreaming: true,
-          toolName: event.toolCallName,
-        ),
+      _updateTool(
+        event.toolCallId,
+        name: event.toolCallName,
+        isStreaming: true,
       );
     } else if (event is ToolCallArgsEvent) {
-      // Update the tool call with arguments
-      final toolMessages = messages
-          .where(
-            (m) =>
-                m.type == ChatMessageType.tool &&
-                m.id == event.toolCallId &&
-                m.isStreaming,
-          )
-          .toList();
-      if (toolMessages.isNotEmpty) {
-        final tool = toolMessages.last;
-        final index = messages.indexOf(tool);
-        if (index != -1) {
-          final args = event.delta;
-          messages[index] = tool.copyWith(
-            content: '${tool.content}\nArguments: $args',
-            toolArgs: args,
-          );
-        }
-      }
+      _updateTool(event.toolCallId, argsDelta: event.delta);
     } else if (event is ToolCallEndEvent) {
-      final toolMessages = messages
-          .where(
-            (m) => m.type == ChatMessageType.tool && m.id == event.toolCallId,
-          )
-          .toList();
-      if (toolMessages.isNotEmpty) {
-        final tool = toolMessages.last;
-        final index = messages.indexOf(tool);
-        if (index != -1) {
-          messages[index] = tool.copyWith(
-            content: '${tool.content}\n✅ Tool completed',
+      _updateTool(event.toolCallId, isStreaming: false);
+    } else if (event is MessagesSnapshotEvent) {
+      reconcileSnapshot(event.messages);
+      for (final message in event.messages) {
+        if (message is AssistantMessage || message is ReasoningMessage) {
+          _replaceHistory(message);
+        }
+        if (message is! AssistantMessage) continue;
+        for (final toolCall in message.toolCalls ?? <ToolCall>[]) {
+          _updateTool(
+            toolCall.id,
+            name: toolCall.function.name,
+            args: toolCall.function.arguments,
             isStreaming: false,
           );
         }
       }
-    } else if (event is MessagesSnapshotEvent) {
-      reconcileSnapshot(event.messages);
-      // Handle messages snapshot - typically contains the full conversation state
-      for (final message in event.messages) {
-        if (message is AssistantMessage) {
-          final hasToolCalls = message.toolCalls?.isNotEmpty ?? false;
-          final content =
-              message.content ??
-              (hasToolCalls
-                  ? '🤖 Assistant used tools to generate response'
-                  : 'Response generated');
-
-          _upsert(
-            ChatMessage(
-              id:
-                  message.id ??
-                  'assistant_${DateTime.now().millisecondsSinceEpoch}',
-              type: ChatMessageType.assistant,
-              content: content,
-              timestamp: DateTime.now(),
-            ),
-          );
-          _replaceHistory(message);
-
-          // Add tool calls if present
-          if (hasToolCalls) {
-            for (final toolCall in message.toolCalls ?? []) {
-              _upsert(
-                ChatMessage(
-                  id:
-                      toolCall.id ??
-                      'tool_${DateTime.now().millisecondsSinceEpoch}',
-                  type: ChatMessageType.tool,
-                  content:
-                      '⚡ Tool: ${toolCall.function?.name ?? "Unknown"}\n${toolCall.function?.arguments ?? ""}',
-                  timestamp: DateTime.now(),
-                  toolName: toolCall.function?.name,
-                  toolArgs: toolCall.function?.arguments,
-                ),
-              );
-            }
-          }
-        } else if (message is ReasoningMessage) {
-          final text = message.content ?? message.thinking ?? '';
-          if (text.isNotEmpty) {
-            _upsert(
-              ChatMessage(
-                id:
-                    message.id ??
-                    'reasoning_${DateTime.now().millisecondsSinceEpoch}',
-                type: ChatMessageType.reasoning,
-                content: text,
-                timestamp: DateTime.now(),
-              ),
-            );
-            _replaceHistory(message);
-          }
-        }
-      }
     } else if (event is CustomEvent && event.name == 'image_generated') {
-      final value = event.value as Map<String, dynamic>?;
-      final url = value?['url'] as String?;
+      final value = event.value;
+      final url = value is Map && value['url'] is String
+          ? value['url'] as String
+          : null;
       if (url != null && _isValidImageDataUrl(url)) {
         messages.add(
           ChatMessage(
@@ -459,35 +379,38 @@ class ChatPageState extends ChangeNotifier with AgUiEventHandling {
       }
     } else if (event is RunFinishedEvent || event is RunStartedEvent) {
       // These are lifecycle events, we can ignore them or show status
-    } else if (event is TextMessageChunkEvent) {
-      // Handle chunk events similar to content events
-      if (_currentStreamingMessage == null) {
-        _currentStreamingMessage = ChatMessage(
-          id:
-              event.messageId ??
-              'assistant_${DateTime.now().millisecondsSinceEpoch}',
-          type: ChatMessageType.assistant,
-          content: event.delta ?? '',
-          timestamp: DateTime.now(),
-          isStreaming: true,
-        );
-        messages.add(_currentStreamingMessage!);
-      } else {
-        final index = messages.indexOf(_currentStreamingMessage!);
-        if (index != -1) {
-          _currentStreamingMessage = _currentStreamingMessage!.copyWith(
-            content: _currentStreamingMessage!.content + (event.delta ?? ''),
-          );
-          messages[index] = _currentStreamingMessage!;
-        }
-      }
     }
 
     notifyListeners();
   }
 
-  void _upsert(ChatMessage message) {
-    final index = messages.indexWhere((item) => item.id == message.id);
+  void _updateTool(
+    String id, {
+    String? name,
+    String? args,
+    String? argsDelta,
+    String? result,
+    bool? isStreaming,
+  }) {
+    final index = messages.indexWhere((message) => message.id == id);
+    final previous = index < 0 ? null : messages[index];
+    final toolName = name ?? previous?.toolName ?? 'Tool';
+    final toolArgs = args ?? '${previous?.toolArgs ?? ''}${argsDelta ?? ''}';
+    final toolResult = result ?? previous?.toolResult;
+    final message = ChatMessage(
+      id: id,
+      type: ChatMessageType.tool,
+      content: [
+        '🔧 Tool: $toolName',
+        if (toolArgs.isNotEmpty) 'Arguments: $toolArgs',
+        if (toolResult != null) 'Result: $toolResult',
+      ].join('\n'),
+      timestamp: previous?.timestamp ?? DateTime.now(),
+      isStreaming: isStreaming ?? previous?.isStreaming ?? false,
+      toolName: toolName,
+      toolArgs: toolArgs,
+      toolResult: toolResult,
+    );
     if (index < 0) {
       messages.add(message);
     } else {
@@ -508,17 +431,14 @@ class ChatPageState extends ChangeNotifier with AgUiEventHandling {
 
   bool _isValidImageDataUrl(String value) {
     try {
-      final data = UriData.fromUri(Uri.parse(value));
+      final uri = Uri.parse(value);
+      if (uri.scheme != 'data') return false;
+      final data = UriData.fromUri(uri);
       return data.mimeType.startsWith('image/') &&
           data.contentAsBytes().isNotEmpty;
-    } on FormatException {
+    } on Object {
       return false;
     }
-  }
-
-  void _finalizeStreaming() {
-    finishStreaming();
-    _currentStreamingMessage = null;
   }
 
   @override
@@ -535,6 +455,7 @@ class MultimodalChatPageState extends ChatPageState {
   Uint8List? _pickedBytes;
   String? _pickedFileName;
   String? _pickedMimeType;
+  int _pickGeneration = 0;
   final Future<PlatformFile?> Function(List<String> allowedExtensions)
   _pickFile;
 
@@ -562,11 +483,12 @@ class MultimodalChatPageState extends ChatPageState {
     List<String> allowedExtensions,
     BuildContext context,
   ) async {
+    final generation = ++_pickGeneration;
     PlatformFile? file;
     try {
       file = await _pickFile(List<String>.unmodifiable(allowedExtensions));
     } catch (error) {
-      if (!_disposed) {
+      if (!_disposed && generation == _pickGeneration) {
         messages.add(
           ChatMessage(
             id: uid('error'),
@@ -579,7 +501,7 @@ class MultimodalChatPageState extends ChatPageState {
       }
       return;
     }
-    if (_disposed || file == null) return;
+    if (_disposed || generation != _pickGeneration || file == null) return;
     final bytes = file.bytes;
     if (bytes == null) return;
 
@@ -603,10 +525,17 @@ class MultimodalChatPageState extends ChatPageState {
 
   void clearPicked() {
     if (_disposed) return;
+    _pickGeneration++;
     _pickedBytes = null;
     _pickedFileName = null;
     _pickedMimeType = null;
     notifyListeners();
+  }
+
+  @override
+  void dispose() {
+    _pickGeneration++;
+    super.dispose();
   }
 
   void sendMultimodal(String questionText) async {
@@ -711,7 +640,7 @@ class MultimodalChatPageState extends ChatPageState {
     } finally {
       if (!_disposed) {
         _isLoading = false;
-        _currentStreamingMessage = null;
+        finishStreaming();
         notifyListeners();
       }
     }

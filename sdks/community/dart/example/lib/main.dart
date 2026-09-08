@@ -18,7 +18,7 @@ class MyApp extends StatelessWidget {
     return ChangeNotifierProvider(
       create: (context) => ChatAppState(),
       child: MaterialApp(
-        title: 'AG-UI Chat Demo',
+        title: 'AG-UI Flutter Dojo',
         theme: ThemeData(
           colorScheme: ColorScheme.fromSeed(seedColor: Colors.blue),
           useMaterial3: true,

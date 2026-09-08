@@ -4,8 +4,8 @@ packages:
   ag_ui:
     dependency: "direct main"
     description:
-      path: "/Users/punk1290/git/ag-ui/sdks/community/dart"
-      relative: false
+      path: ".."
+      relative: true
     source: path
     version: "0.3.0"
   async:

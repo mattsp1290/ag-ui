@@ -1,31 +1,11 @@
-import 'dart:convert';
-import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import '../models/chat_message.dart';
+import '../services/image_data.dart';
 
 class ChatMessageWidget extends StatelessWidget {
   final ChatMessage message;
 
   const ChatMessageWidget({super.key, required this.message});
-
-  /// Decodes a generated image only after checking that it is a data URL and
-  /// that its payload is valid base64. `Image.memory` cannot catch an
-  /// exception thrown while constructing its bytes, so this boundary must be
-  /// kept outside the image widget.
-  static Uint8List? _decodeImageDataUrl(String value) {
-    final match = RegExp(
-      r'^data:image/[^;,]+(?:;[^;,]+)*;base64,([A-Za-z0-9+/]*={0,2})$',
-      caseSensitive: false,
-    ).firstMatch(value.trim());
-    if (match == null) return null;
-    final encoded = match.group(1)!;
-    if (encoded.isEmpty || encoded.length % 4 != 0) return null;
-    try {
-      return base64Decode(encoded);
-    } on FormatException {
-      return null;
-    }
-  }
 
   Widget _imageFallback(BuildContext context, {required String label}) {
     final theme = Theme.of(context);
@@ -60,7 +40,7 @@ class ChatMessageWidget extends StatelessWidget {
     final theme = Theme.of(context);
 
     if (message.type == ChatMessageType.image) {
-      final bytes = _decodeImageDataUrl(message.content);
+      final bytes = decodeImageDataUrl(message.content);
       return Padding(
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
         child: Row(

@@ -24,7 +24,9 @@ class ApprovalCardWidget extends StatelessWidget {
       decoration: BoxDecoration(
         color: theme.colorScheme.errorContainer.withValues(alpha: 0.4),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: theme.colorScheme.error.withValues(alpha: 0.5)),
+        border: Border.all(
+          color: theme.colorScheme.error.withValues(alpha: 0.5),
+        ),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -33,9 +35,12 @@ class ApprovalCardWidget extends StatelessWidget {
             children: [
               Icon(Icons.warning_amber_rounded, color: theme.colorScheme.error),
               const SizedBox(width: 8),
-              Text('Approval required',
-                  style: theme.textTheme.titleMedium
-                      ?.copyWith(fontWeight: FontWeight.bold)),
+              Text(
+                'Approval required',
+                style: theme.textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
             ],
           ),
           const SizedBox(height: 8),

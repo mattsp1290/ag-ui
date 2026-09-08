@@ -37,12 +37,14 @@ class CardWidget extends StatelessWidget {
                         color: theme.colorScheme.surfaceContainerHighest,
                         child: const CircularProgressIndicator(),
                       ),
-                errorBuilder: (_, __, ___) => Container(
+                errorBuilder: (_, _, _) => Container(
                   height: 140,
                   alignment: Alignment.center,
                   color: theme.colorScheme.surfaceContainerHighest,
-                  child: Icon(Icons.broken_image_outlined,
-                      color: theme.colorScheme.outline),
+                  child: Icon(
+                    Icons.broken_image_outlined,
+                    color: theme.colorScheme.outline,
+                  ),
                 ),
               ),
             Padding(
@@ -79,8 +81,10 @@ class CardWidget extends StatelessWidget {
                                 ),
                               ),
                               Expanded(
-                                child: Text('${f['value'] ?? ''}',
-                                    style: theme.textTheme.bodyMedium),
+                                child: Text(
+                                  '${f['value'] ?? ''}',
+                                  style: theme.textTheme.bodyMedium,
+                                ),
                               ),
                             ],
                           ),

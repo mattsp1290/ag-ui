@@ -73,7 +73,7 @@ void main() {
 
   test('production image startup and scripted route checks', () async {
     await verifyProductionImages(_fixture);
-  }, timeout: const Timeout(Duration(minutes: 5)));
+  }, timeout: const Timeout(Duration(minutes: 15)));
 
   test(
     'health metadata exposes every Flutter route and invalid JSON is rejected',

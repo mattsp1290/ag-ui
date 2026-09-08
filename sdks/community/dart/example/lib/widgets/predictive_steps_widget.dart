@@ -36,9 +36,12 @@ class PredictiveStepsWidget extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: 8),
-              Text('drafting…',
-                  style: theme.textTheme.labelMedium
-                      ?.copyWith(color: theme.colorScheme.outline)),
+              Text(
+                'drafting…',
+                style: theme.textTheme.labelMedium?.copyWith(
+                  color: theme.colorScheme.outline,
+                ),
+              ),
             ],
           ),
           const SizedBox(height: 6),

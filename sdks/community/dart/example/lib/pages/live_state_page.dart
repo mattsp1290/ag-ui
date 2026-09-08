@@ -67,12 +67,17 @@ class LiveStatePageView extends StatelessWidget {
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
               child: Row(
                 children: [
-                  Icon(Icons.smart_toy,
-                      size: 16, color: theme.colorScheme.primary),
+                  Icon(
+                    Icons.smart_toy,
+                    size: 16,
+                    color: theme.colorScheme.primary,
+                  ),
                   const SizedBox(width: 8),
                   Expanded(
-                    child: Text(state.lastSummary!,
-                        style: theme.textTheme.bodySmall),
+                    child: Text(
+                      state.lastSummary!,
+                      style: theme.textTheme.bodySmall,
+                    ),
                   ),
                 ],
               ),
@@ -101,12 +106,17 @@ class _DocBody extends StatelessWidget {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(state.endpoint.icon, size: 64, color: theme.colorScheme.outline),
+            Icon(
+              state.endpoint.icon,
+              size: 64,
+              color: theme.colorScheme.outline,
+            ),
             const SizedBox(height: 16),
             Text(
               'Send a message to generate a plan…',
-              style: theme.textTheme.titleMedium
-                  ?.copyWith(color: theme.colorScheme.outline),
+              style: theme.textTheme.titleMedium?.copyWith(
+                color: theme.colorScheme.outline,
+              ),
             ),
           ],
         ),
@@ -119,6 +129,7 @@ class _DocBody extends StatelessWidget {
       case 'shared_state':
         return RecipeCardWidget(
           recipe: (doc['recipe'] as Map?)?.cast<String, dynamic>() ?? const {},
+          enabled: !state.busy,
           onEditTitle: state.editTitle,
           onChangeServings: state.changeServings,
           onAddIngredient: state.addIngredient,
@@ -140,8 +151,8 @@ class _DocBody extends StatelessWidget {
 
 class LiveStatePageState extends ChangeNotifier {
   final EndpointConfig endpoint;
-  final AgUiService _service = AgUiService();
-  final String _threadId = 'thread_${DateTime.now().millisecondsSinceEpoch}';
+  final AgUiService _service;
+  final String _threadId = uid('thread');
   final List<Message> _history = [];
 
   /// The live document (deep-mutable); null until the first STATE_SNAPSHOT, except
@@ -151,7 +162,8 @@ class LiveStatePageState extends ChangeNotifier {
   bool disposed = false;
   String? lastSummary;
 
-  LiveStatePageState({required this.endpoint}) {
+  LiveStatePageState({required this.endpoint, AgUiService? service})
+    : _service = service ?? AgUiService() {
     final seed = seedStateFns[endpoint.path];
     if (seed != null) doc = seed();
   }
@@ -162,14 +174,16 @@ class LiveStatePageState extends ChangeNotifier {
     if (!disposed) notifyListeners();
   }
 
-  void sendMessage(String text) async {
-    if (text.trim().isEmpty || _busy) return;
+  Future<void> sendMessage(String text) async {
+    if (disposed || text.trim().isEmpty || _busy) return;
+    _clearPrediction();
 
     _history.add(UserMessage(id: uid('user'), content: text.trim()));
     _busy = true;
     lastSummary = null;
     notifyListeners();
 
+    var finished = false;
     try {
       await for (final event in _service.run(
         endpoint.path,
@@ -179,11 +193,23 @@ class LiveStatePageState extends ChangeNotifier {
       )) {
         if (disposed) return;
         _handleEvent(event);
+        if (event is RunErrorEvent) {
+          finished = true;
+          break;
+        }
+        if (event is RunFinishedEvent) {
+          finished = true;
+          break;
+        }
+      }
+      if (!disposed && !finished) {
+        throw StateError('The run was interrupted before it completed.');
       }
     } catch (e) {
       if (!disposed) lastSummary = 'Error: $e';
     } finally {
       if (!disposed) {
+        _clearPrediction();
         _busy = false;
         notifyListeners();
       }
@@ -205,20 +231,78 @@ class LiveStatePageState extends ChangeNotifier {
     // in the summary strip so it is never silently swallowed.
     if (event is StateSnapshotEvent) {
       // snapshot is `dynamic` and could be null; clone when present, else reset.
-      doc = event.snapshot == null ? null : jsonDecode(jsonEncode(event.snapshot));
+      doc = _documentCopy(event.snapshot);
     } else if (event is StateDeltaEvent) {
-      doc = applyJsonPatch(doc, event.delta);
+      final next = applyJsonPatch(_documentCopy(doc), event.delta);
+      doc = _documentCopy(next);
     } else if (event is TextMessageStartEvent) {
       lastSummary = '';
     } else if (event is TextMessageContentEvent) {
       lastSummary = (lastSummary ?? '') + event.delta;
     } else if (event is TextMessageChunkEvent) {
       lastSummary = (lastSummary ?? '') + (event.delta ?? '');
+    } else if (event is MessagesSnapshotEvent) {
+      for (final message in event.messages) {
+        final index = _history.indexWhere((old) => old.id == message.id);
+        if (index < 0) {
+          _history.add(message);
+        } else {
+          _history[index] = message;
+        }
+      }
     } else if (event is RunErrorEvent) {
       lastSummary = '⚠️ Run error: ${event.message}';
-      _busy = false;
     }
     _notify();
+  }
+
+  void _clearPrediction() {
+    if (doc is Map) doc.remove('_predictive');
+  }
+
+  Map<String, dynamic>? _documentCopy(dynamic value) {
+    if (value == null) return null;
+    final copy = jsonDecode(jsonEncode(value));
+    if (copy is! Map<String, dynamic>) {
+      throw const FormatException('State document must be an object');
+    }
+    final recipe = copy['recipe'];
+    if (recipe != null) {
+      if (recipe is! Map<String, dynamic> ||
+          (recipe['title'] != null && recipe['title'] is! String) ||
+          (recipe['servings'] != null && recipe['servings'] is! num) ||
+          (recipe['steps'] != null &&
+              (recipe['steps'] is! List ||
+                  (recipe['steps'] as List).any((step) => step is! String))) ||
+          (recipe['ingredients'] != null &&
+              (recipe['ingredients'] is! List ||
+                  (recipe['ingredients'] as List).any(
+                    (ingredient) =>
+                        ingredient is! Map<String, dynamic> ||
+                        ingredient['name'] is! String ||
+                        ingredient['amount'] is! String,
+                  )))) {
+        throw const FormatException('Malformed recipe state');
+      }
+    }
+    final steps = copy['steps'];
+    if (steps != null &&
+        (steps is! List ||
+            steps.any(
+              (step) =>
+                  step is! Map<String, dynamic> ||
+                  step['description'] is! String ||
+                  step['status'] is! String,
+            ))) {
+      throw const FormatException('Malformed checklist state');
+    }
+    final prediction = copy['_predictive'];
+    if (prediction != null &&
+        (prediction is! Map<String, dynamic> ||
+            (prediction['draft'] != null && prediction['draft'] is! String))) {
+      throw const FormatException('Malformed prediction state');
+    }
+    return copy;
   }
 
   // --- Recipe card edits (shared_state collaboration) ---
@@ -227,6 +311,7 @@ class LiveStatePageState extends ChangeNotifier {
       (doc?['recipe'] as Map?)?.cast<String, dynamic>();
 
   void editTitle(String title) {
+    if (disposed || _busy) return;
     final r = _recipe;
     if (r == null) return;
     r['title'] = title;
@@ -234,6 +319,7 @@ class LiveStatePageState extends ChangeNotifier {
   }
 
   void changeServings(int delta) {
+    if (disposed || _busy) return;
     final r = _recipe;
     if (r == null) return;
     final current = ((r['servings'] as num?) ?? 0).toInt();
@@ -242,6 +328,7 @@ class LiveStatePageState extends ChangeNotifier {
   }
 
   void addIngredient(String name, String amount) {
+    if (disposed || _busy) return;
     final r = _recipe;
     if (r == null || name.trim().isEmpty) return;
     final list = (r['ingredients'] as List?) ?? (r['ingredients'] = []);
@@ -250,6 +337,7 @@ class LiveStatePageState extends ChangeNotifier {
   }
 
   void removeIngredient(int index) {
+    if (disposed || _busy) return;
     final r = _recipe;
     final list = r?['ingredients'] as List?;
     if (list == null || index < 0 || index >= list.length) return;
@@ -259,6 +347,8 @@ class LiveStatePageState extends ChangeNotifier {
 
   @override
   void dispose() {
+    if (disposed) return;
+    _clearPrediction();
     disposed = true;
     _service.dispose();
     super.dispose();

@@ -10,7 +10,7 @@ void main() {
     test('replace a scalar in a map', () {
       final doc = clone({'title': 'a'});
       applyJsonPatch(doc, [
-        {'op': 'replace', 'path': '/title', 'value': 'b'}
+        {'op': 'replace', 'path': '/title', 'value': 'b'},
       ]);
       expect(doc['title'], 'b');
     });
@@ -20,13 +20,13 @@ void main() {
         'steps': [
           {'description': 's0', 'status': 'pending'},
           {'description': 's1', 'status': 'pending'},
-        ]
+        ],
       });
       applyJsonPatch(doc, [
-        {'op': 'replace', 'path': '/steps/0/status', 'value': 'in_progress'}
+        {'op': 'replace', 'path': '/steps/0/status', 'value': 'in_progress'},
       ]);
       applyJsonPatch(doc, [
-        {'op': 'replace', 'path': '/steps/0/status', 'value': 'completed'}
+        {'op': 'replace', 'path': '/steps/0/status', 'value': 'completed'},
       ]);
       expect(doc['steps'][0]['status'], 'completed');
       expect(doc['steps'][1]['status'], 'pending');
@@ -35,7 +35,7 @@ void main() {
     test('add to a map key', () {
       final doc = clone({'recipe': {}});
       applyJsonPatch(doc, [
-        {'op': 'add', 'path': '/recipe/title', 'value': 'Soup'}
+        {'op': 'add', 'path': '/recipe/title', 'value': 'Soup'},
       ]);
       expect(doc['recipe']['title'], 'Soup');
     });
@@ -44,16 +44,16 @@ void main() {
       final doc = clone({
         'recipe': {
           'ingredients': [
-            {'name': 'pasta', 'amount': '200g'}
-          ]
-        }
+            {'name': 'pasta', 'amount': '200g'},
+          ],
+        },
       });
       applyJsonPatch(doc, [
         {
           'op': 'add',
           'path': '/recipe/ingredients/-',
-          'value': {'name': 'basil', 'amount': '1 bunch'}
-        }
+          'value': {'name': 'basil', 'amount': '1 bunch'},
+        },
       ]);
       expect((doc['recipe']['ingredients'] as List).length, 2);
       expect(doc['recipe']['ingredients'][1]['name'], 'basil');
@@ -61,10 +61,10 @@ void main() {
 
     test('add to array via numeric index insert', () {
       final doc = clone({
-        'xs': [1, 3]
+        'xs': [1, 3],
       });
       applyJsonPatch(doc, [
-        {'op': 'add', 'path': '/xs/1', 'value': 2}
+        {'op': 'add', 'path': '/xs/1', 'value': 2},
       ]);
       expect(doc['xs'], [1, 2, 3]);
     });
@@ -76,21 +76,25 @@ void main() {
             {'name': 'a'},
             {'name': 'b'},
             {'name': 'c'},
-          ]
-        }
+          ],
+        },
       });
       applyJsonPatch(doc, [
-        {'op': 'remove', 'path': '/recipe/ingredients/1'}
+        {'op': 'remove', 'path': '/recipe/ingredients/1'},
       ]);
-      final names =
-          (doc['recipe']['ingredients'] as List).map((e) => e['name']).toList();
+      final names = (doc['recipe']['ingredients'] as List)
+          .map((e) => e['name'])
+          .toList();
       expect(names, ['a', 'c']);
     });
 
     test('remove a map key', () {
-      final doc = clone({'_predictive': {'draft': 'x'}, 'recipe': {}});
+      final doc = clone({
+        '_predictive': {'draft': 'x'},
+        'recipe': {},
+      });
       applyJsonPatch(doc, [
-        {'op': 'remove', 'path': '/_predictive'}
+        {'op': 'remove', 'path': '/_predictive'},
       ]);
       expect(doc.containsKey('_predictive'), false);
       expect(doc.containsKey('recipe'), true);
@@ -104,29 +108,29 @@ void main() {
           'title': 'Tomato Pasta',
           'servings': 2,
           'ingredients': [
-            {'name': 'pasta', 'amount': '200g'}
+            {'name': 'pasta', 'amount': '200g'},
           ],
           'steps': ['Boil water'],
-        }
+        },
       });
       applyJsonPatch(doc, [
-        {'op': 'replace', 'path': '/recipe/title', 'value': 'Veg Pasta'}
+        {'op': 'replace', 'path': '/recipe/title', 'value': 'Veg Pasta'},
       ]);
       applyJsonPatch(doc, [
-        {'op': 'replace', 'path': '/recipe/servings', 'value': 4}
+        {'op': 'replace', 'path': '/recipe/servings', 'value': 4},
       ]);
       applyJsonPatch(doc, [
         {
           'op': 'add',
           'path': '/recipe/ingredients/-',
-          'value': {'name': 'tomato', 'amount': '3'}
-        }
+          'value': {'name': 'tomato', 'amount': '3'},
+        },
       ]);
       applyJsonPatch(doc, [
-        {'op': 'add', 'path': '/recipe/steps/-', 'value': 'Simmer 10 min'}
+        {'op': 'add', 'path': '/recipe/steps/-', 'value': 'Simmer 10 min'},
       ]);
       applyJsonPatch(doc, [
-        {'op': 'remove', 'path': '/recipe/ingredients/0'}
+        {'op': 'remove', 'path': '/recipe/ingredients/0'},
       ]);
       final r = doc['recipe'];
       expect(r['title'], 'Veg Pasta');
@@ -138,19 +142,23 @@ void main() {
     test('predictive: /_predictive add-then-remove leaves the doc clean', () {
       final doc = clone({
         'recipe': {
-          'steps': ['old step']
-        }
+          'steps': ['old step'],
+        },
       });
       // Draft re-added each tick (whole object).
       applyJsonPatch(doc, [
-        {'op': 'add', 'path': '/_predictive', 'value': {'draft': 'step one'}}
+        {
+          'op': 'add',
+          'path': '/_predictive',
+          'value': {'draft': 'step one'},
+        },
       ]);
       applyJsonPatch(doc, [
         {
           'op': 'add',
           'path': '/_predictive',
-          'value': {'draft': 'step one\nstep two'}
-        }
+          'value': {'draft': 'step one\nstep two'},
+        },
       ]);
       expect(doc['_predictive']['draft'], 'step one\nstep two');
       // Commit + clear.
@@ -158,11 +166,11 @@ void main() {
         {
           'op': 'add',
           'path': '/recipe/steps',
-          'value': ['step one', 'step two']
-        }
+          'value': ['step one', 'step two'],
+        },
       ]);
       applyJsonPatch(doc, [
-        {'op': 'remove', 'path': '/_predictive'}
+        {'op': 'remove', 'path': '/_predictive'},
       ]);
       expect(doc.containsKey('_predictive'), false);
       expect(doc['recipe']['steps'], ['step one', 'step two']);
@@ -171,32 +179,38 @@ void main() {
     test('dropping every /_predictive delta still reaches committed state', () {
       final doc = clone({
         'recipe': {
-          'steps': ['old']
-        }
+          'steps': ['old'],
+        },
       });
       // Apply ONLY the committed (non-/_predictive) op.
       applyJsonPatch(doc, [
         {
           'op': 'add',
           'path': '/recipe/steps',
-          'value': ['a', 'b', 'c']
-        }
+          'value': ['a', 'b', 'c'],
+        },
       ]);
       expect(doc['recipe']['steps'], ['a', 'b', 'c']);
     });
   });
 
   group('applyJsonPatch — null root guard', () {
-    test('per-path op on a null root is a no-op (returns null, no throw)', () {
-      final out = applyJsonPatch(null, [
-        {'op': 'replace', 'path': '/a', 'value': 1}
-      ]);
-      expect(out, isNull);
+    test('per-path op on a null root rejects invalid state', () {
+      expect(
+        () => applyJsonPatch(null, [
+          {'op': 'replace', 'path': '/a', 'value': 1},
+        ]),
+        throwsFormatException,
+      );
     });
 
     test('whole-document add on a null root sets the root', () {
       final out = applyJsonPatch(null, [
-        {'op': 'add', 'path': '', 'value': {'recipe': {}}}
+        {
+          'op': 'add',
+          'path': '',
+          'value': {'recipe': {}},
+        },
       ]);
       expect(out, {'recipe': {}});
     });
@@ -204,30 +218,36 @@ void main() {
 
   group('applyJsonPatch — malformed input throws (documents the contract)', () {
     test('remove past end of array throws', () {
-      final doc = clone({'xs': [1, 2]});
+      final doc = clone({
+        'xs': [1, 2],
+      });
       expect(
         () => applyJsonPatch(doc, [
-          {'op': 'remove', 'path': '/xs/5'}
+          {'op': 'remove', 'path': '/xs/5'},
         ]),
         throwsA(anything),
       );
     });
 
     test('"-" token with replace throws (only valid for add)', () {
-      final doc = clone({'xs': [1]});
+      final doc = clone({
+        'xs': [1],
+      });
       expect(
         () => applyJsonPatch(doc, [
-          {'op': 'replace', 'path': '/xs/-', 'value': 9}
+          {'op': 'replace', 'path': '/xs/-', 'value': 9},
         ]),
         throwsA(anything),
       );
     });
 
     test('non-integer array index segment throws', () {
-      final doc = clone({'xs': [1]});
+      final doc = clone({
+        'xs': [1],
+      });
       expect(
         () => applyJsonPatch(doc, [
-          {'op': 'replace', 'path': '/xs/foo', 'value': 9}
+          {'op': 'replace', 'path': '/xs/foo', 'value': 9},
         ]),
         throwsA(anything),
       );
@@ -238,7 +258,11 @@ void main() {
     test('whole-document replace at root', () {
       var doc = clone({'a': 1});
       doc = applyJsonPatch(doc, [
-        {'op': 'replace', 'path': '', 'value': {'b': 2}}
+        {
+          'op': 'replace',
+          'path': '',
+          'value': {'b': 2},
+        },
       ]);
       expect(doc, {'b': 2});
     });
@@ -246,13 +270,43 @@ void main() {
     test('escaped pointer tokens ~0 and ~1', () {
       final doc = clone({'a/b': {}, 'c~d': {}});
       applyJsonPatch(doc, [
-        {'op': 'add', 'path': '/a~1b/x', 'value': 1}
+        {'op': 'add', 'path': '/a~1b/x', 'value': 1},
       ]);
       applyJsonPatch(doc, [
-        {'op': 'add', 'path': '/c~0d/y', 'value': 2}
+        {'op': 'add', 'path': '/c~0d/y', 'value': 2},
       ]);
       expect(doc['a/b']['x'], 1);
       expect(doc['c~d']['y'], 2);
     });
   });
+  test('slash addresses the empty key rather than the document root', () {
+    final doc = {'': 1, 'other': 2};
+    applyJsonPatch(doc, [
+      {'op': 'replace', 'path': '/', 'value': 3},
+    ]);
+    expect(doc, {'': 3, 'other': 2});
+  });
+
+  for (final op in [
+    {'op': 'move', 'path': '/a'},
+    {'op': 'add', 'path': 'a', 'value': 1},
+    {'op': 'add', 'path': '/a~2', 'value': 1},
+    {'op': 'replace', 'path': '/missing', 'value': 1},
+    {'op': 'remove', 'path': '/missing'},
+    {'op': 'add', 'path': '/a'},
+    {'op': 'add', 'path': '/xs/01', 'value': 1},
+  ]) {
+    test('invalid operation rejects explicitly: $op', () {
+      expect(
+        () => applyJsonPatch(
+          {
+            'a': 1,
+            'xs': [0, 1],
+          },
+          [op],
+        ),
+        throwsFormatException,
+      );
+    });
+  }
 }

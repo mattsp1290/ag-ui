@@ -5,11 +5,14 @@ on:
     branches: [main]
     paths:
       - "sdks/community/dart/**"
+      - "sdks/community/go/**"
+      - ".gitattributes"
       - ".github/workflows/unit-dart-sdk.yml"
   pull_request:
-    branches: [main]
     paths:
       - "sdks/community/dart/**"
+      - "sdks/community/go/**"
+      - ".gitattributes"
       - ".github/workflows/unit-dart-sdk.yml"
 
 permissions:
@@ -40,3 +43,73 @@ jobs:
 
       - name: Run tests
         run: dart test --exclude-tags requires-server
+
+  flutter-example:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: sdks/community/dart/example
+    steps:
+      - name: Checkout with example assets
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          lfs: true
+          persist-credentials: false
+      - name: Set up Flutter
+        uses: subosito/flutter-action@4cab68ce0f1c7c924f688bff4792e044f1aeb30c
+        with:
+          flutter-version: "3.47.1"
+          channel: stable
+      - name: Cache Dart dependencies
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.pub-cache
+          key: ${{ runner.os }}-flutter-3.47.1-${{ hashFiles('sdks/community/dart/pubspec.yaml', 'sdks/community/dart/example/pubspec.yaml', 'sdks/community/dart/example/pubspec.lock') }}
+      - name: Resolve committed dependencies
+        run: |
+          flutter pub get --enforce-lockfile
+          git diff --exit-code -- pubspec.lock
+      - name: Analyze and check formatting
+        run: |
+          flutter analyze
+          dart format --output=none --set-exit-if-changed lib test
+      - name: Run ordinary Flutter tests
+        run: flutter test --exclude-tags requires-go-server
+      - name: Build web
+        run: flutter build web
+
+  flutter-go-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: sdks/community/dart/example
+    steps:
+      - name: Checkout current Dart and Go sources
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          lfs: true
+          persist-credentials: false
+      - name: Set up Flutter
+        uses: subosito/flutter-action@4cab68ce0f1c7c924f688bff4792e044f1aeb30c
+        with:
+          flutter-version: "3.47.1"
+          channel: stable
+      - name: Cache Dart dependencies
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.pub-cache
+          key: ${{ runner.os }}-flutter-3.47.1-${{ hashFiles('sdks/community/dart/pubspec.yaml', 'sdks/community/dart/example/pubspec.yaml', 'sdks/community/dart/example/pubspec.lock') }}
+      - name: Verify Docker Engine
+        run: docker version
+      - name: Resolve committed dependencies
+        run: |
+          flutter pub get --enforce-lockfile
+          git diff --exit-code -- pubspec.lock
+      - name: Verify both Go images through Dart Testcontainers
+        run: flutter test test/go_server_contract_test.dart --tags requires-go-server --timeout 15m
+      - name: Verify container failure cleanup
+        run: |
+          flutter test test/docker_process_test.dart --tags requires-go-server --timeout 15m
+          dart --enable-asserts run test/helpers/verify_container_cleanup.dart

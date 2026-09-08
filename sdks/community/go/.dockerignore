@@ -1,0 +1,16 @@
+# SDK-root context: only module metadata, Go source and reviewed fixture trees.
+# Add any future go:embed inputs explicitly instead of admitting arbitrary files.
+**
+!go.mod
+!go.sum
+!pkg/**/*.go
+!pkg/**/testdata/**
+!example/server/go.mod
+!example/server/go.sum
+!example/server/Dockerfile
+!example/server/Dockerfile.contract
+!example/server/cmd/**/*.go
+!example/server/cmd/**/testdata/**
+!example/server/internal/**/*.go
+!example/server/internal/**/testdata/**
+**/.*

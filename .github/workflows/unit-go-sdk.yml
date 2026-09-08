@@ -60,6 +60,7 @@ jobs:
         run: go test ./... -v
 
   go-example-server:
+    name: Go example server
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:

@@ -18,7 +18,23 @@ import (
 // Handler returns a Fiber handler for POST /image-gen.
 // shutdownCtx must be the server-level signal context so that SIGTERM cancels
 // in-flight image generation requests (same pattern as agenticHandler).
-func Handler(shutdownCtx context.Context, logger *slog.Logger) fiber.Handler {
+type Generator func(context.Context, GenerateRequest) (*GenerateResult, error)
+type Option func(*handlerOptions)
+type handlerOptions struct{ generate Generator }
+
+func WithGenerator(generate Generator) Option {
+	return func(o *handlerOptions) {
+		if generate != nil {
+			o.generate = generate
+		}
+	}
+}
+
+func Handler(shutdownCtx context.Context, logger *slog.Logger, options ...Option) fiber.Handler {
+	opts := handlerOptions{generate: Generate}
+	for _, option := range options {
+		option(&opts)
+	}
 	sw := sse.NewSSEWriter().WithLogger(logger)
 	return func(c fiber.Ctx) error {
 		var in aguitypes.RunAgentInput
@@ -65,7 +81,7 @@ func Handler(shutdownCtx context.Context, logger *slog.Logger) fiber.Handler {
 				"prompt": prompt,
 			})
 
-			result, err := Generate(runCtx, GenerateRequest{Prompt: prompt})
+			result, err := opts.generate(runCtx, GenerateRequest{Prompt: prompt})
 			if err != nil {
 				logger.Error("image generation failed", "error", err)
 				emit.RunError("image generation failed: " + err.Error())

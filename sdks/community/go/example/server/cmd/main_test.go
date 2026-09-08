@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
@@ -9,7 +10,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ag-ui-protocol/ag-ui/sdks/community/go/example/server/internal/audio"
 	"github.com/ag-ui-protocol/ag-ui/sdks/community/go/example/server/internal/config"
+	"github.com/ag-ui-protocol/ag-ui/sdks/community/go/example/server/internal/document"
+	"github.com/ag-ui-protocol/ag-ui/sdks/community/go/example/server/internal/imagegen"
+	"github.com/ag-ui-protocol/ag-ui/sdks/community/go/example/server/internal/vision"
 	"github.com/gofiber/fiber/v3"
 )
 
@@ -35,7 +40,7 @@ func TestAppHealthRouteNoCredentials(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("GET / status = %d, body = %s", resp.StatusCode, body)
 	}
-	for _, want := range []string{"ag-ui-go-server-example is running", "/agentic_chat", "/backend_tool_rendering", "/agentic_chat_multimodal"} {
+	for _, want := range []string{"ag-ui-go-server-example is running", "/agentic_chat", "/human_in_the_loop", "/agentic_generative_ui", "/tool_based_generative_ui", "/shared_state", "/predictive_state_updates", "/image-gen", "/vision", "/audio", "/document", "/reasoning"} {
 		if !strings.Contains(string(body), want) {
 			t.Fatalf("GET / body missing %q: %s", want, body)
 		}
@@ -57,6 +62,7 @@ func TestAppRouteRegistrationMalformedJSON(t *testing.T) {
 		"/vision",
 		"/audio",
 		"/document",
+		"/reasoning",
 	} {
 		t.Run(route, func(t *testing.T) {
 			resp, err := testApp().Test(newRequest(t, http.MethodPost, route, "{"))
@@ -79,7 +85,7 @@ func TestAppCORSAllowsApprovalHeader(t *testing.T) {
 	req := newRequest(t, http.MethodOptions, "/human_in_the_loop", "")
 	req.Header.Set("Origin", "http://localhost:3000")
 	req.Header.Set("Access-Control-Request-Method", "POST")
-	req.Header.Set("Access-Control-Request-Headers", "X-AG-Approval")
+	req.Header.Set("Access-Control-Request-Headers", "Content-Type, Accept, Cache-Control, X-AG-Approval")
 
 	resp, err := testApp().Test(req)
 	if err != nil {
@@ -92,6 +98,64 @@ func TestAppCORSAllowsApprovalHeader(t *testing.T) {
 	}
 	if got := resp.Header.Get("Access-Control-Allow-Headers"); !strings.Contains(strings.ToLower(got), "x-ag-approval") {
 		t.Fatalf("Access-Control-Allow-Headers = %q, want X-AG-Approval", got)
+	}
+	for _, want := range []string{"content-type", "accept", "cache-control"} {
+		if got := strings.ToLower(resp.Header.Get("Access-Control-Allow-Headers")); !strings.Contains(got, want) {
+			t.Fatalf("Access-Control-Allow-Headers = %q, want %s", got, want)
+		}
+	}
+}
+
+func TestAppMediaRoutesUseInjectedProviders(t *testing.T) {
+	app := newApp(context.Background(), config.Config{CORS: true}, nil, slog.New(slog.NewTextHandler(io.Discard, nil)),
+		withMediaProviders(
+			func(_ context.Context, req imagegen.GenerateRequest) (*imagegen.GenerateResult, error) {
+				return &imagegen.GenerateResult{B64JSON: "cG5n", Prompt: req.Prompt}, nil
+			},
+			func(_ context.Context, req vision.AnalyzeRequest) (*vision.AnalyzeResult, error) {
+				return &vision.AnalyzeResult{Text: "vision ok"}, nil
+			},
+			func(_ context.Context, req audio.TranscribeRequest) (*audio.TranscribeResult, error) {
+				return &audio.TranscribeResult{Text: "audio ok"}, nil
+			},
+			func(_ context.Context, req document.AnalyzeRequest) (*document.AnalyzeResult, error) {
+				return &document.AnalyzeResult{Text: "document ok"}, nil
+			},
+		))
+	cases := []struct{ route, body, want string }{
+		{"/image-gen", `{"messages":[{"role":"user","content":"draw a bird"}]}`, `"url":"data:image/png;base64,cG5n"`},
+		{"/vision", `{"messages":[{"role":"user","content":[{"type":"image","source":{"type":"data","value":"aW1n","mimeType":"image/png"}}]}]}`, "vision ok"},
+		{"/audio", `{"messages":[{"role":"user","content":[{"type":"audio","source":{"type":"data","value":"YXVkaW8=","mimeType":"audio/wav"}}]}]}`, "audio ok"},
+		{"/document", `{"messages":[{"role":"user","content":[{"type":"document","source":{"type":"data","value":"cGRm","mimeType":"application/pdf"}}]}]}`, "document ok"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.route, func(t *testing.T) {
+			resp, err := app.Test(newRequest(t, http.MethodPost, tc.route, tc.body))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer resp.Body.Close()
+			out, _ := io.ReadAll(resp.Body)
+			if resp.StatusCode != http.StatusOK || !strings.Contains(string(out), tc.want) {
+				t.Fatalf("status=%d body=%s want=%q", resp.StatusCode, out, tc.want)
+			}
+		})
+	}
+}
+
+func TestAppMediaProviderErrorIsRunError(t *testing.T) {
+	app := newApp(context.Background(), config.Config{}, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), withMediaProviders(
+		func(context.Context, imagegen.GenerateRequest) (*imagegen.GenerateResult, error) {
+			return nil, errors.New("provider unavailable")
+		}, nil, nil, nil))
+	resp, err := app.Test(newRequest(t, http.MethodPost, "/image-gen", `{"messages":[{"role":"user","content":"draw"}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	out, _ := io.ReadAll(resp.Body)
+	if !strings.Contains(string(out), `"type":"RUN_ERROR"`) || !strings.Contains(string(out), "provider unavailable") {
+		t.Fatalf("body=%s", out)
 	}
 }
 

@@ -15,7 +15,23 @@ import (
 )
 
 // Handler returns a Fiber handler for POST /audio.
-func Handler(shutdownCtx context.Context, logger *slog.Logger) fiber.Handler {
+type Transcriber func(context.Context, TranscribeRequest) (*TranscribeResult, error)
+type Option func(*handlerOptions)
+type handlerOptions struct{ transcribe Transcriber }
+
+func WithTranscriber(transcribe Transcriber) Option {
+	return func(o *handlerOptions) {
+		if transcribe != nil {
+			o.transcribe = transcribe
+		}
+	}
+}
+
+func Handler(shutdownCtx context.Context, logger *slog.Logger, options ...Option) fiber.Handler {
+	opts := handlerOptions{transcribe: Transcribe}
+	for _, option := range options {
+		option(&opts)
+	}
 	sw := sse.NewSSEWriter().WithLogger(logger)
 	return func(c fiber.Ctx) error {
 		var in aguitypes.RunAgentInput
@@ -56,7 +72,7 @@ func Handler(shutdownCtx context.Context, logger *slog.Logger) fiber.Handler {
 				return
 			}
 
-			result, err := Transcribe(runCtx, TranscribeRequest{
+			result, err := opts.transcribe(runCtx, TranscribeRequest{
 				AudioBase64: audioBase64,
 				MimeType:    mimeType,
 			})
@@ -70,7 +86,7 @@ func Handler(shutdownCtx context.Context, logger *slog.Logger) fiber.Handler {
 			emit.TextStart(msgID)
 			emit.TextContent(msgID, result.Text)
 			emit.TextEnd(msgID)
-			emit.MessagesSnapshot([]aguitypes.Message{})
+			emit.MessagesSnapshot([]aguitypes.Message{{ID: msgID, Role: aguitypes.RoleAssistant, Content: result.Text}})
 			emit.RunFinishedSuccess()
 		})
 	}

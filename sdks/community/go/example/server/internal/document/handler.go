@@ -16,7 +16,23 @@ import (
 )
 
 // Handler returns a Fiber handler for POST /document.
-func Handler(shutdownCtx context.Context, logger *slog.Logger) fiber.Handler {
+type Analyzer func(context.Context, AnalyzeRequest) (*AnalyzeResult, error)
+type Option func(*handlerOptions)
+type handlerOptions struct{ analyze Analyzer }
+
+func WithAnalyzer(analyze Analyzer) Option {
+	return func(o *handlerOptions) {
+		if analyze != nil {
+			o.analyze = analyze
+		}
+	}
+}
+
+func Handler(shutdownCtx context.Context, logger *slog.Logger, options ...Option) fiber.Handler {
+	opts := handlerOptions{analyze: Analyze}
+	for _, option := range options {
+		option(&opts)
+	}
 	sw := sse.NewSSEWriter().WithLogger(logger)
 	return func(c fiber.Ctx) error {
 		var in aguitypes.RunAgentInput
@@ -57,7 +73,7 @@ func Handler(shutdownCtx context.Context, logger *slog.Logger) fiber.Handler {
 				return
 			}
 
-			result, err := Analyze(runCtx, AnalyzeRequest{
+			result, err := opts.analyze(runCtx, AnalyzeRequest{
 				PDFBase64: pdfBase64,
 				MimeType:  mimeType,
 				Prompt:    prompt,
@@ -72,7 +88,7 @@ func Handler(shutdownCtx context.Context, logger *slog.Logger) fiber.Handler {
 			emit.TextStart(msgID)
 			emit.TextContent(msgID, result.Text)
 			emit.TextEnd(msgID)
-			emit.MessagesSnapshot([]aguitypes.Message{})
+			emit.MessagesSnapshot([]aguitypes.Message{{ID: msgID, Role: aguitypes.RoleAssistant, Content: result.Text}})
 			emit.RunFinishedSuccess()
 		})
 	}

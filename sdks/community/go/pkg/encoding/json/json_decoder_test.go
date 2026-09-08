@@ -129,14 +129,15 @@ func TestJSONDecoderOptionsAndBatchContracts(t *testing.T) {
 	data, err := fixture.event.ToJSON()
 	require.NoError(t, err)
 
+	unknownField := []byte(string(data[:len(data)-1]) + `,"future":1}`)
 	strict := NewJSONDecoder(&encoding.DecodingOptions{Strict: true, ValidateEvents: true})
-	_, err = strict.Decode(context.Background(), append(data[:len(data)-1], []byte(`,"future":1}`)...))
+	_, err = strict.Decode(context.Background(), unknownField)
 	require.Error(t, err)
 	permissive := NewJSONDecoder(&encoding.DecodingOptions{Strict: false, AllowUnknownFields: true, ValidateEvents: false})
-	_, err = permissive.Decode(context.Background(), append(data[:len(data)-1], []byte(`,"future":1}`)...))
+	_, err = permissive.Decode(context.Background(), unknownField)
 	require.NoError(t, err)
 	strictAllow := NewJSONDecoder(&encoding.DecodingOptions{Strict: true, AllowUnknownFields: true, ValidateEvents: true})
-	_, err = strictAllow.Decode(context.Background(), append(data[:len(data)-1], []byte(`,"future":1}`)...))
+	_, err = strictAllow.Decode(context.Background(), unknownField)
 	require.NoError(t, err)
 
 	invalid := []byte(`{"type":"TEXT_MESSAGE_START"}`)

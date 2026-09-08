@@ -1,0 +1,214 @@
+{
+  "request": {
+    "threadId": "camel-thread",
+    "thread_id": "snake-thread",
+    "runId": "camel-run",
+    "run_id": "snake-run",
+    "state": {
+      "ok": true
+    },
+    "messages": [
+      {
+        "id": "m1",
+        "role": "assistant",
+        "encrypted_content": "enc-content",
+        "metadata": {
+          "trace": "t1"
+        },
+        "tool_calls": [
+          {
+            "id": "call1",
+            "type": "function",
+            "function": {
+              "name": "lookup",
+              "arguments": "{}"
+            },
+            "metadata": {
+              "origin": "fixture"
+            }
+          }
+        ]
+      }
+    ],
+    "tools": [
+      {
+        "name": "lookup",
+        "description": "find",
+        "parameters": {},
+        "metadata": {
+          "ui": "card"
+        }
+      }
+    ],
+    "context": [],
+    "forwarded_props": {
+      "x": 1
+    },
+    "resume": [
+      {
+        "interrupt_id": "i1",
+        "status": "resolved",
+        "payload": null,
+        "metadata": {
+          "signed": true
+        }
+      }
+    ]
+  },
+  "expectedRequest": {
+    "threadId": "camel-thread",
+    "runId": "camel-run",
+    "state": {
+      "ok": true
+    },
+    "messages": [
+      {
+        "id": "m1",
+        "role": "assistant",
+        "encryptedContent": "enc-content",
+        "toolCalls": [
+          {
+            "id": "call1",
+            "type": "function",
+            "function": {
+              "name": "lookup",
+              "arguments": "{}"
+            },
+            "metadata": {
+              "origin": "fixture"
+            }
+          }
+        ],
+        "metadata": {
+          "trace": "t1"
+        }
+      }
+    ],
+    "tools": [
+      {
+        "name": "lookup",
+        "description": "find",
+        "parameters": {},
+        "metadata": {
+          "ui": "card"
+        }
+      }
+    ],
+    "context": [],
+    "forwardedProps": {
+      "x": 1
+    },
+    "resume": [
+      {
+        "interruptId": "i1",
+        "status": "resolved",
+        "metadata": {
+          "signed": true
+        }
+      }
+    ]
+  },
+  "snakeRequest": {
+    "thread_id": "snake-only-thread",
+    "run_id": "snake-only-run",
+    "state": {},
+    "messages": [],
+    "tools": [],
+    "context": [],
+    "forwarded_props": {}
+  },
+  "events": [
+    {
+      "name": "THINKING_TEXT_MESSAGE_CONTENT",
+      "data": {
+        "delta": "legacy"
+      },
+      "expectedType": "*events.ThinkingTextMessageContentEvent",
+      "expected": {
+        "delta": "legacy"
+      },
+      "decoder": "sse"
+    },
+    {
+      "name": "REASONING_ENCRYPTED_VALUE",
+      "data": {
+        "type": "REASONING_ENCRYPTED_VALUE",
+        "subtype": "message",
+        "entityId": "m1",
+        "encryptedValue": "cipher"
+      },
+      "expectedType": "*events.ReasoningEncryptedValueEvent",
+      "expected": {
+        "type": "REASONING_ENCRYPTED_VALUE",
+        "subtype": "message",
+        "entityId": "m1",
+        "encryptedValue": "cipher"
+      },
+      "decoder": "eventFromJSON"
+    },
+    {
+      "name": "RUN_FINISHED",
+      "data": {
+        "type": "RUN_FINISHED",
+        "threadId": "t",
+        "runId": "r",
+        "outcome": {
+          "type": "interrupt",
+          "interrupts": [
+            {
+              "id": "i1",
+              "reason": "approval"
+            }
+          ]
+        },
+        "usage": [
+          {
+            "provider": "openai",
+            "model": "gpt",
+            "inputTokens": 0,
+            "outputTokens": 2,
+            "totalTokens": 2
+          }
+        ]
+      },
+      "expectedType": "*events.RunFinishedEvent",
+      "expected": {
+        "type": "RUN_FINISHED",
+        "threadId": "t",
+        "runId": "r",
+        "outcome": {
+          "type": "interrupt",
+          "interrupts": [
+            {
+              "id": "i1",
+              "reason": "approval"
+            }
+          ]
+        },
+        "usage": [
+          {
+            "provider": "openai",
+            "model": "gpt",
+            "inputTokens": 0,
+            "outputTokens": 2,
+            "totalTokens": 2
+          }
+        ]
+      },
+      "decoder": "json"
+    },
+    {
+      "name": "TEXT_MESSAGE_START",
+      "data": {
+        "type": "TEXT_MESSAGE_START",
+        "messageId": "m1"
+      },
+      "expectedType": "*events.TextMessageStartEvent",
+      "expected": {
+        "type": "TEXT_MESSAGE_START",
+        "messageId": "m1"
+      },
+      "decoder": "json"
+    }
+  ]
+}

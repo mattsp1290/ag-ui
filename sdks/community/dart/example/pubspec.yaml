@@ -19,6 +19,11 @@ dependencies:
   file_picker: ^8.1.7
 
 dev_dependencies:
+  testcontainers_core:
+    git:
+      url: https://github.com/mridang/testcontainers-dart.git
+      ref: ff67acb26d3463281e1a85f7ab2d37cb0477709d
+      path: packages/testcontainers_core
   flutter_test:
     sdk: flutter
   flutter_lints: ^6.0.0

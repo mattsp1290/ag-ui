@@ -1,18 +1,46 @@
-import 'dart:convert';
 import 'package:flutter/material.dart';
 import '../models/chat_message.dart';
+import '../services/image_data.dart';
 
 class ChatMessageWidget extends StatelessWidget {
   final ChatMessage message;
 
-  const ChatMessageWidget({Key? key, required this.message}) : super(key: key);
+  const ChatMessageWidget({super.key, required this.message});
+
+  Widget _imageFallback(BuildContext context, {required String label}) {
+    final theme = Theme.of(context);
+    return Container(
+      constraints: const BoxConstraints(minWidth: 180, minHeight: 72),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.errorContainer,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            Icons.broken_image_outlined,
+            color: theme.colorScheme.onErrorContainer,
+          ),
+          const SizedBox(width: 8),
+          Flexible(
+            child: Text(
+              label,
+              style: TextStyle(color: theme.colorScheme.onErrorContainer),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
 
     if (message.type == ChatMessageType.image) {
-      final base64Str = message.content.split(',').last;
+      final bytes = decodeImageDataUrl(message.content);
       return Padding(
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
         child: Row(
@@ -21,18 +49,30 @@ class ChatMessageWidget extends StatelessWidget {
             CircleAvatar(
               radius: 16,
               backgroundColor: theme.colorScheme.primary,
-              child: Icon(Icons.image, size: 20, color: theme.colorScheme.onPrimary),
+              child: Icon(
+                Icons.image,
+                size: 20,
+                color: theme.colorScheme.onPrimary,
+              ),
             ),
             const SizedBox(width: 8),
             Flexible(
               child: ClipRRect(
                 borderRadius: BorderRadius.circular(12),
-                child: Image.memory(
-                  base64Decode(base64Str),
-                  fit: BoxFit.contain,
-                  width: 300,
-                  errorBuilder: (_, __, ___) => const Text('(image failed to load)'),
-                ),
+                child: bytes == null
+                    ? _imageFallback(
+                        context,
+                        label: 'Image could not be loaded',
+                      )
+                    : Image.memory(
+                        bytes,
+                        fit: BoxFit.contain,
+                        width: 300,
+                        errorBuilder: (_, _, _) => _imageFallback(
+                          context,
+                          label: 'Image could not be loaded',
+                        ),
+                      ),
               ),
             ),
           ],
@@ -55,18 +95,23 @@ class ChatMessageWidget extends StatelessWidget {
                         message.imageBytes!,
                         fit: BoxFit.contain,
                         width: 200,
-                        errorBuilder: (_, __, ___) =>
-                            const Text('(image failed to load)'),
+                        errorBuilder: (_, _, _) => _imageFallback(
+                          context,
+                          label: 'Preview could not be loaded',
+                        ),
                       )
-                    : const Text('(no image data)'),
+                    : _imageFallback(context, label: 'No image data'),
               ),
             ),
             const SizedBox(width: 8),
             CircleAvatar(
               radius: 16,
               backgroundColor: theme.colorScheme.primaryContainer,
-              child: Icon(Icons.person, size: 20,
-                          color: theme.colorScheme.onPrimaryContainer),
+              child: Icon(
+                Icons.person,
+                size: 20,
+                color: theme.colorScheme.onPrimaryContainer,
+              ),
             ),
           ],
         ),
@@ -82,36 +127,53 @@ class ChatMessageWidget extends StatelessWidget {
           mainAxisAlignment: MainAxisAlignment.end,
           crossAxisAlignment: CrossAxisAlignment.center,
           children: [
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-              decoration: BoxDecoration(
-                color: theme.colorScheme.primaryContainer,
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(
-                    isAudio ? Icons.audio_file : Icons.picture_as_pdf,
-                    size: 20,
-                    color: theme.colorScheme.onPrimaryContainer,
+            Flexible(
+              child: ConstrainedBox(
+                constraints: BoxConstraints(
+                  maxWidth: MediaQuery.sizeOf(context).width * .75,
+                ),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 8,
                   ),
-                  const SizedBox(width: 8),
-                  Text(
-                    message.fileName ?? message.content,
-                    style: theme.textTheme.bodyMedium?.copyWith(
-                      color: theme.colorScheme.onPrimaryContainer,
-                    ),
+                  decoration: BoxDecoration(
+                    color: theme.colorScheme.primaryContainer,
+                    borderRadius: BorderRadius.circular(12),
                   ),
-                ],
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        isAudio ? Icons.audio_file : Icons.picture_as_pdf,
+                        size: 20,
+                        color: theme.colorScheme.onPrimaryContainer,
+                      ),
+                      const SizedBox(width: 8),
+                      Flexible(
+                        child: Text(
+                          message.fileName ?? message.content,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            color: theme.colorScheme.onPrimaryContainer,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
               ),
             ),
             const SizedBox(width: 8),
             CircleAvatar(
               radius: 16,
               backgroundColor: theme.colorScheme.primaryContainer,
-              child: Icon(Icons.person, size: 20,
-                          color: theme.colorScheme.onPrimaryContainer),
+              child: Icon(
+                Icons.person,
+                size: 20,
+                color: theme.colorScheme.onPrimaryContainer,
+              ),
             ),
           ],
         ),
@@ -127,8 +189,9 @@ class ChatMessageWidget extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       child: Row(
-        mainAxisAlignment:
-            isUser ? MainAxisAlignment.end : MainAxisAlignment.start,
+        mainAxisAlignment: isUser
+            ? MainAxisAlignment.end
+            : MainAxisAlignment.start,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           if (!isUser) ...[
@@ -137,18 +200,18 @@ class ChatMessageWidget extends StatelessWidget {
               backgroundColor: isAssistant
                   ? theme.colorScheme.primary
                   : isTool
-                      ? theme.colorScheme.secondary
-                      : (isThinking || isReasoning)
-                          ? theme.colorScheme.tertiary
-                          : theme.colorScheme.surface,
+                  ? theme.colorScheme.secondary
+                  : (isThinking || isReasoning)
+                  ? theme.colorScheme.tertiary
+                  : theme.colorScheme.surface,
               child: Icon(
                 isAssistant
                     ? Icons.smart_toy
                     : isTool
-                        ? Icons.build
-                        : (isThinking || isReasoning)
-                            ? Icons.psychology
-                            : Icons.info,
+                    ? Icons.build
+                    : (isThinking || isReasoning)
+                    ? Icons.psychology
+                    : Icons.info,
                 size: 20,
                 color: theme.colorScheme.onPrimary,
               ),
@@ -162,8 +225,8 @@ class ChatMessageWidget extends StatelessWidget {
                 color: isUser
                     ? theme.colorScheme.primaryContainer
                     : (isThinking || isReasoning)
-                        ? theme.colorScheme.tertiaryContainer.withOpacity(0.5)
-                        : theme.colorScheme.surfaceVariant,
+                    ? theme.colorScheme.tertiaryContainer.withValues(alpha: 0.5)
+                    : theme.colorScheme.surfaceContainerHighest,
                 borderRadius: BorderRadius.only(
                   topLeft: Radius.circular(isUser ? 20 : 4),
                   topRight: Radius.circular(isUser ? 4 : 20),
@@ -200,8 +263,8 @@ class ChatMessageWidget extends StatelessWidget {
                       color: isUser
                           ? theme.colorScheme.onPrimaryContainer
                           : (isThinking || isReasoning)
-                              ? theme.colorScheme.onTertiaryContainer
-                              : theme.colorScheme.onSurfaceVariant,
+                          ? theme.colorScheme.onTertiaryContainer
+                          : theme.colorScheme.onSurfaceVariant,
                     ),
                   ),
                   if (message.isStreaming) ...[
@@ -212,7 +275,7 @@ class ChatMessageWidget extends StatelessWidget {
                       child: LinearProgressIndicator(
                         backgroundColor: Colors.transparent,
                         valueColor: AlwaysStoppedAnimation<Color>(
-                          theme.colorScheme.primary.withOpacity(0.5),
+                          theme.colorScheme.primary.withValues(alpha: 0.5),
                         ),
                       ),
                     ),

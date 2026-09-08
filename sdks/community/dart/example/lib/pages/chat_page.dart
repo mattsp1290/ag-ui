@@ -9,6 +9,7 @@ import '../models/chat_message.dart';
 import '../models/endpoint_config.dart';
 import '../services/ag_ui_service.dart';
 import '../services/ids.dart';
+import '../services/image_data.dart';
 import 'agui_event_handling.dart';
 import '../widgets/chat_message_widget.dart';
 import '../widgets/chat_input_widget.dart';
@@ -273,7 +274,7 @@ class ChatPageState extends ChangeNotifier with AgUiEventHandling {
       final url = value is Map && value['url'] is String
           ? value['url'] as String
           : null;
-      if (url != null && _isValidImageDataUrl(url)) {
+      if (url != null && decodeImageDataUrl(url) != null) {
         messages.add(
           ChatMessage(
             id: 'image_${DateTime.now().millisecondsSinceEpoch}',
@@ -426,18 +427,6 @@ class ChatPageState extends ChangeNotifier with AgUiEventHandling {
       _history.add(message);
     } else {
       _history[index] = message;
-    }
-  }
-
-  bool _isValidImageDataUrl(String value) {
-    try {
-      final uri = Uri.parse(value);
-      if (uri.scheme != 'data') return false;
-      final data = UriData.fromUri(uri);
-      return data.mimeType.startsWith('image/') &&
-          data.contentAsBytes().isNotEmpty;
-    } on Object {
-      return false;
     }
   }
 

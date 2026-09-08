@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:file_picker/file_picker.dart';
 import '../models/endpoint_config.dart';
 import '../services/ag_ui_service.dart';
 import '../widgets/chat_message_widget.dart';
@@ -8,19 +9,32 @@ import 'chat_page.dart';
 
 class MultimodalChatPage extends StatelessWidget {
   final EndpointConfig endpoint;
-  const MultimodalChatPage({Key? key, required this.endpoint}) : super(key: key);
+  final AgUiService? service;
+  final Future<PlatformFile?> Function(List<String> allowedExtensions)?
+  filePicker;
+
+  const MultimodalChatPage({
+    super.key,
+    required this.endpoint,
+    this.service,
+    this.filePicker,
+  });
 
   @override
   Widget build(BuildContext context) {
     return ChangeNotifierProvider<MultimodalChatPageState>(
-      create: (_) => MultimodalChatPageState(endpoint: endpoint),
+      create: (_) => MultimodalChatPageState(
+        endpoint: endpoint,
+        service: service,
+        filePicker: filePicker,
+      ),
       child: const MultimodalChatPageView(),
     );
   }
 }
 
 class MultimodalChatPageView extends StatelessWidget {
-  const MultimodalChatPageView({Key? key}) : super(key: key);
+  const MultimodalChatPageView({super.key});
 
   @override
   Widget build(BuildContext context) {
@@ -28,7 +42,7 @@ class MultimodalChatPageView extends StatelessWidget {
     final theme = Theme.of(context);
 
     return Scaffold(
-      backgroundColor: theme.colorScheme.background,
+      backgroundColor: theme.colorScheme.surface,
       appBar: AppBar(
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -58,7 +72,9 @@ class MultimodalChatPageView extends StatelessWidget {
                 preferredSize: const Size.fromHeight(2),
                 child: LinearProgressIndicator(
                   backgroundColor: Colors.transparent,
-                  valueColor: AlwaysStoppedAnimation<Color>(theme.colorScheme.primary),
+                  valueColor: AlwaysStoppedAnimation<Color>(
+                    theme.colorScheme.primary,
+                  ),
                 ),
               )
             : null,
@@ -71,12 +87,18 @@ class MultimodalChatPageView extends StatelessWidget {
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        Icon(state.endpoint.icon, size: 64,
-                             color: theme.colorScheme.outline),
+                        Icon(
+                          state.endpoint.icon,
+                          size: 64,
+                          color: theme.colorScheme.outline,
+                        ),
                         const SizedBox(height: 16),
-                        Text('Attach a file to begin',
-                             style: theme.textTheme.titleLarge?.copyWith(
-                               color: theme.colorScheme.outline)),
+                        Text(
+                          'Attach a file to begin',
+                          style: theme.textTheme.titleLarge?.copyWith(
+                            color: theme.colorScheme.outline,
+                          ),
+                        ),
                       ],
                     ),
                   )
@@ -86,14 +108,17 @@ class MultimodalChatPageView extends StatelessWidget {
                     itemCount: state.messages.length,
                     itemBuilder: (context, index) {
                       final reversedIndex = state.messages.length - 1 - index;
-                      return ChatMessageWidget(message: state.messages[reversedIndex]);
+                      return ChatMessageWidget(
+                        message: state.messages[reversedIndex],
+                      );
                     },
                   ),
           ),
           MultimodalInputWidget(
             endpoint: state.endpoint,
             isEnabled: !state.isLoading,
-            onPickFile: () => state.pickFile(state.endpoint.allowedExtensions, context),
+            onPickFile: () =>
+                state.pickFile(state.endpoint.allowedExtensions, context),
             onSend: state.sendMultimodal,
             onClear: state.clearPicked,
           ),
@@ -103,16 +128,16 @@ class MultimodalChatPageView extends StatelessWidget {
   }
 
   IconData _connectionIcon(ConnectionStatus s) => switch (s) {
-        ConnectionStatus.connected    => Icons.check_circle,
-        ConnectionStatus.connecting   => Icons.sync,
-        ConnectionStatus.error        => Icons.error,
-        ConnectionStatus.disconnected => Icons.circle_outlined,
-      };
+    ConnectionStatus.connected => Icons.check_circle,
+    ConnectionStatus.connecting => Icons.sync,
+    ConnectionStatus.error => Icons.error,
+    ConnectionStatus.disconnected => Icons.circle_outlined,
+  };
 
   Color _connectionColor(ConnectionStatus s, ThemeData theme) => switch (s) {
-        ConnectionStatus.connected    => Colors.green,
-        ConnectionStatus.connecting   => theme.colorScheme.primary,
-        ConnectionStatus.error        => theme.colorScheme.error,
-        ConnectionStatus.disconnected => theme.colorScheme.outline,
-      };
+    ConnectionStatus.connected => Colors.green,
+    ConnectionStatus.connecting => theme.colorScheme.primary,
+    ConnectionStatus.error => theme.colorScheme.error,
+    ConnectionStatus.disconnected => theme.colorScheme.outline,
+  };
 }

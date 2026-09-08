@@ -12,13 +12,13 @@ class MultimodalInputWidget extends StatefulWidget {
   final VoidCallback onClear;
 
   const MultimodalInputWidget({
-    Key? key,
+    super.key,
     required this.endpoint,
     required this.isEnabled,
     required this.onPickFile,
     required this.onSend,
     required this.onClear,
-  }) : super(key: key);
+  });
 
   @override
   State<MultimodalInputWidget> createState() => _MultimodalInputWidgetState();
@@ -70,7 +70,9 @@ class _MultimodalInputWidgetState extends State<MultimodalInputWidget> {
                           borderRadius: BorderRadius.circular(24),
                         ),
                         contentPadding: const EdgeInsets.symmetric(
-                            horizontal: 16, vertical: 8),
+                          horizontal: 16,
+                          vertical: 8,
+                        ),
                       ),
                       enabled: widget.isEnabled,
                       onSubmitted: state.hasFile && widget.isEnabled
@@ -130,7 +132,7 @@ class _FilePreview extends StatelessWidget {
       margin: const EdgeInsets.fromLTRB(8, 4, 8, 0),
       padding: const EdgeInsets.all(8),
       decoration: BoxDecoration(
-        color: theme.colorScheme.surfaceVariant,
+        color: theme.colorScheme.surfaceContainerHighest,
         borderRadius: BorderRadius.circular(8),
       ),
       child: Row(
@@ -138,7 +140,22 @@ class _FilePreview extends StatelessWidget {
           if (endpoint.path == 'vision' && bytes != null)
             ClipRRect(
               borderRadius: BorderRadius.circular(4),
-              child: Image.memory(bytes!, height: 60, fit: BoxFit.cover),
+              child: Image.memory(
+                bytes!,
+                height: 60,
+                width: 60,
+                fit: BoxFit.cover,
+                errorBuilder: (_, _, _) => Container(
+                  height: 60,
+                  width: 60,
+                  color: theme.colorScheme.errorContainer,
+                  alignment: Alignment.center,
+                  child: Icon(
+                    Icons.broken_image_outlined,
+                    color: theme.colorScheme.onErrorContainer,
+                  ),
+                ),
+              ),
             )
           else
             Icon(
@@ -152,6 +169,7 @@ class _FilePreview extends StatelessWidget {
           Expanded(
             child: Text(
               fileName,
+              maxLines: 2,
               overflow: TextOverflow.ellipsis,
               style: theme.textTheme.bodySmall,
             ),

@@ -457,11 +457,7 @@ try {
 
 ## Examples
 
-See the [`example/`](example/) directory for:
-- Interactive CLI for testing AG-UI servers
-- Tool-based generative UI flows
-- Message streaming patterns
-- Complete end-to-end demonstrations
+The [Flutter dojo](example/) pairs this SDK with the local Go example server. Its eleven destinations demonstrate streaming messages, client tools, local approvals, cards, shared/predictive state, media, and scripted reasoning. The example README includes the two-terminal quickstart and a credential-free Docker contract suite.
 
 ## Testing
 

@@ -555,6 +555,13 @@ void main() {
               );
         expect(events.whereType<RunErrorEvent>(), hasLength(1), reason: route);
         expect(events.last, isA<RunErrorEvent>(), reason: route);
+        expect(
+          events.whereType<RunErrorEvent>().single.message,
+          contains(
+            'fixture ${route == 'image-gen' ? 'image' : route} provider failure',
+          ),
+          reason: route,
+        );
         expect(events.whereType<RunFinishedEvent>(), isEmpty, reason: route);
       }
     },
@@ -698,6 +705,14 @@ void main() {
       addTearDown(state.dispose);
       state.sendMessage('fixture:interrupted');
       await _waitUntil(() => !state.isLoading);
+      expect(
+        state.messages.where(
+          (message) =>
+              message.type == ChatMessageType.assistant &&
+              message.content.contains('Partial response before interruption.'),
+        ),
+        hasLength(1),
+      );
       expect(recorder.requests, hasLength(1));
       expect(
         state.messages.any(

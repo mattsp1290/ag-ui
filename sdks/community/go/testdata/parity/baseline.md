@@ -1,0 +1,11 @@
+# Go SDK compatibility baseline
+
+This fixture records the public API at pinned upstream `87e9d964` and compares it with the older checkout `30a2a436`. The three requested upstream changes are already ancestors of baseline `7ea5fccb`; no integration is required.
+
+The historical source breaks are inherited from upstream metadata work: `ToolCall.Metadata` changes `ToolCall` from comparable to non-comparable, so old `==` and `map[types.ToolCall]` callers must migrate. Adding that field also breaks old unkeyed `ToolCall` literals. Disposable archive probes demonstrate both: old compile succeeds; pinned compile fails with `struct containing types.Metadata cannot be compared`, `invalid map key type`, and `too few values in struct literal`.
+
+Baseline gates passed on the checked-out fork: `go test ./...` in `sdks/community/go` and `GOWORK=off go test ./...` in `sdks/community/go/example/server`. The fixture intentionally exercises constructor/options and public codec/client/event surfaces, camel-case precedence, snake-case aliases, legacy THINKING through `EventDecoder`, encrypted content, metadata nulls, usage zero, outcomes, and omission of absent optional fields. It contains no production changes.
+
+The broader baseline gates have pre-existing failures. `go test -race ./...` fails in `pkg/client/sse` (`TestStream/logger_output`) with a data race between the test reading a `bytes.Buffer` and the client/logrus stream goroutine writing it; the run also reports an httptest server blocked in `Close` while a connection remains active. `go vet ./...` fails in `pkg/client/sse/client_stream_test.go:704,723,740,752` because context cancel functions are not used on every return path. These failures are assigned to the later streaming-lifecycle slice and must pass before final parity acceptance.
+
+The fixture passes unchanged on disposable archives of both `7ea5fccb` and `87e9d964`. Run it with `go test ./internal/parity` from the SDK module. These selected public-contract checks protect external SDK users; they do not prove compatibility with every unidentified application or arbitrary unkeyed struct literal. Go examples and user-owned Eino consumers may adapt their APIs; no feature flags or downstream pin changes are introduced.

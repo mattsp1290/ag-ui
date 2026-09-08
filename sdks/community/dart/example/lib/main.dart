@@ -12,14 +12,16 @@ void main() {
 }
 
 class MyApp extends StatelessWidget {
-  final String? baseUrlOverride;
+  /// Injects only startup validation; requests use compiled AG_UI_BASE_URL.
+  @visibleForTesting
+  final String? baseUrlForValidation;
 
-  const MyApp({super.key, this.baseUrlOverride});
+  const MyApp({super.key, this.baseUrlForValidation});
 
   @override
   Widget build(BuildContext context) {
     try {
-      AgUiService.resolveBaseUrl(baseUrlOverride);
+      AgUiService.resolveBaseUrl(baseUrlForValidation);
     } on ArgumentError catch (error) {
       return MaterialApp(
         title: 'AG-UI Flutter Dojo',
@@ -74,7 +76,7 @@ class MyHomePage extends StatefulWidget {
 }
 
 class _MyHomePageState extends State<MyHomePage> {
-  bool _menuOpen = false;
+  final _scaffoldKey = GlobalKey<ScaffoldState>();
 
   @override
   Widget build(BuildContext context) {
@@ -103,45 +105,26 @@ class _MyHomePageState extends State<MyHomePage> {
           endpoints: appState.endpoints,
           selectedIndex: selectedIndex,
           onDestinationSelected: appState.selectEndpoint,
-          onClose: () => setState(() => _menuOpen = false),
+          onClose: () => _scaffoldKey.currentState?.closeEndDrawer(),
         );
 
         if (narrow) {
           return Scaffold(
+            key: _scaffoldKey,
+            endDrawer: Drawer(width: 320, child: drawer),
             body: Stack(
               children: [
                 Positioned.fill(child: page),
-                if (_menuOpen)
-                  Positioned.fill(
-                    child: GestureDetector(
-                      onTap: () => setState(() => _menuOpen = false),
-                      child: ColoredBox(
-                        color: Colors.black26,
-                        child: Align(
-                          alignment: Alignment.topRight,
-                          child: Material(
-                            elevation: 8,
-                            child: SizedBox(
-                              width: 320,
-                              height: constraints.maxHeight,
-                              child: drawer,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
                 Positioned.fill(
                   child: SafeArea(
                     child: Align(
                       alignment: Alignment.topRight,
-                      child: Builder(
-                        builder: (context) => IconButton(
-                          key: const Key('open-navigation-menu'),
-                          tooltip: 'Open navigation menu',
-                          icon: const Icon(Icons.menu),
-                          onPressed: () => setState(() => _menuOpen = true),
-                        ),
+                      child: IconButton(
+                        key: const Key('open-navigation-menu'),
+                        tooltip: 'Open navigation menu',
+                        icon: const Icon(Icons.menu),
+                        onPressed: () =>
+                            _scaffoldKey.currentState?.openEndDrawer(),
                       ),
                     ),
                   ),

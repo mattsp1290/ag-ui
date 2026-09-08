@@ -30,6 +30,8 @@ type parityCorpus struct {
 }
 
 type parityCase struct {
+	PeerValidity         map[string]bool            `json:"peer_validity"`
+	ExpectedByLanguage   map[string]json.RawMessage `json:"expected_by_language"`
 	normalizeDefaultRole bool
 	ID                   string          `json:"id"`
 	Kind                 string          `json:"kind"`
@@ -44,21 +46,23 @@ type parityCase struct {
 }
 
 type parityManifest struct {
-	SchemaFields       map[string]any                          `json:"schema_fields"`
-	SourceFiles        map[string]string                       `json:"source_files"`
-	Version            int                                     `json:"version"`
-	PinnedUpstream     string                                  `json:"pinned_upstream"`
-	ImplementationBase string                                  `json:"implementation_base"`
-	Events             []string                                `json:"events"`
-	Roles              []string                                `json:"roles"`
-	GoSentinel         string                                  `json:"go_sentinel"`
-	CaseIDs            []string                                `json:"case_ids"`
-	ExpectedFailure    []manifestFailure                       `json:"expected_failures"`
-	Normalizations     []roleNormalization                     `json:"normalizations"`
-	Helpers            map[string]manifestHelper               `json:"helpers"`
-	Nonshared          []manifestDifference                    `json:"nonshared"`
-	Generated          manifestGenerated                       `json:"generated_artifacts"`
-	Coverage           map[string]map[string]coverageReference `json:"coverage"`
+	RouteExceptions     []routeException                        `json:"route_exceptions"`
+	RouteNormalizations []routeNormalization                    `json:"route_normalizations"`
+	SchemaFields        map[string]any                          `json:"schema_fields"`
+	SourceFiles         map[string]string                       `json:"source_files"`
+	Version             int                                     `json:"version"`
+	PinnedUpstream      string                                  `json:"pinned_upstream"`
+	ImplementationBase  string                                  `json:"implementation_base"`
+	Events              []string                                `json:"events"`
+	Roles               []string                                `json:"roles"`
+	GoSentinel          string                                  `json:"go_sentinel"`
+	CaseIDs             []string                                `json:"case_ids"`
+	ExpectedFailure     []manifestFailure                       `json:"expected_failures"`
+	Normalizations      []roleNormalization                     `json:"normalizations"`
+	Helpers             map[string]manifestHelper               `json:"helpers"`
+	Nonshared           []manifestDifference                    `json:"nonshared"`
+	Generated           manifestGenerated                       `json:"generated_artifacts"`
+	Coverage            map[string]map[string]coverageReference `json:"coverage"`
 }
 
 type manifestDifference struct {
@@ -156,6 +160,7 @@ func loadParityFiles(t *testing.T) (parityCorpus, parityManifest) {
 	require.Equal(t, 1, corpus.Version)
 	require.Equal(t, 1, manifest.Version)
 	validateManifest(t, corpus, manifest)
+	validateRouteRules(t, corpus, manifest)
 	return corpus, manifest
 }
 
@@ -176,7 +181,7 @@ func validateManifest(t *testing.T, corpus parityCorpus, m parityManifest) {
 		require.NotEmpty(t, n.Scope)
 		require.NotEmpty(t, n.Difference)
 	}
-	require.Equal(t, "go-producer-only", m.Generated.Status)
+	require.Equal(t, "bidirectional", m.Generated.Status)
 	require.Equal(t, "AG_UI_PARITY_OUTPUT_DIR", m.Generated.OutputEnv)
 	require.Equal(t, len(corpus.Cases), m.Generated.ExpectedCaseCount, "generated case count must match corpus")
 	require.Len(t, m.Generated.RequiredRoutes, 8)
@@ -185,7 +190,7 @@ func validateManifest(t *testing.T, corpus parityCorpus, m parityManifest) {
 	for _, route := range m.Generated.RequiredRoutes {
 		require.Equal(t, route+".json", m.Generated.Files[route])
 	}
-	require.ElementsMatch(t, []string{"go.direct", "go.encoder", "go.from-python", "go.from-typescript"}, m.Generated.ImplementedRoutes)
+	require.ElementsMatch(t, m.Generated.RequiredRoutes, m.Generated.ImplementedRoutes)
 	byID := make(map[string]parityCase, len(corpus.Cases))
 	for _, c := range corpus.Cases {
 		byID[c.ID] = c
@@ -423,9 +428,6 @@ func parityChecks(c parityCase) []string {
 }
 
 func runParityCase(c parityCase, check string) error {
-	if os.Getenv("AG_UI_PARITY_OUTPUT_DIR") != "" {
-		return fmt.Errorf("generated-artifact mode is not supported by the ordinary corpus harness")
-	}
 	switch c.Kind {
 	case "event":
 		return runEventCase(c, check)

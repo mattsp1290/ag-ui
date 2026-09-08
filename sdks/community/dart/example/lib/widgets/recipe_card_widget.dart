@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 /// back on the next send (last-writer-wins).
 class RecipeCardWidget extends StatelessWidget {
   final Map<String, dynamic> recipe;
+  final bool enabled;
   final ValueChanged<String> onEditTitle;
   final ValueChanged<int> onChangeServings;
   final void Function(String name, String amount) onAddIngredient;
@@ -13,6 +14,7 @@ class RecipeCardWidget extends StatelessWidget {
   const RecipeCardWidget({
     super.key,
     required this.recipe,
+    this.enabled = true,
     required this.onEditTitle,
     required this.onChangeServings,
     required this.onAddIngredient,
@@ -48,6 +50,7 @@ class RecipeCardWidget extends StatelessWidget {
                       child: TextFormField(
                         key: ValueKey('title_$title'),
                         initialValue: title,
+                        enabled: enabled,
                         style: theme.textTheme.titleLarge,
                         decoration: const InputDecoration(
                           border: InputBorder.none,
@@ -66,12 +69,12 @@ class RecipeCardWidget extends StatelessWidget {
                     const SizedBox(width: 12),
                     IconButton(
                       icon: const Icon(Icons.remove_circle_outline),
-                      onPressed: () => onChangeServings(-1),
+                      onPressed: enabled ? () => onChangeServings(-1) : null,
                     ),
                     Text('$servings', style: theme.textTheme.titleMedium),
                     IconButton(
                       icon: const Icon(Icons.add_circle_outline),
-                      onPressed: () => onChangeServings(1),
+                      onPressed: enabled ? () => onChangeServings(1) : null,
                     ),
                   ],
                 ),
@@ -81,9 +84,9 @@ class RecipeCardWidget extends StatelessWidget {
                 for (int i = 0; i < ingredients.length; i++)
                   _IngredientRow(
                     ingredient: ingredients[i],
-                    onRemove: () => onRemoveIngredient(i),
+                    onRemove: enabled ? () => onRemoveIngredient(i) : null,
                   ),
-                _AddIngredientRow(onAdd: onAddIngredient),
+                _AddIngredientRow(onAdd: onAddIngredient, enabled: enabled),
                 const Divider(),
                 Text('Steps', style: theme.textTheme.titleMedium),
                 const SizedBox(height: 4),
@@ -103,22 +106,22 @@ class RecipeCardWidget extends StatelessWidget {
 
 class _IngredientRow extends StatelessWidget {
   final dynamic ingredient;
-  final VoidCallback onRemove;
+  final VoidCallback? onRemove;
 
   const _IngredientRow({required this.ingredient, required this.onRemove});
 
   @override
   Widget build(BuildContext context) {
-    final name = ingredient is Map ? '${ingredient['name'] ?? ''}' : '$ingredient';
+    final name = ingredient is Map
+        ? '${ingredient['name'] ?? ''}'
+        : '$ingredient';
     final amount = ingredient is Map ? '${ingredient['amount'] ?? ''}' : '';
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 2),
       child: Row(
         children: [
           const Text('• '),
-          Expanded(
-            child: Text(amount.isEmpty ? name : '$amount  $name'),
-          ),
+          Expanded(child: Text(amount.isEmpty ? name : '$amount  $name')),
           IconButton(
             icon: const Icon(Icons.close, size: 18),
             onPressed: onRemove,
@@ -132,7 +135,8 @@ class _IngredientRow extends StatelessWidget {
 
 class _AddIngredientRow extends StatefulWidget {
   final void Function(String name, String amount) onAdd;
-  const _AddIngredientRow({required this.onAdd});
+  final bool enabled;
+  const _AddIngredientRow({required this.onAdd, required this.enabled});
 
   @override
   State<_AddIngredientRow> createState() => _AddIngredientRowState();
@@ -150,7 +154,7 @@ class _AddIngredientRowState extends State<_AddIngredientRow> {
   }
 
   void _submit() {
-    if (_name.text.trim().isEmpty) return;
+    if (!widget.enabled || _name.text.trim().isEmpty) return;
     widget.onAdd(_name.text, _amount.text);
     _name.clear();
     _amount.clear();
@@ -166,16 +170,15 @@ class _AddIngredientRowState extends State<_AddIngredientRow> {
             width: 70,
             child: TextField(
               controller: _amount,
-              decoration: const InputDecoration(
-                hintText: 'amt',
-                isDense: true,
-              ),
+              enabled: widget.enabled,
+              decoration: const InputDecoration(hintText: 'amt', isDense: true),
             ),
           ),
           const SizedBox(width: 8),
           Expanded(
             child: TextField(
               controller: _name,
+              enabled: widget.enabled,
               decoration: const InputDecoration(
                 hintText: 'add ingredient…',
                 isDense: true,
@@ -185,7 +188,7 @@ class _AddIngredientRowState extends State<_AddIngredientRow> {
           ),
           IconButton(
             icon: const Icon(Icons.add),
-            onPressed: _submit,
+            onPressed: widget.enabled ? _submit : null,
             tooltip: 'Add',
           ),
         ],

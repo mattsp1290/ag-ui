@@ -7,19 +7,19 @@
 // fine here. Pages look up `seedStateFns[endpoint.path]?.call()`.
 
 Map<String, dynamic> _defaultRecipe() => {
-      'recipe': {
-        'title': 'Tomato Pasta',
-        'servings': 2,
-        'ingredients': [
-          {'name': 'pasta', 'amount': '200g'},
-          {'name': 'tomatoes', 'amount': '3'},
-        ],
-        'steps': [
-          'Boil a large pot of salted water.',
-          'Cook the pasta until al dente.',
-        ],
-      },
-    };
+  'recipe': {
+    'title': 'Tomato Pasta',
+    'servings': 2,
+    'ingredients': [
+      {'name': 'pasta', 'amount': '200g'},
+      {'name': 'tomatoes', 'amount': '3'},
+    ],
+    'steps': [
+      'Boil a large pot of salted water.',
+      'Cook the pasta until al dente.',
+    ],
+  },
+};
 
 /// Seed-state builders keyed by endpoint path. Each call returns a fresh, mutable
 /// document so the page can edit it without aliasing the shared default.

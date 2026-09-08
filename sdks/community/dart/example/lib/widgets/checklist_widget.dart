@@ -15,9 +15,12 @@ class ChecklistWidget extends StatelessWidget {
       itemCount: steps.length,
       itemBuilder: (context, i) {
         final step = steps[i];
-        final description =
-            step is Map ? '${step['description'] ?? 'Step ${i + 1}'}' : '$step';
-        final status = step is Map ? '${step['status'] ?? 'pending'}' : 'pending';
+        final description = step is Map
+            ? '${step['description'] ?? 'Step ${i + 1}'}'
+            : '$step';
+        final status = step is Map
+            ? '${step['status'] ?? 'pending'}'
+            : 'pending';
         return ListTile(
           leading: _statusIcon(status, theme),
           title: Text(
@@ -26,8 +29,9 @@ class ChecklistWidget extends StatelessWidget {
               color: status == 'completed'
                   ? theme.colorScheme.onSurfaceVariant
                   : theme.colorScheme.onSurface,
-              decoration:
-                  status == 'completed' ? TextDecoration.lineThrough : null,
+              decoration: status == 'completed'
+                  ? TextDecoration.lineThrough
+                  : null,
             ),
           ),
         );
@@ -49,8 +53,10 @@ class ChecklistWidget extends StatelessWidget {
           ),
         );
       default:
-        return Icon(Icons.radio_button_unchecked,
-            color: theme.colorScheme.outline);
+        return Icon(
+          Icons.radio_button_unchecked,
+          color: theme.colorScheme.outline,
+        );
     }
   }
 }

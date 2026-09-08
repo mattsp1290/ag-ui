@@ -121,6 +121,13 @@ func TestGoArtifactCLI(t *testing.T) {
 		{"wrong digest", func(d *artifactDocument) { d.CorpusSHA256 = "wrong" }},
 		{"wrong route", func(d *artifactDocument) { d.Route = "typescript.produced" }},
 		{"accepted without value", func(d *artifactDocument) { d.Cases[0].Accepted = true; d.Cases[0].Value = nil }},
+		{"accepted null message", func(d *artifactDocument) {
+			for i := range d.Cases {
+				if d.Cases[i].ID == "message.developer.full" {
+					d.Cases[i].Value = json.RawMessage(`null`)
+				}
+			}
+		}},
 		{"accepted with error", func(d *artifactDocument) { d.Cases[0].Error = "contradictory status" }},
 		{"accepted but unsupported", func(d *artifactDocument) { d.Cases[0].Unsupported = true }},
 		{"rejected without reason", func(d *artifactDocument) {
@@ -160,4 +167,29 @@ func TestGoArtifactCLI(t *testing.T) {
 	output, err = run("--source", "typescript")
 	require.NoError(t, err, "%s", output)
 	read("go.from-typescript")
+	for _, mutation := range []struct {
+		name string
+		edit func(map[string]any)
+	}{
+		{"unknown kind", func(c map[string]any) { c["kind"] = "mesage" }},
+		{"missing event type", func(c map[string]any) { delete(c, "event_type") }},
+		{"unknown event type", func(c map[string]any) { c["event_type"] = "TYPO" }},
+		{"mismatched discriminator", func(c map[string]any) { c["event_type"] = "TOOL_CALL_START" }},
+		{"null input", func(c map[string]any) { c["input"] = nil }},
+		{"missing validity", func(c map[string]any) { delete(c, "valid") }},
+		{"unknown check", func(c map[string]any) { c["check"] = "typo" }},
+	} {
+		t.Run(mutation.name, func(t *testing.T) {
+			var malformed map[string]any
+			require.NoError(t, json.Unmarshal(fixtureBytes, &malformed))
+			mutation.edit(malformed["cases"].([]any)[0].(map[string]any))
+			data, err := json.Marshal(malformed)
+			require.NoError(t, err)
+			outDir := t.TempDir()
+			path := filepath.Join(outDir, "fixtures.json")
+			require.NoError(t, os.WriteFile(path, data, 0600))
+			output, err := exec.Command(binary, "--corpus", path, "--output-dir", outDir).CombinedOutput()
+			require.Error(t, err, "malformed corpus accepted: %s", output)
+		})
+	}
 }

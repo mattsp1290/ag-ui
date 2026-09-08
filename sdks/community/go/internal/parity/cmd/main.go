@@ -28,6 +28,7 @@ type testCase struct {
 	ID        string          `json:"id"`
 	Kind      string          `json:"kind"`
 	Check     string          `json:"check,omitempty"`
+	Valid     *bool           `json:"valid"`
 	Input     json.RawMessage `json:"input"`
 	EventType string          `json:"event_type,omitempty"`
 }
@@ -160,13 +161,43 @@ func validateCorpus(c corpus) error {
 	}
 	seen := make(map[string]bool, len(c.Cases))
 	for i, tc := range c.Cases {
-		if tc.ID == "" || tc.Kind == "" || len(tc.Input) == 0 {
-			return fmt.Errorf("corpus case %d is missing id, kind, or input", i)
+		if tc.ID == "" || tc.Valid == nil {
+			return fmt.Errorf("corpus case %d requires id and explicit validity", i)
 		}
 		if seen[tc.ID] {
 			return fmt.Errorf("duplicate corpus case id %q", tc.ID)
 		}
 		seen[tc.ID] = true
+		if !isObject(tc.Input) {
+			return fmt.Errorf("corpus case %q input must be a JSON object", tc.ID)
+		}
+		switch tc.Kind {
+		case "event":
+			// UNKNOWN is the deliberately invalid Go sentinel fixture, never
+			// an additional protocol event or a concrete factory entry.
+			invalidSentinel := tc.EventType == "UNKNOWN" && !*tc.Valid && tc.Check == "jsonDecoder"
+			if eventFactories[tc.EventType] == nil && !invalidSentinel {
+				return fmt.Errorf("corpus case %q has unknown event_type %q", tc.ID, tc.EventType)
+			}
+			var wire struct {
+				Type string `json:"type"`
+			}
+			if err := json.Unmarshal(tc.Input, &wire); err != nil || wire.Type != tc.EventType {
+				return fmt.Errorf("corpus case %q discriminator does not match event_type %q", tc.ID, tc.EventType)
+			}
+		case "message", "content", "request", "usage", "aggregate", "mapper", "capabilities":
+			if tc.EventType != "" {
+				return fmt.Errorf("non-event corpus case %q declares event_type", tc.ID)
+			}
+		default:
+			return fmt.Errorf("corpus case %q has unknown kind %q", tc.ID, tc.Kind)
+		}
+		if tc.Check != "" && tc.Check != "validate" && tc.Check != "jsonDecoder" {
+			return fmt.Errorf("corpus case %q has unknown check %q", tc.ID, tc.Check)
+		}
+		if tc.Check == "jsonDecoder" && tc.Kind != "event" {
+			return fmt.Errorf("corpus case %q uses event decoding for %s", tc.ID, tc.Kind)
+		}
 	}
 	return nil
 }
@@ -225,10 +256,40 @@ func consumePeer(c corpus, digest, outputDir, source string) error {
 			out.Cases = append(out.Cases, record{ID: tc.ID, Error: "not round-tripped: " + peerRecord.Error, Unsupported: peerRecord.Unsupported})
 			continue
 		}
+		if !validResultShape(tc.Kind, peerRecord.Value) {
+			return fmt.Errorf("accepted peer case %q has invalid %s result shape", tc.ID, tc.Kind)
+		}
 		value, unsupported, decodeErr := decodeAndEncode(tc, peerRecord.Value, false, true)
 		out.Cases = append(out.Cases, makeRecord(tc.ID, value, unsupported, decodeErr))
 	}
 	return writeEnvelope(outputDir, route+".json", out)
+}
+
+func isObject(raw json.RawMessage) bool {
+	var object map[string]json.RawMessage
+	return json.Unmarshal(raw, &object) == nil && object != nil
+}
+
+// Helper artifacts contain serialized helper results, not their input objects.
+// A mapper can return null; aggregation returns an array of usage objects.
+func validResultShape(kind string, raw json.RawMessage) bool {
+	switch kind {
+	case "mapper":
+		return bytes.Equal(bytes.TrimSpace(raw), []byte("null")) || isObject(raw)
+	case "aggregate":
+		var values []json.RawMessage
+		if json.Unmarshal(raw, &values) != nil || values == nil {
+			return false
+		}
+		for _, value := range values {
+			if !isObject(value) {
+				return false
+			}
+		}
+		return true
+	default:
+		return isObject(raw)
+	}
 }
 
 func decodeAndEncode(tc testCase, input json.RawMessage, useEncoder, fromPeer bool) (json.RawMessage, bool, error) {
@@ -256,6 +317,9 @@ func decodeAndEncode(tc testCase, input json.RawMessage, useEncoder, fromPeer bo
 		}
 		if err != nil {
 			return nil, false, err
+		}
+		if string(event.Type()) != tc.EventType {
+			return nil, false, fmt.Errorf("event discriminator %q does not match event_type %q", event.Type(), tc.EventType)
 		}
 		if tc.Check == "validate" {
 			if err := event.Validate(); err != nil {

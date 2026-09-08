@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"testing"
 
@@ -49,7 +48,7 @@ func validateRouteRules(t *testing.T, corpus parityCorpus, manifest parityManife
 		for _, c := range corpus.Cases {
 			if c.ID == rule.CaseID {
 				accepted, value := producerExpectation(c, rule.Route)
-				require.True(t, accepted != *rule.Accepted || (len(rule.Value) > 0 && !bytes.Equal(value, rule.Value)), "redundant route exception %s", key)
+				require.True(t, accepted != *rule.Accepted || (len(rule.Value) > 0 && compareJSON(value, rule.Value, false) != nil), "redundant route exception %s", key)
 			}
 		}
 	}
@@ -72,8 +71,8 @@ func (r *artifactRecord) UnmarshalJSON(data []byte) error {
 		ID          string          `json:"id"`
 		Accepted    *bool           `json:"accepted"`
 		Value       json.RawMessage `json:"value"`
-		Error       string          `json:"error"`
-		Unsupported bool            `json:"unsupported"`
+		Error       json.RawMessage `json:"error"`
+		Unsupported json.RawMessage `json:"unsupported"`
 	}
 	d := json.NewDecoder(bytes.NewReader(data))
 	d.DisallowUnknownFields()
@@ -83,13 +82,26 @@ func (r *artifactRecord) UnmarshalJSON(data []byte) error {
 	if wire.Accepted == nil {
 		return fmt.Errorf("record %q has no explicit status", wire.ID)
 	}
-	if *wire.Accepted && (len(wire.Value) == 0 || wire.Error != "" || wire.Unsupported) {
+	if *wire.Accepted && (len(wire.Value) == 0 || len(wire.Error) != 0 || len(wire.Unsupported) != 0) {
 		return fmt.Errorf("accepted record %q has contradictory fields", wire.ID)
 	}
-	if !*wire.Accepted && (len(wire.Value) != 0 || wire.Error == "") {
+	*r = artifactRecord{ID: wire.ID, Accepted: *wire.Accepted, Value: wire.Value}
+	if len(wire.Error) != 0 {
+		if err := json.Unmarshal(wire.Error, &r.Error); err != nil {
+			return err
+		}
+	}
+	if !r.Accepted && (len(r.Value) != 0 || r.Error == "") {
 		return fmt.Errorf("rejected record %q requires only an error", wire.ID)
 	}
-	*r = artifactRecord{wire.ID, *wire.Accepted, wire.Value, wire.Error, wire.Unsupported}
+	if len(wire.Unsupported) != 0 {
+		if bytes.Equal(wire.Unsupported, []byte("null")) {
+			return fmt.Errorf("unsupported must be boolean")
+		}
+		if err := json.Unmarshal(wire.Unsupported, &r.Unsupported); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -146,6 +158,7 @@ func TestGeneratedArtifacts(t *testing.T) {
 		artifacts[route] = records
 	}
 	usedRules := map[string]bool{}
+	usedExceptions := map[string]bool{}
 	for _, route := range manifest.Generated.RequiredRoutes {
 		for _, c := range corpus.Cases {
 			t.Run(route+"/"+c.ID, func(t *testing.T) {
@@ -156,12 +169,14 @@ func TestGeneratedArtifacts(t *testing.T) {
 					if !parent.Accepted {
 						require.False(t, record.Accepted, "source rejection must propagate")
 						require.Equal(t, parent.Unsupported, record.Unsupported)
+						require.Equal(t, "not round-tripped: "+parent.Error, record.Error, "source rejection provenance")
 						return
 					}
 					expected = parent.Value
 				}
 				for _, rule := range manifest.RouteExceptions {
 					if rule.CaseID == c.ID && rule.Route == route {
+						usedExceptions[rule.Route+"/"+rule.CaseID] = true
 						accepted = *rule.Accepted
 						if len(rule.Value) > 0 {
 							expected = rule.Value
@@ -177,6 +192,11 @@ func TestGeneratedArtifacts(t *testing.T) {
 				got := normalizeArtifact(t, record.Value, c.ID, route, manifest, false, usedRules)
 				require.NoError(t, compareJSON(want, got, false))
 			})
+		}
+	}
+	for _, rule := range manifest.RouteExceptions {
+		if !usedExceptions[rule.Route+"/"+rule.CaseID] {
+			t.Errorf("unused route exception: %+v", rule)
 		}
 	}
 	for _, rule := range manifest.RouteNormalizations {
@@ -209,16 +229,14 @@ func normalizeArtifact(t *testing.T, raw json.RawMessage, caseID, route string, 
 			if rule.CaseID != caseID || rule.Route != route {
 				continue
 			}
-			parts := strings.Split(strings.TrimPrefix(rule.Path, "/"), "/")
-			index, err := strconv.Atoi(parts[0])
-			require.NoError(t, err)
+			field := strings.TrimPrefix(rule.Path, "/0/")
 			items, ok := value.([]any)
-			if !ok || index >= len(items) {
+			if !ok || len(items) == 0 {
 				continue
 			}
-			object, ok := items[index].(map[string]any)
-			if ok && object[parts[1]] == "" {
-				delete(object, parts[1])
+			object, ok := items[0].(map[string]any)
+			if ok && object[field] == "" {
+				delete(object, field)
 				used[route+"/"+caseID+rule.Path] = true
 			}
 		}
@@ -226,4 +244,29 @@ func normalizeArtifact(t *testing.T, raw json.RawMessage, caseID, route string, 
 	out, err := json.Marshal(value)
 	require.NoError(t, err)
 	return out
+}
+
+func TestArtifactRecordStatus(t *testing.T) {
+	for _, raw := range []string{
+		`{"id":"case","value":{}}`,
+		`{"id":"case","accepted":true}`,
+		`{"id":"case","accepted":true,"value":{},"error":""}`,
+		`{"id":"case","accepted":true,"value":{},"error":null}`,
+		`{"id":"case","accepted":true,"value":{},"unsupported":false}`,
+		`{"id":"case","accepted":true,"value":{},"unsupported":null}`,
+		`{"id":"case","accepted":false,"error":"rejected","value":null}`,
+		`{"id":"case","accepted":false,"error":null}`,
+		`{"id":"case","accepted":false,"error":"rejected","unsupported":null}`,
+	} {
+		var record artifactRecord
+		require.Error(t, json.Unmarshal([]byte(raw), &record), raw)
+	}
+	for _, raw := range []string{
+		`{"id":"case","accepted":true,"value":null}`,
+		`{"id":"case","accepted":false,"error":"rejected"}`,
+		`{"id":"case","accepted":false,"error":"unimplemented","unsupported":true}`,
+	} {
+		var record artifactRecord
+		require.NoError(t, json.Unmarshal([]byte(raw), &record), raw)
+	}
 }

@@ -55,19 +55,11 @@ def _valid(case: dict[str, Any], language: str = "python") -> bool:
 
 
 def _exception(manifest: dict[str, Any], case_id: str, route: str) -> dict[str, Any]:
-    declarations = manifest.get("route_exceptions", [])
-    if isinstance(declarations, dict):
-        direct = declarations.get(f"{case_id}/{route}") or declarations.get(f"{case_id}:{route}")
-        if isinstance(direct, dict):
-            return direct
-        declarations = declarations.get(case_id, [])
-        if isinstance(declarations, dict) and route in declarations:
-            value = declarations[route]
-            return value if isinstance(value, dict) else {}
-    for declaration in declarations if isinstance(declarations, list) else []:
-        if declaration.get("case_id", declaration.get("id")) == case_id and declaration.get("route") == route:
-            return declaration
-    return {}
+    return next(
+        (rule for rule in manifest["route_exceptions"]
+         if rule["case_id"] == case_id and rule["route"] == route),
+        {},
+    )
 
 
 def _route_expectation(case: dict[str, Any], manifest: dict[str, Any], route: str) -> tuple[bool, Any]:
@@ -125,7 +117,7 @@ def _validate_artifact(
 ) -> dict[str, dict[str, Any]]:
     if not isinstance(document, dict) or set(document) != {"version", "route", "corpus_sha256", "cases"}:
         raise AssertionError(f"{route}: malformed envelope")
-    if document["version"] != 1 or document["route"] != route or document["corpus_sha256"] != digest:
+    if type(document["version"]) is not int or document["version"] != 1 or document["route"] != route or document["corpus_sha256"] != digest:
         raise AssertionError(f"{route}: version, route, or corpus digest mismatch")
     records = document["cases"]
     if not isinstance(records, list) or len(records) != len(case_ids):
@@ -137,14 +129,16 @@ def _validate_artifact(
         if set(record) - {"id", "accepted", "value", "error", "unsupported"}:
             raise AssertionError(f"{route}/{record['id']}: unknown record property")
         case_id = record["id"]
-        if case_id in by_id or type(record["accepted"]) is not bool:
+        if not isinstance(case_id, str) or case_id in by_id or type(record["accepted"]) is not bool:
             raise AssertionError(f"{route}: duplicate id or non-boolean accepted for {case_id}")
+        if "unsupported" in record and type(record["unsupported"]) is not bool:
+            raise AssertionError(f"{route}/{case_id}: unsupported must be boolean")
         if record["accepted"]:
             if "value" not in record or "error" in record or "unsupported" in record:
                 raise AssertionError(f"{route}/{case_id}: malformed accepted record")
             if record["value"] is None and kinds.get(case_id) != "mapper":
                 raise AssertionError(f"{route}/{case_id}: only mapper results may be null")
-        elif "value" in record or not record.get("error"):
+        elif "value" in record or not isinstance(record.get("error"), str) or not record["error"]:
             raise AssertionError(f"{route}/{case_id}: malformed rejected record")
         by_id[case_id] = record
     if set(by_id) != set(case_ids):
@@ -164,7 +158,7 @@ def _consume(
             record = {
                 "id": case["id"],
                 "accepted": False,
-                "error": "source rejection: " + incoming["error"],
+                "error": "not round-tripped: " + incoming["error"],
             }
             if incoming.get("unsupported"):
                 record["unsupported"] = True

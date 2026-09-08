@@ -35,8 +35,7 @@ const expectedFor = (c: Case) => Object.prototype.hasOwnProperty.call(c.expected
   ? c.expected_by_language!.typescript : c.expected;
 const peerValid = (c: Case) => Object.prototype.hasOwnProperty.call(c.peer_validity ?? {}, "typescript")
   ? c.peer_validity!.typescript : c.valid;
-const canonical = (v: any): any => Array.isArray(v) ? v.map(canonical)
-  : v && typeof v === "object" ? Object.fromEntries(Object.keys(v).sort().map(k => [k, canonical(v[k])])) : v;
+
 
 function unwrap(schema: any): any {
   let current = schema; const seen = new Set<any>();
@@ -164,10 +163,9 @@ describe("Go parity oracle", () => {
     const go = strictEnvelope(readFileSync(join(output!, "go.encoder.json"), "utf8"), "go.encoder");
     const consumed = consumeGo(go);
     if (phase === "consume") { writeFileSync(join(output!, "typescript.from-go.json"), JSON.stringify(consumed) + "\n"); return; }
-    const files: [string, string][] = [["go.direct", "go.direct.json"], ["go.encoder", "go.encoder.json"], ["python.produced", "python.produced.json"], ["typescript.produced", "typescript.produced.json"], ["python.from-go", "python.from-go.json"], ["typescript.from-go", "typescript.from-go.json"], ["go.from-python", "go.from-python.json"], ["go.from-typescript", "go.from-typescript.json"]];
     const stored: Record<string, Envelope> = {};
-    for (const [route, file] of files) stored[route] = strictEnvelope(readFileSync(join(output!, file), "utf8"), route);
-    expect(canonical(makeProduced())).toEqual(canonical(stored["typescript.produced"]));
-    expect(canonical(consumed)).toEqual(canonical(stored["typescript.from-go"]));
+    for (const route of manifest.generated_artifacts.required_routes) stored[route] = strictEnvelope(readFileSync(join(output!, manifest.generated_artifacts.files[route]), "utf8"), route);
+    expect(makeProduced()).toEqual(stored["typescript.produced"]);
+    expect(consumed).toEqual(stored["typescript.from-go"]);
   });
 });

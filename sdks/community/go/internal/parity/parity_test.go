@@ -9,7 +9,9 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -42,13 +44,45 @@ type parityCase struct {
 }
 
 type parityManifest struct {
-	SourceFiles     map[string]string   `json:"source_files"`
-	Version         int                 `json:"version"`
-	Events          []string            `json:"events"`
-	Roles           []string            `json:"roles"`
-	CaseIDs         []string            `json:"case_ids"`
-	ExpectedFailure []manifestFailure   `json:"expected_failures"`
-	Normalizations  []roleNormalization `json:"normalizations"`
+	SchemaFields       map[string]any                          `json:"schema_fields"`
+	SourceFiles        map[string]string                       `json:"source_files"`
+	Version            int                                     `json:"version"`
+	PinnedUpstream     string                                  `json:"pinned_upstream"`
+	ImplementationBase string                                  `json:"implementation_base"`
+	Events             []string                                `json:"events"`
+	Roles              []string                                `json:"roles"`
+	GoSentinel         string                                  `json:"go_sentinel"`
+	CaseIDs            []string                                `json:"case_ids"`
+	ExpectedFailure    []manifestFailure                       `json:"expected_failures"`
+	Normalizations     []roleNormalization                     `json:"normalizations"`
+	Helpers            map[string]manifestHelper               `json:"helpers"`
+	Nonshared          []manifestDifference                    `json:"nonshared"`
+	Generated          manifestGenerated                       `json:"generated_artifacts"`
+	Coverage           map[string]map[string]coverageReference `json:"coverage"`
+}
+
+type manifestDifference struct {
+	Scope      string `json:"scope"`
+	Difference string `json:"difference"`
+}
+type coverageReference struct {
+	CaseID   string `json:"case_id"`
+	Document string `json:"document"`
+	Path     string `json:"path"`
+}
+
+type manifestHelper struct {
+	Go         string   `json:"go"`
+	Python     string   `json:"python"`
+	TypeScript string   `json:"typescript"`
+	Owner      string   `json:"owner"`
+	Cases      []string `json:"cases"`
+}
+type manifestGenerated struct {
+	Status            string   `json:"status"`
+	OutputEnv         string   `json:"output_env"`
+	RequiredRoutes    []string `json:"required_routes"`
+	ExpectedCaseCount int      `json:"expected_case_count"`
 }
 
 // The only baseline value insertion is the peers' TEXT_MESSAGE_START role
@@ -62,11 +96,11 @@ type roleNormalization struct {
 }
 
 type manifestFailure struct {
-	CaseID        string `json:"case_id"`
-	Check         string `json:"check"`
-	Owner         string `json:"owner"`
-	Reason        string `json:"reason"`
-	ErrorContains string `json:"error_contains,omitempty"`
+	CaseID      string `json:"case_id"`
+	Check       string `json:"check"`
+	Owner       string `json:"owner"`
+	Reason      string `json:"reason"`
+	ErrorEquals string `json:"error_equals,omitempty"`
 }
 
 type gapCandidate struct {
@@ -112,20 +146,142 @@ func loadParityFiles(t *testing.T) (parityCorpus, parityManifest) {
 		require.NotEmpty(t, fields["expected"], "case %d must declare expected", i)
 	}
 	var manifest parityManifest
-	require.NoError(t, json.Unmarshal(read("manifest.json"), &manifest))
+	data = read("manifest.json")
+	require.True(t, json.Valid(data), "manifest must be one JSON document")
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	require.NoError(t, decoder.Decode(&manifest))
 	require.Equal(t, 1, corpus.Version)
 	require.Equal(t, 1, manifest.Version)
+	validateManifest(t, corpus, manifest)
 	return corpus, manifest
+}
+
+func validateManifest(t *testing.T, corpus parityCorpus, m parityManifest) {
+	t.Helper()
+	sha40 := regexp.MustCompile(`^[0-9a-f]{40}$`)
+	sha64 := regexp.MustCompile(`^[0-9a-f]{64}$`)
+	require.Regexp(t, sha40, m.PinnedUpstream)
+	require.Regexp(t, sha40, m.ImplementationBase)
+	require.NotEmpty(t, m.SchemaFields)
+	for path, sum := range m.SourceFiles {
+		require.NotEmpty(t, path)
+		require.Regexp(t, sha64, sum)
+	}
+	require.Equal(t, "UNKNOWN", m.GoSentinel)
+	require.NotEmpty(t, m.Nonshared)
+	for _, n := range m.Nonshared {
+		require.NotEmpty(t, n.Scope)
+		require.NotEmpty(t, n.Difference)
+	}
+	require.Equal(t, "implemented-by-next-oracle-slice", m.Generated.Status)
+	require.Equal(t, "AG_UI_PARITY_OUTPUT_DIR", m.Generated.OutputEnv)
+	require.Equal(t, len(corpus.Cases), m.Generated.ExpectedCaseCount, "generated case count must match corpus")
+	require.Len(t, m.Generated.RequiredRoutes, 8)
+	require.ElementsMatch(t, []string{"go.direct", "go.encoder", "python.produced", "typescript.produced", "python.from-go", "typescript.from-go", "go.from-python", "go.from-typescript"}, m.Generated.RequiredRoutes)
+	byID := make(map[string]parityCase, len(corpus.Cases))
+	for _, c := range corpus.Cases {
+		byID[c.ID] = c
+	}
+	for name, h := range m.Helpers {
+		var expectedIDs []string
+		for _, c := range corpus.Cases {
+			if c.Kind == name {
+				expectedIDs = append(expectedIDs, c.ID)
+			}
+		}
+		require.ElementsMatch(t, expectedIDs, h.Cases, "helper case inventory changed")
+		require.Contains(t, []string{"aggregate", "mapper"}, name)
+		require.Equal(t, "W4", h.Owner)
+		names := map[string][3]string{
+			"aggregate": {"AggregateTokenUsage", "aggregate_token_usage", "aggregateTokenUsage"},
+			"mapper":    {"TokenUsageFromLangChainMetadata", "token_usage_from_langchain_metadata", "tokenUsageFromLangChainMetadata"},
+		}
+		require.Equal(t, names[name], [3]string{h.Go, h.Python, h.TypeScript})
+		for _, id := range h.Cases {
+			c, ok := byID[id]
+			require.True(t, ok, "helper %s references missing case %s", name, id)
+			require.Equal(t, name, c.Kind)
+			require.Equal(t, "W4", c.Owner)
+		}
+	}
+	require.Len(t, m.Helpers, 2)
+	require.NotEmpty(t, m.Coverage, "coverage must be declared")
+	for model, fields := range m.Coverage {
+		require.NotEmpty(t, fields, "coverage for %s", model)
+		for field, ref := range fields {
+			require.NotEmpty(t, field)
+			require.True(t, coverageReferenceExists(ref, byID), "coverage %s.%s references missing %+v", model, field, ref)
+		}
+	}
+}
+
+func coverageReferenceExists(ref coverageReference, byID map[string]parityCase) bool {
+	c, ok := byID[ref.CaseID]
+	if !ok || !c.Valid || !strings.HasPrefix(ref.Path, "/") {
+		return false
+	}
+	var raw json.RawMessage
+	switch ref.Document {
+	case "input":
+		raw = c.Input
+	case "expected":
+		raw = c.Expected
+	default:
+		return false
+	}
+	var value any
+	if json.Unmarshal(raw, &value) != nil {
+		return false
+	}
+	for _, part := range strings.Split(ref.Path[1:], "/") {
+		token := strings.ReplaceAll(strings.ReplaceAll(part, "~1", "/"), "~0", "~")
+		switch object := value.(type) {
+		case map[string]any:
+			value, ok = object[token]
+			if !ok {
+				return false
+			}
+		case []any:
+			index, err := strconv.Atoi(token)
+			if err != nil || index < 0 || index >= len(object) {
+				return false
+			}
+			value = object[index]
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 func TestParityInventoryIsExact(t *testing.T) {
 	corpus, manifest := loadParityFiles(t)
-	// Ordinary Go tests need no peer runtimes. Source fingerprints fence the
-	// pinned field snapshot until the actual peer inventory/oracles are rerun.
-	require.Len(t, manifest.SourceFiles, 11)
+	// This digest binds the independently audited live peer inventory to its
+	// exact source inputs. Updating it requires rerunning both peer inventory
+	// comparisons. Ordinary Go tests remain independent of peer runtimes.
+	snapshot, err := json.Marshal(map[string]any{"schema_fields": manifest.SchemaFields, "source_files": manifest.SourceFiles, "coverage": manifest.Coverage})
+	require.NoError(t, err)
+	require.Equal(t, "808afc0fb8233ffd959b45ca1ed2b860b92a877cfb14d6bd0bd00ba9fb80b0d6", fmt.Sprintf("%x", sha256.Sum256(snapshot)), "audited peer inventory changed")
+	requiredSources := []string{
+		"sdks/typescript/packages/core/src/events.ts",
+		"sdks/typescript/packages/core/src/types.ts",
+		"sdks/typescript/packages/core/src/metadata.ts",
+		"sdks/typescript/packages/core/src/capabilities.ts",
+		"sdks/typescript/packages/core/src/token-usage.ts",
+		"sdks/python/ag_ui/core/events.py",
+		"sdks/python/ag_ui/core/types.py",
+		"sdks/python/ag_ui/core/capabilities.py",
+		"sdks/python/ag_ui/core/token_usage.py",
+		"sdks/typescript/packages/core/src/index.ts",
+		"sdks/python/ag_ui/core/__init__.py",
+	}
+	var sourcePaths []string
+	for path := range manifest.SourceFiles {
+		sourcePaths = append(sourcePaths, path)
+	}
+	require.ElementsMatch(t, requiredSources, sourcePaths, "exact peer source set required")
 	for path, expected := range manifest.SourceFiles {
-		require.True(t, strings.HasPrefix(path, "sdks/python/ag_ui/core/") || strings.HasPrefix(path, "sdks/typescript/packages/core/src/"))
-		require.Equal(t, path, filepath.ToSlash(filepath.Clean(path)))
 		data, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "..", path))
 		require.NoError(t, err)
 		require.Equal(t, expected, fmt.Sprintf("%x", sha256.Sum256(data)), "peer source changed: rerun the schema inventory and review fixture coverage for %s", path)
@@ -186,7 +342,7 @@ func TestParityCorpus(t *testing.T) {
 		require.NotEmpty(t, x.Check)
 		require.Contains(t, []string{"W2", "W3", "W4"}, x.Owner)
 		require.NotEmpty(t, x.Reason)
-		require.NotEmpty(t, x.ErrorContains)
+		require.NotEmpty(t, x.ErrorEquals)
 		xfails[key] = x
 	}
 	declared := make(map[string]bool)
@@ -223,8 +379,8 @@ func TestParityCorpus(t *testing.T) {
 				if x, ok := xfails[key]; ok {
 					if err == nil {
 						t.Errorf("unexpected pass for expected failure (%s): %s", x.Owner, x.Reason)
-					} else if x.ErrorContains != "" && !strings.Contains(err.Error(), x.ErrorContains) {
-						t.Errorf("expected failure did not match error_contains %q: %v", x.ErrorContains, err)
+					} else if x.ErrorEquals != "" && err.Error() != x.ErrorEquals {
+						t.Errorf("expected failure did not match error_equals %q: %v", x.ErrorEquals, err)
 					}
 					return
 				}
@@ -407,7 +563,7 @@ func compareJSON(want, got []byte, normalizeRole bool) error {
 		}
 	}
 	if !reflect.DeepEqual(a, b) {
-		return fmt.Errorf("JSON mismatch at %s", jsonDifference(a, b, ""))
+		return fmt.Errorf("JSON mismatch at %s", strings.Join(jsonDifferences(a, b, ""), ", "))
 	}
 	return nil
 }
@@ -433,11 +589,13 @@ func writeGapCandidates(t *testing.T, gaps []gapCandidate) {
 	}
 }
 
-// Return a stable JSON pointer so a known gap cannot hide unrelated field loss.
-func jsonDifference(want, got any, path string) string {
+// Report all differing locations so a registered gap cannot mask another
+// field regression. Missing containers use their own pointer as the boundary.
+func jsonDifferences(want, got any, path string) []string {
 	if reflect.DeepEqual(want, got) {
-		return ""
+		return nil
 	}
+	var differences []string
 	if a, ok := want.(map[string]any); ok {
 		if b, ok := got.(map[string]any); ok {
 			fields := make(map[string]bool, len(a)+len(b))
@@ -454,25 +612,29 @@ func jsonDifference(want, got any, path string) string {
 				av, aok := a[k]
 				bv, bok := b[k]
 				if aok != bok {
-					return pointer
-				}
-				if diff := jsonDifference(av, bv, pointer); diff != "" {
-					return diff
+					differences = append(differences, pointer)
+				} else {
+					differences = append(differences, jsonDifferences(av, bv, pointer)...)
 				}
 			}
+			return differences
 		}
 	}
 	if a, ok := want.([]any); ok {
-		if b, ok := got.([]any); ok && len(a) == len(b) {
-			for i := range a {
-				if diff := jsonDifference(a[i], b[i], fmt.Sprintf("%s/%d", path, i)); diff != "" {
-					return diff
+		if b, ok := got.([]any); ok {
+			for i := 0; i < max(len(a), len(b)); i++ {
+				pointer := fmt.Sprintf("%s/%d", path, i)
+				if i >= len(a) || i >= len(b) {
+					differences = append(differences, pointer)
+				} else {
+					differences = append(differences, jsonDifferences(a[i], b[i], pointer)...)
 				}
 			}
+			return differences
 		}
 	}
 	if path == "" {
-		return "/ (document)"
+		path = "/ (document)"
 	}
-	return path
+	return []string{path}
 }

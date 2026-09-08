@@ -230,6 +230,7 @@ class ClientToolsPageState extends ChangeNotifier with AgUiEventHandling {
   }
 
   Future<bool> _consumeRun() async {
+    final priorMessageIds = messages.map((message) => message.id).toSet();
     beginRun();
     _pendingCalls = const [];
     await for (final event in _service.run(
@@ -258,6 +259,7 @@ class ClientToolsPageState extends ChangeNotifier with AgUiEventHandling {
         // Production sends a final snapshot; preserve streamed replies too when
         // a peer finishes a valid text-only run without a snapshot.
         for (final message in messages) {
+          if (priorMessageIds.contains(message.id)) continue;
           if (_history.any((existing) => existing.id == message.id)) continue;
           if (message.type == ChatMessageType.assistant) {
             _history.add(
@@ -347,10 +349,10 @@ class ClientToolsPageState extends ChangeNotifier with AgUiEventHandling {
           _notify();
           return jsonEncode({'rendered': true});
         case 'request_approval':
-          _requiredString(args, 'summary');
-          _requiredString(args, 'action');
+          final summary = _requiredString(args, 'summary');
+          final action = _requiredString(args, 'action');
           if (isApproval && _approvalGate) {
-            return await _executeWithApproval(name, args);
+            return await _requestApproval(summary, action);
           }
           return jsonEncode({
             'approved': true,
@@ -374,14 +376,11 @@ class ClientToolsPageState extends ChangeNotifier with AgUiEventHandling {
     return value;
   }
 
-  Future<String> _executeWithApproval(
-    String name,
-    Map<String, dynamic> args,
-  ) async {
+  Future<String> _requestApproval(String summary, String action) async {
     // Guard the whole flow against disposal so a multi-approval batch can't hang or
     // notify after dispose. dispose() completes any in-flight completer with false.
     if (disposed) return jsonEncode({'approved': false, 'reason': 'cancelled'});
-    _pendingApproval = _summarize(name, args);
+    _pendingApproval = '$summary\n\nAction: $action';
     _approvalCompleter = Completer<bool>();
     _notify();
 
@@ -394,7 +393,9 @@ class ClientToolsPageState extends ChangeNotifier with AgUiEventHandling {
       ChatMessage(
         id: uid('decision'),
         type: ChatMessageType.system,
-        content: approved ? '✅ Approved: $name' : '🚫 Denied: $name',
+        content: approved
+            ? '✅ Approved: request_approval'
+            : '🚫 Denied: request_approval',
         timestamp: DateTime.now(),
       ),
     );
@@ -408,7 +409,7 @@ class ClientToolsPageState extends ChangeNotifier with AgUiEventHandling {
     }
     return jsonEncode({
       'approved': true,
-      'result': _performDemoAction(name, args),
+      'result': 'The user approved. You may proceed with: $action.',
     });
   }
 
@@ -438,26 +439,6 @@ class ClientToolsPageState extends ChangeNotifier with AgUiEventHandling {
   void _resolveDecision(bool v) {
     final c = _approvalCompleter;
     if (c != null && !c.isCompleted) c.complete(v);
-  }
-
-  String _summarize(String name, Map<String, dynamic> args) {
-    switch (name) {
-      case 'request_approval':
-        return (args['summary'] as String?)?.trim().isNotEmpty == true
-            ? args['summary'] as String
-            : 'Approve action: ${args['action'] ?? name}?';
-      default:
-        return 'Run $name with ${jsonEncode(args)}';
-    }
-  }
-
-  String _performDemoAction(String name, Map<String, dynamic> args) {
-    switch (name) {
-      case 'request_approval':
-        return 'The user approved. You may proceed with: ${args['action'] ?? 'the action'}.';
-      default:
-        return 'Done.';
-    }
   }
 
   /// Tiny arithmetic evaluator for the `calculate` demo tool. Returns a JSON result;

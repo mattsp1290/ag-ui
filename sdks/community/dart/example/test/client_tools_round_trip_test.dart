@@ -11,12 +11,13 @@ import 'package:ag_ui_example/pages/client_tools_page.dart';
 /// round-trip loop can be driven deterministically without a server.
 class FakeAgUiService extends AgUiService {
   final List<List<BaseEvent>> runs;
+  final List<Object?> terminalErrors;
   int calls = 0;
   final histories = <List<Message>>[];
   final threads = <String>[];
   final definitions = <List<Tool>>[];
   final queries = <Map<String, String>>[];
-  FakeAgUiService(this.runs);
+  FakeAgUiService(this.runs, {this.terminalErrors = const []});
 
   @override
   Stream<BaseEvent> run(
@@ -31,10 +32,16 @@ class FakeAgUiService extends AgUiService {
     threads.add(threadId);
     definitions.add(List.of(tools));
     queries.add(Map.of(extraQuery));
-    final events = calls < runs.length ? runs[calls] : const <BaseEvent>[];
+    final runIndex = calls;
+    final events = runIndex < runs.length
+        ? runs[runIndex]
+        : const <BaseEvent>[];
     calls++;
     for (final e in events) {
       yield e;
+    }
+    if (runIndex < terminalErrors.length && terminalErrors[runIndex] != null) {
+      throw terminalErrors[runIndex]!;
     }
   }
 }
@@ -261,6 +268,8 @@ void main() {
       endpoint: approvalEndpoint,
       service: service,
     );
+    var notifications = 0;
+    state.addListener(() => notifications++);
 
     state.sendMessage('delete the file');
     await pumpEventQueue();
@@ -270,7 +279,111 @@ void main() {
 
     // Disposing must complete the pending completer (false) and not throw.
     expect(() => state.dispose(), returnsNormally);
+    final notificationsAtDispose = notifications;
     await pumpEventQueue();
+    expect(service.calls, 1, reason: 'disposal must not launch a continuation');
+    expect(
+      notifications,
+      notificationsAtDispose,
+      reason: 'the unwound approval must not notify after disposal',
+    );
+  });
+
+  test(
+    'later success never promotes interrupted display fragments into history',
+    () async {
+      final service = FakeAgUiService([
+        [
+          const TextMessageStartEvent(messageId: 'interrupted-answer'),
+          const TextMessageContentEvent(
+            messageId: 'interrupted-answer',
+            delta: 'partial answer',
+          ),
+          const ReasoningMessageStartEvent(messageId: 'interrupted-reasoning'),
+          const ReasoningMessageContentEvent(
+            messageId: 'interrupted-reasoning',
+            delta: 'partial thought',
+          ),
+        ],
+        [
+          const TextMessageStartEvent(messageId: 'complete-answer'),
+          const TextMessageContentEvent(
+            messageId: 'complete-answer',
+            delta: 'complete',
+          ),
+          const TextMessageEndEvent(messageId: 'complete-answer'),
+          _runFinished,
+        ],
+        [_runFinished],
+      ]);
+      final state = ClientToolsPageState(
+        endpoint: _clientToolsEndpoint(),
+        service: service,
+      );
+      addTearDown(state.dispose);
+
+      await state.sendMessage('first');
+      await state.sendMessage('second');
+      await state.sendMessage('third');
+
+      expect(
+        state.messages.singleWhere((m) => m.id == 'interrupted-answer').content,
+        'partial answer',
+      );
+      expect(
+        state.messages
+            .singleWhere((m) => m.id == 'interrupted-reasoning')
+            .content,
+        'partial thought',
+      );
+      final thirdRunHistory = service.histories[2];
+      expect(
+        thirdRunHistory.any((message) => message.id == 'interrupted-answer'),
+        isFalse,
+      );
+      expect(
+        thirdRunHistory.any((message) => message.id == 'interrupted-reasoning'),
+        isFalse,
+      );
+      expect(
+        thirdRunHistory.any((message) => message.id == 'complete-answer'),
+        isTrue,
+      );
+    },
+  );
+
+  test('thrown stream errors finalize output and allow another send', () async {
+    final service = FakeAgUiService(
+      [
+        [
+          const TextMessageStartEvent(messageId: 'errored-answer'),
+          const TextMessageContentEvent(
+            messageId: 'errored-answer',
+            delta: 'kept',
+          ),
+        ],
+        [_runFinished],
+      ],
+      terminalErrors: [StateError('transport failed')],
+    );
+    final state = ClientToolsPageState(
+      endpoint: _clientToolsEndpoint(),
+      service: service,
+    );
+    addTearDown(state.dispose);
+
+    await state.sendMessage('first');
+    final partial = state.messages.singleWhere(
+      (message) => message.id == 'errored-answer',
+    );
+    expect(partial.content, 'kept');
+    expect(partial.isStreaming, isFalse);
+    expect(state.messages.last.content, contains('transport failed'));
+    expect(state.busy, isFalse);
+
+    await state.sendMessage('recover');
+    expect(service.calls, 2);
+    expect(state.busy, isFalse);
   });
   test(
     'history includes final replies and does not replay cumulative proposals',
@@ -451,7 +564,8 @@ void main() {
                     id: 'approval-call',
                     function: FunctionCall(
                       name: 'request_approval',
-                      arguments: '{"summary":"Local demo","action":"demo"}',
+                      arguments:
+                          '{"summary":"Approve harmless report","action":"delete_database"}',
                     ),
                   ),
                 ],
@@ -467,7 +581,8 @@ void main() {
       final exchange = state.sendMessage('request approval');
       await pumpEventQueue();
       expect(service.calls, 1);
-      expect(state.pendingApproval, 'Local demo');
+      expect(state.pendingApproval, contains('Approve harmless report'));
+      expect(state.pendingApproval, contains('delete_database'));
       await state.sendMessage('duplicate send while waiting');
       expect(service.calls, 1);
       if (approved) {
@@ -483,6 +598,62 @@ void main() {
       expect(result.toolCallId, 'approval-call');
       expect(jsonDecode(result.content)['approved'], approved);
       expect(state.pendingApproval, isNull);
+      expect(state.busy, isFalse);
+    });
+  }
+
+  for (final testCase in [
+    (
+      'tool_based_generative_ui',
+      'render_card',
+      '{"title":"Broken","facts":"not-a-list"}',
+    ),
+    (
+      'human_in_the_loop',
+      'request_approval',
+      '{"summary":42,"action":"delete_database"}',
+    ),
+  ]) {
+    test('${testCase.$2} schema errors return one structured result', () async {
+      final endpoint = EndpointConfig.availableEndpoints.singleWhere(
+        (item) => item.path == testCase.$1,
+      );
+      final service = FakeAgUiService([
+        [
+          MessagesSnapshotEvent(
+            messages: [
+              AssistantMessage(
+                id: 'malformed-owner',
+                toolCalls: [
+                  ToolCall(
+                    id: 'malformed-call',
+                    function: FunctionCall(
+                      name: testCase.$2,
+                      arguments: testCase.$3,
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+          _runFinished,
+        ],
+        [_runFinished],
+      ]);
+      final state = ClientToolsPageState(endpoint: endpoint, service: service);
+      addTearDown(state.dispose);
+
+      await state.sendMessage('run malformed tool');
+
+      expect(service.calls, 2);
+      final results = service.histories[1].whereType<ToolMessage>().where(
+        (message) => message.toolCallId == 'malformed-call',
+      );
+      expect(results, hasLength(1));
+      expect(
+        jsonDecode(results.single.content)['error']['code'],
+        'invalid_tool_call',
+      );
       expect(state.busy, isFalse);
     });
   }

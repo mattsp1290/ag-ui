@@ -2,6 +2,7 @@
 package types
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 )
@@ -45,6 +46,9 @@ type ToolCall struct {
 	Type string `json:"type"`
 	// Function is the function call payload.
 	Function FunctionCall `json:"function"`
+	// EncryptedValue is an optional encrypted reasoning blob for state continuity.
+	// A pointer preserves an explicitly supplied empty value on the wire.
+	EncryptedValue *string `json:"encryptedValue,omitempty"`
 	// Metadata is optional extra information about the tool call.
 	//
 	// A tool call is not a message, so it carries its own metadata rather than
@@ -87,6 +91,20 @@ type InputContentSource struct {
 	MimeType string `json:"mimeType,omitempty"`
 }
 
+// MarshalJSON keeps discriminator-required empty fields on the wire.
+func (s InputContentSource) MarshalJSON() ([]byte, error) {
+	type sourceAlias InputContentSource
+	if s.Type != InputContentSourceTypeData {
+		return json.Marshal(sourceAlias(s))
+	}
+
+	return json.Marshal(struct {
+		Type     string `json:"type"`
+		Value    string `json:"value"`
+		MimeType string `json:"mimeType"`
+	}{Type: s.Type, Value: s.Value, MimeType: s.MimeType})
+}
+
 // UnmarshalJSON implements json.Unmarshaler and supports snake_case compatibility.
 func (s *InputContentSource) UnmarshalJSON(data []byte) error {
 	var raw map[string]json.RawMessage
@@ -127,6 +145,34 @@ type InputContent struct {
 	Source *InputContentSource `json:"source,omitempty"`
 	// Metadata is optional metadata for typed multimodal fragments.
 	Metadata any `json:"metadata,omitempty"`
+}
+
+// MarshalJSON keeps fields required by each content discriminator even when
+// their Go zero value is meaningful.
+func (c InputContent) MarshalJSON() ([]byte, error) {
+	type contentAlias InputContent
+	switch c.Type {
+	case InputContentTypeText:
+		return json.Marshal(struct {
+			contentAlias
+			Type string `json:"type"`
+			Text string `json:"text"`
+		}{contentAlias: contentAlias(c), Type: c.Type, Text: c.Text})
+	case InputContentTypeBinary:
+		return json.Marshal(struct {
+			contentAlias
+			Type     string `json:"type"`
+			MimeType string `json:"mimeType"`
+		}{contentAlias: contentAlias(c), Type: c.Type, MimeType: c.MimeType})
+	case InputContentTypeImage, InputContentTypeAudio, InputContentTypeVideo, InputContentTypeDocument:
+		return json.Marshal(struct {
+			contentAlias
+			Type   string              `json:"type"`
+			Source *InputContentSource `json:"source"`
+		}{contentAlias: contentAlias(c), Type: c.Type, Source: c.Source})
+	default:
+		return json.Marshal(contentAlias(c))
+	}
 }
 
 // UnmarshalJSON implements json.Unmarshaler and supports snake_case compatibility.
@@ -396,6 +442,51 @@ type RunAgentInput struct {
 	ForwardedProps any `json:"forwardedProps"`
 	// Resume is an optional list of interrupt responses for resuming a paused run.
 	Resume []ResumeEntry `json:"resume,omitempty"`
+}
+
+// MarshalJSON normalizes required collection fields without mutating the
+// request and preserves the distinction between an absent and empty resume.
+func (r RunAgentInput) MarshalJSON() ([]byte, error) {
+	messages := r.Messages
+	if messages == nil {
+		messages = []Message{}
+	}
+	tools := r.Tools
+	if tools == nil {
+		tools = []Tool{}
+	}
+	context := r.Context
+	if context == nil {
+		context = []Context{}
+	}
+	var resume *[]ResumeEntry
+	if r.Resume != nil {
+		resume = &r.Resume
+	}
+	state, err := json.Marshal(r.State)
+	if err != nil {
+		return nil, err
+	}
+	if bytes.Equal(bytes.TrimSpace(state), []byte("null")) {
+		state = nil
+	}
+
+	type requestWire struct {
+		ThreadID       string          `json:"threadId"`
+		RunID          string          `json:"runId"`
+		ParentRunID    *string         `json:"parentRunId,omitempty"`
+		State          json.RawMessage `json:"state,omitempty"`
+		Messages       []Message       `json:"messages"`
+		Tools          []Tool          `json:"tools"`
+		Context        []Context       `json:"context"`
+		ForwardedProps any             `json:"forwardedProps"`
+		Resume         *[]ResumeEntry  `json:"resume,omitempty"`
+	}
+	return json.Marshal(requestWire{
+		ThreadID: r.ThreadID, RunID: r.RunID, ParentRunID: r.ParentRunID,
+		State: state, Messages: messages, Tools: tools, Context: context,
+		ForwardedProps: r.ForwardedProps, Resume: resume,
+	})
 }
 
 // UnmarshalJSON implements json.Unmarshaler and supports snake_case compatibility.

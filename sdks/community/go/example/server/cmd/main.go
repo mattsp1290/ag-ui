@@ -103,7 +103,26 @@ func main() {
 	}
 }
 
-func newApp(shutdownCtx context.Context, cfg config.Config, deps *agent.Deps, logger *slog.Logger) *fiber.App {
+type appDeps struct {
+	imageGenerator   imagegen.Generator
+	visionAnalyzer   vision.Analyzer
+	audioTranscriber audio.Transcriber
+	documentAnalyzer document.Analyzer
+}
+
+type appOption func(*appDeps)
+
+func withMediaProviders(image imagegen.Generator, visionFn vision.Analyzer, audioFn audio.Transcriber, documentFn document.Analyzer) appOption {
+	return func(d *appDeps) {
+		d.imageGenerator, d.visionAnalyzer, d.audioTranscriber, d.documentAnalyzer = image, visionFn, audioFn, documentFn
+	}
+}
+
+func newApp(shutdownCtx context.Context, cfg config.Config, deps *agent.Deps, logger *slog.Logger, options ...appOption) *fiber.App {
+	var testDeps appDeps
+	for _, option := range options {
+		option(&testDeps)
+	}
 	app := fiber.New(fiber.Config{AppName: "ag-ui-go-server-example", BodyLimit: 20 * 1024 * 1024})
 	app.Use(requestid.New())
 	if cfg.CORS {
@@ -135,15 +154,18 @@ func newApp(shutdownCtx context.Context, cfg config.Config, deps *agent.Deps, lo
 				"/vision",
 				"/audio",
 				"/document",
+				"/reasoning",
 			},
 		})
 	})
 
 	app.Post("/agentic", agenticHandler(shutdownCtx, deps, logger))
-	app.Post("/image-gen", imagegen.Handler(shutdownCtx, logger))
-	app.Post("/vision", vision.Handler(shutdownCtx, logger))
-	app.Post("/audio", audio.Handler(shutdownCtx, logger))
-	app.Post("/document", document.Handler(shutdownCtx, logger))
+	app.Post("/image-gen", imagegen.Handler(shutdownCtx, logger, imagegen.WithGenerator(testDeps.imageGenerator)))
+	app.Post("/vision", vision.Handler(shutdownCtx, logger, vision.WithAnalyzer(testDeps.visionAnalyzer)))
+	app.Post("/audio", audio.Handler(shutdownCtx, logger, audio.WithTranscriber(testDeps.audioTranscriber)))
+	app.Post("/document", document.Handler(shutdownCtx, logger, document.WithAnalyzer(testDeps.documentAnalyzer)))
+	app.Post("/reasoning", streamHandler(shutdownCtx, logger, "reasoning",
+		agent.ReasoningDemo{Pace: cfg.GenUIPace}.Run))
 
 	// Dojo feature-parity routes. The path strings are a fixed contract the Dart
 	// SDK binds to. Each supplies only its run function to the shared streamHandler.

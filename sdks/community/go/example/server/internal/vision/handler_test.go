@@ -80,6 +80,14 @@ func TestExtractImagePart(t *testing.T) {
 			wantOK:   true,
 		},
 		{
+			name: "new text-only turn does not reuse old image",
+			messages: []aguitypes.Message{
+				makeUserMsg([]aguitypes.InputContent{imagePart("old", "image/png")}),
+				{Role: aguitypes.RoleUser, Content: "analyze something else"},
+			},
+			wantOK: false,
+		},
+		{
 			name: "URL-source image is skipped",
 			messages: []aguitypes.Message{
 				makeUserMsg([]aguitypes.InputContent{

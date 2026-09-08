@@ -1,6 +1,7 @@
 package parity_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"os"
@@ -17,15 +18,15 @@ import (
 )
 
 type compatibilityFixture struct {
-	Request         map[string]any `json:"request"`
-	ExpectedRequest map[string]any `json:"expectedRequest"`
-	SnakeRequest    map[string]any `json:"snakeRequest"`
+	Request         json.RawMessage `json:"request"`
+	ExpectedRequest json.RawMessage `json:"expectedRequest"`
+	SnakeRequest    json.RawMessage `json:"snakeRequest"`
 	Events          []struct {
-		Name         string         `json:"name"`
-		Data         map[string]any `json:"data"`
-		ExpectedType string         `json:"expectedType"`
-		Expected     map[string]any `json:"expected"`
-		Decoder      string         `json:"decoder"`
+		Name         string          `json:"name"`
+		Data         json.RawMessage `json:"data"`
+		ExpectedType string          `json:"expectedType"`
+		Expected     json.RawMessage `json:"expected"`
+		Decoder      string          `json:"decoder"`
 	} `json:"events"`
 }
 
@@ -35,7 +36,12 @@ func loadCompatibilityFixture(t *testing.T) compatibilityFixture {
 	require.NoError(t, err)
 	var f compatibilityFixture
 	require.NoError(t, json.Unmarshal(b, &f))
-	require.Len(t, f.Events, 4, "the pinned event corpus must not silently shrink")
+	// Keep the exact pinned identities: a duplicate must not replace a case.
+	names := make([]string, 0, len(f.Events))
+	for _, event := range f.Events {
+		names = append(names, event.Name)
+	}
+	require.ElementsMatch(t, []string{"THINKING_TEXT_MESSAGE_CONTENT", "REASONING_ENCRYPTED_VALUE", "RUN_FINISHED", "TEXT_MESSAGE_START"}, names)
 	require.NotEmpty(t, f.Request)
 	require.NotEmpty(t, f.ExpectedRequest)
 	require.NotEmpty(t, f.SnakeRequest)
@@ -76,10 +82,12 @@ func TestCompatibilityPublicSignatures(t *testing.T) {
 
 func TestCompatibilityRequestsAndRoundTrip(t *testing.T) {
 	f := loadCompatibilityFixture(t)
-	b, err := json.Marshal(f.Request)
-	require.NoError(t, err)
 	var in types.RunAgentInput
-	require.NoError(t, json.Unmarshal(b, &in))
+	require.NoError(t, json.Unmarshal(f.Request, &in))
+	require.Len(t, in.Messages, 1)
+	require.Len(t, in.Messages[0].ToolCalls, 1)
+	require.Len(t, in.Tools, 1)
+	require.Len(t, in.Resume, 1)
 	require.Equal(t, "camel-thread", in.ThreadID)
 	require.Equal(t, "camel-run", in.RunID)
 	require.Equal(t, "enc-content", in.Messages[0].EncryptedContent)
@@ -89,20 +97,21 @@ func TestCompatibilityRequestsAndRoundTrip(t *testing.T) {
 	require.Equal(t, types.Metadata{"signed": true}, in.Resume[0].Metadata)
 	out, err := json.Marshal(in)
 	require.NoError(t, err)
-	var semantic map[string]any
-	require.NoError(t, json.Unmarshal(out, &semantic))
-	require.Equal(t, f.ExpectedRequest, semantic)
+	require.Equal(t, semanticJSON(t, f.ExpectedRequest), semanticJSON(t, out))
 	var snake types.RunAgentInput
-	require.NoError(t, json.Unmarshal(mustJSON(t, f.SnakeRequest), &snake))
+	require.NoError(t, json.Unmarshal(f.SnakeRequest, &snake))
 	require.Equal(t, "snake-only-thread", snake.ThreadID)
 	require.Equal(t, "snake-only-run", snake.RunID)
 }
 
-func mustJSON(t *testing.T, value any) []byte {
+// Preserve number tokens so the comparison cannot round away wire corruption.
+func semanticJSON(t *testing.T, data []byte) any {
 	t.Helper()
-	b, err := json.Marshal(value)
-	require.NoError(t, err)
-	return b
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.UseNumber()
+	var value any
+	require.NoError(t, decoder.Decode(&value))
+	return value
 }
 
 func TestCompatibilityStrictAndPermissiveCodecErrors(t *testing.T) {
@@ -128,8 +137,8 @@ func TestCompatibilityEventDecoderAndConcreteTypes(t *testing.T) {
 	ctx := context.Background()
 	for _, tc := range f.Events {
 		t.Run(tc.Name, func(t *testing.T) {
-			data, err := json.Marshal(tc.Data)
-			require.NoError(t, err)
+			data := tc.Data
+			var err error
 			var got events.Event
 			switch tc.Decoder {
 			case "sse":
@@ -142,12 +151,11 @@ func TestCompatibilityEventDecoderAndConcreteTypes(t *testing.T) {
 				t.Fatalf("unknown fixture decoder %q", tc.Decoder)
 			}
 			require.NoError(t, err)
+			require.NotNil(t, got)
 			require.Equal(t, tc.ExpectedType, reflect.TypeOf(got).String())
 			encoded, err := got.ToJSON()
 			require.NoError(t, err)
-			var actual map[string]any
-			require.NoError(t, json.Unmarshal(encoded, &actual))
-			require.Equal(t, tc.Expected, actual)
+			require.Equal(t, semanticJSON(t, tc.Expected), semanticJSON(t, encoded))
 		})
 	}
 }
@@ -157,10 +165,15 @@ func TestCompatibilityMetadataUsageAndAbsentOptionals(t *testing.T) {
 	require.NoError(t, e.Validate())
 	b, err := e.ToJSON()
 	require.NoError(t, err)
-	var wire map[string]any
+	var wire struct {
+		Result json.RawMessage     `json:"result"`
+		Usage  []events.TokenUsage `json:"usage"`
+	}
 	require.NoError(t, json.Unmarshal(b, &wire))
-	require.NotContains(t, wire, "result")
-	require.Equal(t, float64(0), wire["usage"].([]any)[0].(map[string]any)["inputTokens"])
+	require.Nil(t, wire.Result)
+	require.Len(t, wire.Usage, 1)
+	require.NotNil(t, wire.Usage[0].InputTokens)
+	require.Equal(t, int64(0), *wire.Usage[0].InputTokens)
 	message := types.Message{ID: "m", Role: types.RoleAssistant, Metadata: types.Metadata{"nullable": nil}}
 	b, err = json.Marshal(message)
 	require.NoError(t, err)

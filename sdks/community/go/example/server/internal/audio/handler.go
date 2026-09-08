@@ -103,7 +103,7 @@ func extractAudioPart(messages []aguitypes.Message) (base64Data, mimeType string
 		}
 		parts, hasParts := m.ContentInputContents()
 		if !hasParts {
-			continue
+			return "", "", false
 		}
 		for _, p := range parts {
 			if p.Type == aguitypes.InputContentTypeAudio &&
@@ -113,6 +113,7 @@ func extractAudioPart(messages []aguitypes.Message) (base64Data, mimeType string
 				return p.Source.Value, p.Source.MimeType, true
 			}
 		}
+		return "", "", false
 	}
 	return "", "", false
 }

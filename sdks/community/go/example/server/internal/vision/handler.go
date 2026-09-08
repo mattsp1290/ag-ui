@@ -105,7 +105,7 @@ func extractImagePart(messages []aguitypes.Message) (base64Data, mimeType, promp
 		}
 		parts, hasParts := m.ContentInputContents()
 		if !hasParts {
-			continue
+			return "", "", "", false
 		}
 		var textBuf strings.Builder
 		for _, p := range parts {

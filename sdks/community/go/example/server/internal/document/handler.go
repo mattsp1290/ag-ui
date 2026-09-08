@@ -105,7 +105,7 @@ func extractDocumentPart(messages []aguitypes.Message) (base64Data, mimeType, pr
 		}
 		parts, hasParts := m.ContentInputContents()
 		if !hasParts {
-			continue
+			return "", "", "", false
 		}
 		var textBuf strings.Builder
 		for _, p := range parts {

@@ -43,6 +43,9 @@ func TestReasoningDemoBalancedStableSnapshot(t *testing.T) {
 			t.Fatalf("event %d type=%v want=%s", i, frames[i]["type"], want[i])
 		}
 	}
+	if frames[0]["threadId"] != "thread" || frames[0]["runId"] != "run" || frames[11]["threadId"] != "thread" || frames[11]["runId"] != "run" {
+		t.Fatalf("run lifecycle IDs do not match: start=%v finish=%v", frames[0], frames[11])
+	}
 	if frames[1]["messageId"] != frames[2]["messageId"] {
 		t.Fatal("reasoning lifecycle IDs differ")
 	}
@@ -61,13 +64,34 @@ func TestReasoningDemoBalancedStableSnapshot(t *testing.T) {
 
 func TestReasoningDemoCancellationStopsWithoutTerminal(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
-	var raw bytes.Buffer
-	w := bufio.NewWriter(&raw)
+	raw := &cancelWriter{cancel: cancel, marker: `"type":"REASONING_MESSAGE_CONTENT"`}
+	w := bufio.NewWriter(raw)
 	emit := NewEmitter(ctx, w, sse.NewSSEWriter(), "thread", "run", cancel)
-	cancel()
 	ReasoningDemo{Pace: time.Hour}.Run(ctx, emit, nil, "thread", "run")
 	_ = w.Flush()
-	if strings.Contains(raw.String(), `"type":"RUN_FINISHED"`) {
-		t.Fatal("cancelled demo emitted RUN_FINISHED")
+	out := raw.String()
+	if !strings.Contains(out, raw.marker) {
+		t.Fatalf("demo did not emit partial stream: %s", out)
 	}
+	for _, forbidden := range []string{`"type":"REASONING_MESSAGE_END"`, `"type":"REASONING_END"`, `"type":"TEXT_MESSAGE_START"`, `"type":"MESSAGES_SNAPSHOT"`, `"type":"RUN_FINISHED"`} {
+		if strings.Contains(out, forbidden) {
+			t.Fatalf("cancelled demo emitted trailing event %s: %s", forbidden, out)
+		}
+	}
+}
+
+type cancelWriter struct {
+	bytes.Buffer
+	cancel    context.CancelFunc
+	marker    string
+	cancelled bool
+}
+
+func (w *cancelWriter) Write(p []byte) (int, error) {
+	n, err := w.Buffer.Write(p)
+	if !w.cancelled && strings.Contains(w.Buffer.String(), w.marker) {
+		w.cancelled = true
+		w.cancel()
+	}
+	return n, err
 }

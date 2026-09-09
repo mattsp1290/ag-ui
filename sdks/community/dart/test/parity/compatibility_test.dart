@@ -87,9 +87,236 @@ String _baseEventName(BaseEvent event) => switch (event) {
 
 String? _messageId(Message message) => message.id;
 
-final _fixture = jsonDecode(
-  File('test/fixtures/compatibility.json').readAsStringSync(),
-) as Map<String, dynamic>;
+Map<String, dynamic> _readJsonMap(File file) =>
+    (jsonDecode(file.readAsStringSync()) as Map).cast<String, dynamic>();
+
+Directory _packageRoot() {
+  final starts = <Directory>[
+    Directory.current.absolute,
+    File.fromUri(Platform.script).parent.absolute,
+  ];
+  for (var start in starts) {
+    while (true) {
+      if (File('${start.path}/pubspec.yaml').existsSync()) {
+        return start;
+      }
+      final parent = start.parent;
+      if (parent.path == start.path) {
+        break;
+      }
+      start = parent;
+    }
+  }
+  throw StateError('Could not locate the Dart package root');
+}
+
+final _dartPackageRoot = _packageRoot();
+final _repositoryRoot = _dartPackageRoot.parent.parent.parent;
+final _fixture = _readJsonMap(
+  File('${_dartPackageRoot.path}/test/fixtures/compatibility.json'),
+);
+final _parityManifest = _readJsonMap(
+  File('${_dartPackageRoot.path}/test/fixtures/parity_manifest.json'),
+);
+final _goFixtures = _readJsonMap(
+  File(
+    '${_repositoryRoot.path}/sdks/community/go/testdata/parity/fixtures.json',
+  ),
+);
+final _goCompatibility = _readJsonMap(
+  File(
+    '${_repositoryRoot.path}/sdks/community/go/testdata/parity/compatibility.json',
+  ),
+);
+
+Map<String, dynamic> _asMap(Object? value, String description) {
+  if (value is Map<Object?, Object?>) {
+    return value.cast<String, dynamic>();
+  }
+  throw StateError('$description must be a JSON object');
+}
+
+void _expectJsonCompatibility(
+  Object? actual,
+  Object? expected,
+  String reason,
+) {
+  if (actual is Map<Object?, Object?>) {
+    if (expected is! Map<Object?, Object?>) {
+      fail('$reason expected a JSON object');
+    }
+    final expectedMap = expected;
+    for (final entry in actual.entries) {
+      expect(
+        expectedMap,
+        contains(entry.key),
+        reason: '$reason includes ${entry.key}',
+      );
+      _expectJsonCompatibility(
+        entry.value,
+        expectedMap[entry.key],
+        '$reason.${entry.key}',
+      );
+    }
+    return;
+  }
+  if (actual is List<Object?>) {
+    if (expected is! List<Object?>) {
+      fail('$reason expected a JSON array');
+    }
+    final expectedList = expected;
+    expect(actual, hasLength(expectedList.length), reason: reason);
+    for (var i = 0; i < actual.length; i++) {
+      _expectJsonCompatibility(actual[i], expectedList[i], '$reason[$i]');
+    }
+    return;
+  }
+  expect(actual, expected, reason: reason);
+}
+
+Object? _atJsonPointer(Object? root, String pointer) {
+  if (pointer.isEmpty) {
+    return root;
+  }
+  if (!pointer.startsWith('/')) {
+    throw StateError('Invalid JSON pointer: $pointer');
+  }
+  var current = root;
+  for (final rawSegment in pointer.substring(1).split('/')) {
+    final segment = rawSegment.replaceAll('~1', '/').replaceAll('~0', '~');
+    if (current is Map) {
+      if (!current.containsKey(segment)) {
+        throw StateError('Missing JSON pointer $pointer at $segment');
+      }
+      current = current[segment];
+    } else if (current is List) {
+      final index = int.tryParse(segment);
+      if (index == null || index < 0 || index >= current.length) {
+        throw StateError(
+          'Invalid list index $segment in JSON pointer $pointer',
+        );
+      }
+      current = current[index];
+    } else {
+      throw StateError('Cannot traverse JSON pointer $pointer at $segment');
+    }
+  }
+  return current;
+}
+
+Map<String, dynamic> _caseById(String caseId) {
+  for (final corpus in [_goFixtures, _goCompatibility]) {
+    for (final rawCase in (corpus['cases'] as List)) {
+      final candidate = _asMap(rawCase, 'Parity case');
+      if (candidate['id'] == caseId) {
+        return candidate;
+      }
+    }
+  }
+  throw StateError('Canonical parity case not found: $caseId');
+}
+
+Iterable<Map<String, dynamic>> _implementedRows() sync* {
+  for (final rawModel in (_parityManifest['models'] as List)) {
+    final model = _asMap(rawModel, 'Manifest model');
+    for (final rawField in (model['fields'] as List)) {
+      final field = _asMap(rawField, 'Manifest field');
+      if (field['dart_status'] == 'implemented') {
+        yield {
+          ...field,
+          'model': model['symbol'],
+          'kind': model['kind'],
+        };
+      }
+    }
+  }
+}
+
+Map<String, dynamic> _decodeEvidence(
+  Map<String, dynamic> evidence,
+  Map<String, dynamic> input,
+) {
+  final adapter = evidence['adapter'] as String;
+  final model = evidence['model'] as String;
+  switch (adapter) {
+    case 'event':
+      return BaseEvent.fromJson(input).toJson();
+    case 'message':
+      return Message.fromJson(input).toJson();
+    case 'content':
+      return InputContent.fromJson(input).toJson();
+    case 'type':
+      switch (model) {
+        case 'Context':
+          return Context.fromJson(input).toJson();
+        case 'FunctionCall':
+          return FunctionCall.fromJson(input).toJson();
+        case 'RunAgentInput':
+          return RunAgentInput.fromJson(input).toJson();
+        case 'Tool':
+          return Tool.fromJson(input).toJson();
+        case 'ToolCall':
+          return ToolCall.fromJson(input).toJson();
+        default:
+          throw StateError('No type adapter registered for $model');
+      }
+    default:
+      throw StateError('No evidence adapter registered for $adapter');
+  }
+}
+
+String _modelRelativePath(Map<String, dynamic> evidence) {
+  final path = evidence['path'] as String;
+  if (evidence['adapter'] == 'content' && path.startsWith('/content/')) {
+    final segments = path.substring(1).split('/');
+    return '/${segments.skip(2).join('/')}';
+  }
+  switch (evidence['model']) {
+    case 'Context':
+      return path.replaceFirst('/context/0', '');
+    case 'FunctionCall':
+      return path.replaceFirst('/toolCalls/0/function', '');
+    case 'RunAgentInput':
+      return path.replaceFirst('/input', '');
+    case 'Tool':
+      return path.replaceFirst('/tools/items/0', '');
+    case 'ToolCall':
+      return path.replaceFirst('/toolCalls/0', '');
+    default:
+      return path;
+  }
+}
+
+Map<String, dynamic> _adapterInput(
+  Map<String, dynamic> evidence,
+  Map<String, dynamic> rootInput,
+) {
+  final model = evidence['model'] as String;
+  final path = evidence['path'] as String;
+  switch (model) {
+    case 'Context':
+      return _asMap(_atJsonPointer(rootInput, '/context/0'), model);
+    case 'FunctionCall':
+      return _asMap(
+        _atJsonPointer(rootInput, '/toolCalls/0/function'),
+        model,
+      );
+    case 'RunAgentInput':
+      return _asMap(_atJsonPointer(rootInput, '/input'), model);
+    case 'Tool':
+      return _asMap(_atJsonPointer(rootInput, '/tools/items/0'), model);
+    case 'ToolCall':
+      return _asMap(_atJsonPointer(rootInput, '/toolCalls/0'), model);
+  }
+  if (evidence['adapter'] == 'content' && path.startsWith('/content/')) {
+    final segments = path.substring(1).split('/');
+    return _asMap(
+      _atJsonPointer(rootInput, '/content/${segments[1]}'),
+      model,
+    );
+  }
+  return rootInput;
+}
 
 void main() {
   group('compatibility baseline', () {
@@ -268,6 +495,15 @@ void main() {
       expect(populated.toJson()['forwardedProps'], {'trace': true});
       expect(populated.toJson()['config'], {'model': 'test'});
       expect(populated.toJson()['metadata'], {'source': 'compatibility'});
+
+      expect(
+        () => const SimpleRunAgentInput(state: <dynamic>[]).toJson(),
+        throwsA(isA<AssertionError>()),
+      );
+      expect(
+        () => const SimpleRunAgentInput(forwardedProps: <dynamic>[]).toJson(),
+        throwsA(isA<AssertionError>()),
+      );
     });
 
     test('RunAgentInput preserves JSON, aliases, defaults, and clearing', () {
@@ -299,13 +535,80 @@ void main() {
       expect(input.copyWith().forwardedProps, {'trace': true});
     });
 
+    test('canonical evidence executes every implemented manifest field', () {
+      final registry = (_fixture['evidence'] as Map).cast<String, dynamic>();
+      final aliases =
+          (_fixture['evidenceAliases'] as Map).cast<String, dynamic>();
+      final implementedIds =
+          _implementedRows().map((row) => row['id'] as String).toSet();
+      final expectedKeys = implementedIds.map((id) => 'canonical.$id').toSet();
+
+      expect(registry.keys.toSet(), expectedKeys);
+
+      final covered = <String>{};
+      for (final entry in registry.entries) {
+        final record = _asMap(entry.value, entry.key);
+        final fields = (record['fields'] as List).cast<String>();
+        expect(fields, hasLength(1), reason: entry.key);
+        final rowId = fields.single;
+        expect(implementedIds, contains(rowId), reason: entry.key);
+        expect(entry.key, 'canonical.$rowId');
+        covered.add(rowId);
+
+        final aliasTarget = aliases[rowId] as String?;
+        final sourceId = aliasTarget ?? rowId;
+        final source = _asMap(
+          registry['canonical.$sourceId'],
+          'evidence for $rowId',
+        );
+        final caseId = source['caseId'] as String?;
+        expect(caseId, isNotNull, reason: rowId);
+        final parityCase = _caseById(caseId!);
+        final rootInput = _asMap(parityCase['input'], '$caseId input');
+        final adapterInput = _adapterInput(source, rootInput);
+        final encoded = _decodeEvidence(source, adapterInput);
+        final encodedPath = _modelRelativePath(source);
+        final expectedDocument = _asMap(
+          parityCase[source['document']],
+          '$caseId ${source['document']}',
+        );
+        final expectedValue = _atJsonPointer(
+          expectedDocument,
+          source['path'] as String,
+        );
+
+        if (rowId == 'ReasoningEncryptedValueEvent.rawEvent' ||
+            rowId == 'ActivitySnapshotEvent.replace') {
+          expect(
+            () => _atJsonPointer(encoded, encodedPath),
+            throwsA(isA<StateError>()),
+            reason: rowId,
+          );
+        } else {
+          _expectJsonCompatibility(
+            _atJsonPointer(encoded, encodedPath),
+            expectedValue,
+            rowId,
+          );
+        }
+      }
+      expect(covered, implementedIds);
+    });
+
     test('exhaustive switches cover every current event type and subtype', () {
       final expectedTypes = (_fixture['eventTypes'] as List)
           .map((item) => (item as Map<String, dynamic>)['wire'] as String)
           .toList();
+      final expectedDartNames = (_fixture['eventTypes'] as List)
+          .map((item) => (item as Map<String, dynamic>)['dart'] as String)
+          .toList();
       expect(
         EventType.values.map((type) => type.value).toList(),
         expectedTypes,
+      );
+      expect(
+        EventType.values.map(_eventTypeName).toList(),
+        expectedDartNames,
       );
 
       final events = <BaseEvent>[

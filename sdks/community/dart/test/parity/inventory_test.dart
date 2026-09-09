@@ -3,6 +3,8 @@ import 'dart:io';
 
 import 'package:test/test.dart';
 
+import 'contract_source_snapshot.dart';
+
 Map<String, dynamic> _asMap(Object? value) {
   if (value case final Map<Object?, Object?> map) {
     return map.cast<String, dynamic>();
@@ -50,6 +52,36 @@ Iterable<Map<String, dynamic>> _fieldRows(Map<String, dynamic> manifest) sync* {
   }
 }
 
+Map<String, Set<String>> _shapeFieldSets(Object? value) => {
+      for (final entry in _asMap(value).entries)
+        entry.key: _asMap(entry.value).keys.toSet(),
+    };
+
+bool _containsJsonPointer(Object? document, String pointer) {
+  if (pointer.isEmpty) {
+    return true;
+  }
+  var current = document;
+  for (final encodedSegment in pointer.split('/').skip(1)) {
+    final segment = encodedSegment.replaceAll('~1', '/').replaceAll('~0', '~');
+    if (current case final Map<Object?, Object?> map) {
+      if (!map.containsKey(segment)) {
+        return false;
+      }
+      current = map[segment];
+    } else if (current case final List<Object?> list) {
+      final index = int.tryParse(segment);
+      if (index == null || index < 0 || index >= list.length) {
+        return false;
+      }
+      current = list[index];
+    } else {
+      return false;
+    }
+  }
+  return true;
+}
+
 void main() {
   late Directory packageRoot;
   late Directory repositoryRoot;
@@ -64,10 +96,13 @@ void main() {
   });
 
   group('Dart parity inventory', () {
-    test('pins the reviewed stack and every authoritative source file', () {
+    test('pins the reviewed stack and every authoritative source file',
+        () async {
       final pins = _asMap(manifest['pins']);
+      final implementationBase = pins['implementation_base'] as String;
+      final upstreamInspection = pins['upstream_inspection'] as String;
       expect(
-        pins['implementation_base'],
+        implementationBase,
         'aaa75b54d572be8cd1d51c72e951273c5b893ed0',
       );
       expect(
@@ -76,20 +111,26 @@ void main() {
       );
       expect(pins['parent_pr'], 35);
       expect(
-        pins['upstream_inspection'],
+        upstreamInspection,
         '0fa1bebd9772de79347f0caf79744535e94ec37c',
       );
+      await requireRevision(repositoryRoot, implementationBase);
 
       final sources = _asMap(manifest['source_files']);
-      expect(sources.length, greaterThanOrEqualTo(80));
+      expect(sources.length, 88);
       final digestPattern = RegExp(r'^[0-9a-f]{64}$');
       for (final entry in sources.entries) {
         expect(entry.value, isA<String>());
         expect(entry.value, matches(digestPattern), reason: entry.key);
+        final pinnedBytes = await readPinnedBytes(
+          repositoryRoot,
+          implementationBase,
+          entry.key,
+        );
         expect(
-          File('${repositoryRoot.path}/${entry.key}').existsSync(),
-          isTrue,
-          reason: 'Missing authoritative source ${entry.key}',
+          sha256Hex(pinnedBytes),
+          entry.value,
+          reason: 'Digest mismatch for ${entry.key} at $implementationBase',
         );
       }
 
@@ -109,12 +150,107 @@ void main() {
           'sdks/community/dart/lib/src/types/message.dart',
         ]),
       );
+
+      final peerContract = _asMap(manifest['peer_contract']);
+      for (final prefix in ['cases', 'compatibility', 'manifest', 'sse']) {
+        final source = peerContract['${prefix}_source'] as String;
+        final expectedDigest = peerContract['${prefix}_sha256'] as String;
+        final pinnedBytes = await readPinnedBytes(
+          repositoryRoot,
+          implementationBase,
+          source,
+        );
+        expect(
+          sha256Hex(pinnedBytes),
+          expectedDigest,
+          reason: 'Digest mismatch for pinned peer corpus $source',
+        );
+      }
+
+      final fixtures = _asMap(
+        jsonDecode(
+          await readPinnedText(
+            repositoryRoot,
+            implementationBase,
+            peerContract['cases_source'] as String,
+          ),
+        ),
+      );
+      final cases = _asList(fixtures['cases']).map(_asMap).toList();
+      expect(cases.length, peerContract['expected_case_count']);
+      final actualKindCounts = <String, int>{};
+      for (final parityCase in cases) {
+        final kind = parityCase['kind'] as String;
+        actualKindCounts[kind] = (actualKindCounts[kind] ?? 0) + 1;
+      }
+      expect(actualKindCounts, _asMap(peerContract['case_kind_counts']));
+
+      final goManifest = _asMap(
+        jsonDecode(
+          await readPinnedText(
+            repositoryRoot,
+            implementationBase,
+            peerContract['manifest_source'] as String,
+          ),
+        ),
+      );
+      expect(
+        _asList(goManifest['case_ids']),
+        cases.map((parityCase) => parityCase['id']).toList(),
+        reason: 'Go manifest case IDs must exactly match the pinned corpus',
+      );
     });
 
-    test('accounts for every peer model field exactly once', () {
+    test('derives every peer model field from immutable source', () async {
+      final pins = _asMap(manifest['pins']);
+      final implementationBase = pins['implementation_base'] as String;
       final peerShapes = _asMap(manifest['peer_shapes']);
       final python = _asMap(peerShapes['python']);
       final typescript = _asMap(peerShapes['typescript']);
+
+      final pythonPaths = <String>[
+        'sdks/python/ag_ui/core/types.py',
+        'sdks/python/ag_ui/core/events.py',
+        'sdks/python/ag_ui/core/capabilities.py',
+      ];
+      final pythonSources = <String>[];
+      for (final path in pythonPaths) {
+        pythonSources.add(
+          await readPinnedText(repositoryRoot, implementationBase, path),
+        );
+      }
+      final extractedPython = extractPythonModelFields(pythonSources);
+      expect(_shapeFieldSets(python), extractedPython);
+
+      final typescriptPaths = <String>[
+        'sdks/typescript/packages/core/src/types.ts',
+        'sdks/typescript/packages/core/src/events.ts',
+        'sdks/typescript/packages/core/src/capabilities.ts',
+        'sdks/typescript/packages/core/src/metadata.ts',
+      ];
+      final typescriptSources = <String>[];
+      for (final path in typescriptPaths) {
+        typescriptSources.add(
+          await readPinnedText(repositoryRoot, implementationBase, path),
+        );
+      }
+      final extractedTypeScript =
+          extractTypeScriptSchemaFields(typescriptSources);
+      final expectedTypeScript = _shapeFieldSets(typescript);
+      expect(
+        extractedTypeScript.keys,
+        unorderedEquals(expectedTypeScript.keys),
+        reason:
+            'missing ${expectedTypeScript.keys.toSet().difference(extractedTypeScript.keys.toSet())}; '
+            'unexpected ${extractedTypeScript.keys.toSet().difference(expectedTypeScript.keys.toSet())}',
+      );
+      for (final entry in expectedTypeScript.entries) {
+        expect(
+          extractedTypeScript[entry.key],
+          entry.value,
+          reason: entry.key,
+        );
+      }
 
       expect(python.length, 84);
       expect(typescript.length, 83);
@@ -149,6 +285,110 @@ void main() {
       expect(rows.length, actualIds.length, reason: 'Duplicate field row ID');
       expect(actualIds, unorderedEquals(expectedIds));
       expect(actualIds.length, 453);
+    });
+
+    test('derives shared exports and implemented Dart symbols from source',
+        () async {
+      final pins = _asMap(manifest['pins']);
+      final implementationBase = pins['implementation_base'] as String;
+      final exports = _asList(manifest['shared_exports']).map(_asMap).toList();
+
+      final pythonInit = await readPinnedText(
+        repositoryRoot,
+        implementationBase,
+        'sdks/python/ag_ui/core/__init__.py',
+      );
+      final pythonExports = extractPythonPublicExports(pythonInit);
+
+      final typescriptPaths = <String>[
+        'sdks/typescript/packages/core/src/types.ts',
+        'sdks/typescript/packages/core/src/events.ts',
+        'sdks/typescript/packages/core/src/capabilities.ts',
+        'sdks/typescript/packages/core/src/metadata.ts',
+        'sdks/typescript/packages/core/src/token-usage.ts',
+      ];
+      final typescriptSources = <String>[];
+      for (final path in typescriptPaths) {
+        typescriptSources.add(
+          await readPinnedText(repositoryRoot, implementationBase, path),
+        );
+      }
+      final typescriptExports = extractTypeScriptExports(typescriptSources);
+
+      final sourceFiles = _asMap(manifest['source_files']);
+      final goSources = <String>[];
+      for (final path in sourceFiles.keys.where(
+        (path) =>
+            path.startsWith('sdks/community/go/pkg/core/') &&
+            path.endsWith('.go'),
+      )) {
+        goSources.add(
+          await readPinnedText(repositoryRoot, implementationBase, path),
+        );
+      }
+      final goDeclarations = extractGoDeclarations(goSources);
+
+      final dartLibrary = await readPinnedText(
+        repositoryRoot,
+        implementationBase,
+        'sdks/community/dart/lib/ag_ui.dart',
+      );
+      final dartSources = <String, String>{};
+      for (final repositoryPath in sourceFiles.keys.where(
+        (path) =>
+            path.startsWith('sdks/community/dart/lib/') &&
+            path.endsWith('.dart'),
+      )) {
+        final libraryPath = repositoryPath.replaceFirst(
+          'sdks/community/dart/lib/',
+          '',
+        );
+        dartSources[libraryPath] = await readPinnedText(
+          repositoryRoot,
+          implementationBase,
+          repositoryPath,
+        );
+      }
+      final dartDeclarations =
+          extractPublicDartDeclarations(dartLibrary, dartSources);
+
+      for (final entry in exports) {
+        final symbol = entry['symbol'] as String;
+        final python = entry['python'];
+        final typescript = entry['typescript'];
+        final go = entry['go'];
+        if (python != null) {
+          expect(pythonExports, contains(python), reason: symbol);
+        }
+        if (typescript != null) {
+          expect(typescriptExports, contains(typescript), reason: symbol);
+        }
+        if (go != null && go != 'any') {
+          expect(goDeclarations, contains(go), reason: symbol);
+        }
+        if (entry['status'] != 'pending') {
+          expect(
+            dartDeclarations,
+            contains(entry['dart']),
+            reason: '$symbol maps to a missing public Dart declaration',
+          );
+        }
+      }
+
+      final coveredPythonModels =
+          exports.map((entry) => entry['python']).whereType<String>().toSet();
+      final coveredTypeScriptSchemas = exports
+          .map((entry) => entry['typescript'])
+          .whereType<String>()
+          .toSet();
+      expect(
+        _asMap(_asMap(manifest['peer_shapes'])['python']).keys,
+        everyElement(isIn(coveredPythonModels)),
+      );
+      expect(
+        _asMap(_asMap(manifest['peer_shapes'])['typescript']).keys,
+        everyElement(isIn(coveredTypeScriptSchemas)),
+      );
     });
 
     test('assigns every field a disposition, owner, shape, and test', () {
@@ -193,26 +433,131 @@ void main() {
       }
     });
 
-    test('implemented rows resolve to executable test declarations', () {
-      final tests = _asMap(manifest['test_catalog']);
-      final implementedTestIds = _fieldRows(manifest)
-          .where((row) => row['dart_status'] == 'implemented')
-          .map((row) => row['test_id'] as String)
-          .toSet();
-
-      expect(implementedTestIds, isNotEmpty);
-      for (final testId in implementedTestIds) {
-        final record = _asMap(tests[testId]);
-        expect(record['status'], 'executable', reason: testId);
-        final testFile = File('${packageRoot.path}/${record['path']}');
-        expect(testFile.existsSync(), isTrue, reason: testId);
+    test(
+      'binds every field to exact canonical and executable evidence',
+      () async {
+        final policy = _asMap(manifest['evidence_policy']);
+        expect(policy['schema_version'], 1);
         expect(
-          testFile.readAsStringSync(),
-          contains(record['name_fragment']),
-          reason: '$testId does not resolve to the named executable test',
+          policy['registry_source'],
+          'test/fixtures/compatibility.json:evidence',
         );
-      }
-    });
+        expect(policy['registry_key_pattern'], 'canonical.<row.id>');
+        expect(policy['registry_alias_key'], 'evidenceAliases');
+
+        final compatibility = _asMap(
+          jsonDecode(
+            File('${packageRoot.path}/test/fixtures/compatibility.json')
+                .readAsStringSync(),
+          ),
+        );
+        final registry = _asMap(compatibility['evidence']);
+        final evidenceAliases = _asMap(compatibility['evidenceAliases']);
+        final rows = _fieldRows(manifest).toList();
+        final rowsById = {
+          for (final row in rows) row['id'] as String: row,
+        };
+        final implementedIds = rows
+            .where((row) => row['dart_status'] == 'implemented')
+            .map((row) => row['id'] as String)
+            .toSet();
+        expect(implementedIds.length, 263);
+        expect(
+          registry.keys.toSet(),
+          implementedIds.map((id) => 'canonical.$id').toSet(),
+        );
+        expect(
+          evidenceAliases.keys,
+          everyElement(isIn(implementedIds)),
+        );
+
+        final peerContract = _asMap(manifest['peer_contract']);
+        final implementationBase =
+            _asMap(manifest['pins'])['implementation_base'] as String;
+        final corpus = <String, Map<String, dynamic>>{};
+        final corpusDocument = _asMap(
+          jsonDecode(
+            await readPinnedText(
+              repositoryRoot,
+              implementationBase,
+              peerContract['cases_source'] as String,
+            ),
+          ),
+        );
+        for (final value in _asList(corpusDocument['cases'])) {
+          final parityCase = _asMap(value);
+          final caseId = parityCase['id'] as String;
+          expect(corpus.containsKey(caseId), isFalse, reason: caseId);
+          corpus[caseId] = parityCase;
+        }
+
+        for (final entry in registry.entries) {
+          final rowId = entry.key.replaceFirst('canonical.', '');
+          final row = rowsById[rowId]!;
+          final record = _asMap(entry.value);
+          expect(
+            record['testName'],
+            'canonical parity rows survive decode -> encode',
+            reason: rowId,
+          );
+          expect(_asList(record['fields']), [rowId], reason: rowId);
+          expect(record['model'], rowId.split('.').first, reason: rowId);
+          expect(record['field'], row['name'], reason: rowId);
+          expect(
+            record['adapter'],
+            anyOf('event', 'message', 'content', 'type'),
+            reason: rowId,
+          );
+
+          final aliasTarget = evidenceAliases[rowId] as String?;
+          if (aliasTarget != null) {
+            expect(implementedIds, contains(aliasTarget), reason: rowId);
+          }
+          final sourceId = aliasTarget ?? rowId;
+          final source = _asMap(registry['canonical.$sourceId']);
+          final caseId = source['caseId'];
+          final documentName = source['document'];
+          final path = source['path'];
+          expect(caseId, isA<String>(), reason: rowId);
+          expect(documentName, anyOf('input', 'expected'), reason: rowId);
+          expect(path, matches(RegExp('^/')), reason: rowId);
+          final parityCase = corpus[caseId];
+          expect(parityCase, isNotNull, reason: '$rowId: $caseId');
+          final document = parityCase![documentName];
+          expect(
+            _containsJsonPointer(document, path as String),
+            isTrue,
+            reason: '$rowId: $caseId $documentName$path',
+          );
+        }
+
+        final canonicalAliases = _asMap(manifest['canonical_evidence_aliases']);
+        for (final row in rows) {
+          final rowId = row['id'] as String;
+          var sourceRow = row;
+          final visited = <String>{rowId};
+          while (sourceRow['canonical_case'] == null) {
+            final target = canonicalAliases[sourceRow['id']];
+            expect(target, isA<String>(), reason: rowId);
+            expect(visited.add(target as String), isTrue, reason: rowId);
+            sourceRow = rowsById[target]!;
+          }
+          final canonicalCase = _asMap(sourceRow['canonical_case']);
+          final caseId = canonicalCase['case_id'];
+          final documentName = canonicalCase['document'];
+          final path = canonicalCase['path'];
+          expect(documentName, anyOf('input', 'expected'), reason: rowId);
+          expect(path, matches(RegExp('^/')), reason: rowId);
+          final parityCase = corpus[caseId];
+          expect(parityCase, isNotNull, reason: '$rowId: $caseId');
+          expect(
+            _containsJsonPointer(parityCase![documentName], path as String),
+            isTrue,
+            reason: '$rowId: $caseId $documentName$path',
+          );
+        }
+      },
+    );
 
     test('records all shared exports and helper ownership', () {
       final exports = _asList(manifest['shared_exports']).map(_asMap).toList();
@@ -245,6 +590,13 @@ void main() {
           'tokenUsageFromLangChainMetadata',
         ]),
       );
+
+      final role = exports.singleWhere((entry) => entry['symbol'] == 'Role');
+      expect(role['python'], 'Role');
+      expect(role['typescript'], 'Role');
+      expect(role['go'], 'Role');
+      expect(role['dart'], 'MessageRole');
+      expect(role['status'], 'implemented');
 
       for (final entry in exports) {
         final symbol = entry['symbol'] as String;
@@ -354,6 +706,7 @@ void main() {
           'protobuf and WebSockets',
           'capability HTTP discovery',
           'Dart THINKING_CONTENT',
+          'Message.id API type',
           'SimpleRunAgentInput defaults',
           'RunAgentInput null serialization',
         ]),

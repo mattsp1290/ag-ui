@@ -248,6 +248,69 @@ final _attributedEventBuilders = <String, _EventBuilder>{
       ),
 };
 
+AGUIValidationError _captureValidationError(void Function() action) {
+  try {
+    action();
+  } on AGUIValidationError catch (error) {
+    return error;
+  }
+  fail('Expected AGUIValidationError');
+}
+
+DecodingError _captureDecodingError(void Function() action) {
+  try {
+    action();
+  } on DecodingError catch (error) {
+    return error;
+  }
+  fail('Expected DecodingError');
+}
+
+void _expectNoSecrets(Object? value, Iterable<String> secrets) {
+  final rendered = value.toString();
+  for (final secret in secrets) {
+    expect(rendered, isNot(contains(secret)));
+  }
+}
+
+void _expectSanitizedValidationTree(
+  AGUIValidationError error,
+  Iterable<String> secrets,
+) {
+  expect(error.json, isNull);
+  _expectNoSecrets(error.message, secrets);
+  _expectNoSecrets(error.value, secrets);
+  _expectNoSecrets(error, secrets);
+
+  final cause = error.cause;
+  if (cause is AGUIValidationError) {
+    _expectSanitizedValidationTree(cause, secrets);
+  } else {
+    _expectNoSecrets(cause, secrets);
+  }
+}
+
+void _expectScrubbedValidationError(
+  AGUIValidationError error, {
+  required String field,
+  required Iterable<String> secrets,
+  bool expectSafeCause = false,
+}) {
+  expect(error.field, field);
+  expect(error.json, isNull);
+  expect(error.value, 'List<String>');
+  expect(error.message, contains('Expected String, got List<String>'));
+  _expectSanitizedValidationTree(error, secrets);
+
+  if (expectSafeCause) {
+    final cause = error.cause;
+    expect(cause, isA<AGUIValidationError>());
+    _expectNoSecrets(cause, secrets);
+  } else {
+    expect(error.cause, isNull);
+  }
+}
+
 void main() {
   const attributedTypes = <String>{
     'TEXT_MESSAGE_START',
@@ -454,21 +517,124 @@ void main() {
       );
     });
 
-    test('malformed attribution on a cipher event is scrubbed', () {
-      final json = _payload('REASONING_ENCRYPTED_VALUE')
-        ..['subagent_run_id'] = ['wrong'];
-      expect(
-        () => decoder.decodeJson(json),
-        throwsA(
-          isA<DecodingError>()
-              .having((e) => e.actualValue, 'actualValue', isNull)
-              .having(
-                (e) => e.cause.toString(),
-                'cause',
-                isNot(contains('cipher')),
-              ),
-        ),
+    test('direct cipher-bearing factories scrub malformed attribution', () {
+      const cipher = 'direct-cipher-secret';
+      const attributionSecret = 'direct-attribution-secret';
+      final malformedAttribution = <String>[attributionSecret];
+
+      final messageError = _captureValidationError(
+        () => ReasoningMessage.fromJson({
+          'id': 'reasoning',
+          'role': 'reasoning',
+          'content': 'thinking',
+          'encryptedValue': cipher,
+          'subagentRunId': malformedAttribution,
+        }),
       );
+      _expectScrubbedValidationError(
+        messageError,
+        field: 'subagentRunId',
+        secrets: const [cipher, attributionSecret],
+      );
+
+      final eventError = _captureValidationError(
+        () => ReasoningEncryptedValueEvent.fromJson({
+          'type': 'REASONING_ENCRYPTED_VALUE',
+          'subtype': 'message',
+          'entityId': 'reasoning',
+          'encryptedValue': cipher,
+          'subagent_run_id': malformedAttribution,
+        }),
+      );
+      _expectScrubbedValidationError(
+        eventError,
+        field: 'subagent_run_id',
+        secrets: const [cipher, attributionSecret],
+      );
+    });
+
+    test('public decoder does not retain malformed cipher attribution', () {
+      const cipher = 'public-cipher-secret';
+      const attributionSecret = 'public-attribution-secret';
+      final json = _payload('REASONING_ENCRYPTED_VALUE')
+        ..['encryptedValue'] = cipher
+        ..['subagent_run_id'] = <String>[attributionSecret];
+
+      final error = _captureDecodingError(() => decoder.decodeJson(json));
+      expect(error.field, 'subagent_run_id');
+      expect(error.actualValue, isNull);
+      expect(error.cause, isA<AGUIValidationError>());
+      _expectNoSecrets(error.message, const [cipher, attributionSecret]);
+      _expectNoSecrets(error.actualValue, const [cipher, attributionSecret]);
+      _expectSanitizedValidationTree(
+        error.cause! as AGUIValidationError,
+        const [cipher, attributionSecret],
+      );
+      _expectNoSecrets(error, const [cipher, attributionSecret]);
+    });
+
+    test('snapshot nesting keeps malformed cipher attribution scrubbed', () {
+      const cipher = 'snapshot-cipher-secret';
+      const attributionSecret = 'snapshot-attribution-secret';
+      final error = _captureValidationError(
+        () => MessagesSnapshotEvent.fromJson({
+          'type': 'MESSAGES_SNAPSHOT',
+          'messages': <Map<String, dynamic>>[
+            {
+              'id': 'reasoning',
+              'role': 'reasoning',
+              'encryptedValue': cipher,
+              'subagentRunId': <String>[attributionSecret],
+            },
+          ],
+        }),
+      );
+
+      _expectScrubbedValidationError(
+        error,
+        field: 'messages[0].subagentRunId',
+        secrets: const [cipher, attributionSecret],
+        expectSafeCause: true,
+      );
+    });
+
+    test('run input nesting remains scrubbed at the public boundary', () {
+      const cipher = 'run-input-cipher-secret';
+      const attributionSecret = 'run-input-attribution-secret';
+      final error = _captureDecodingError(
+        () => decoder.decodeJson({
+          'type': 'RUN_STARTED',
+          'threadId': 'thread',
+          'runId': 'run',
+          'input': <String, dynamic>{
+            'threadId': 'thread',
+            'runId': 'run',
+            'state': <String, dynamic>{},
+            'messages': <Map<String, dynamic>>[
+              {
+                'id': 'reasoning',
+                'role': 'reasoning',
+                'encryptedValue': cipher,
+                'subagentRunId': <String>[attributionSecret],
+              },
+            ],
+            'tools': <Map<String, dynamic>>[],
+            'context': <Map<String, dynamic>>[],
+            'forwardedProps': <String, dynamic>{},
+          },
+        }),
+      );
+
+      expect(error.field, 'input.messages[0].subagentRunId');
+      expect(error.actualValue, isNull);
+      expect(error.cause, isA<AGUIValidationError>());
+      _expectNoSecrets(error.message, const [cipher, attributionSecret]);
+      _expectNoSecrets(error.actualValue, const [cipher, attributionSecret]);
+      _expectSanitizedValidationTree(
+        error.cause! as AGUIValidationError,
+        const [cipher, attributionSecret],
+      );
+      _expectNoSecrets(error, const [cipher, attributionSecret]);
     });
   });
 }

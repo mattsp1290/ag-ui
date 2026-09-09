@@ -379,7 +379,7 @@ final class TextMessageStartEvent extends BaseEvent {
     }
     return TextMessageStartEvent(
       metadata: _readMetadata(json),
-      subagentRunId: JsonDecoder.optionalEitherField<String>(
+      subagentRunId: JsonDecoder.optionalCipherSafeEitherField<String>(
         json,
         'subagentRunId',
         'subagent_run_id',
@@ -461,7 +461,7 @@ final class TextMessageContentEvent extends BaseEvent {
 
     return TextMessageContentEvent(
       metadata: _readMetadata(json),
-      subagentRunId: JsonDecoder.optionalEitherField<String>(
+      subagentRunId: JsonDecoder.optionalCipherSafeEitherField<String>(
         json,
         'subagentRunId',
         'subagent_run_id',
@@ -522,7 +522,7 @@ final class TextMessageEndEvent extends BaseEvent {
   factory TextMessageEndEvent.fromJson(Map<String, dynamic> json) {
     return TextMessageEndEvent(
       metadata: _readMetadata(json),
-      subagentRunId: JsonDecoder.optionalEitherField<String>(
+      subagentRunId: JsonDecoder.optionalCipherSafeEitherField<String>(
         json,
         'subagentRunId',
         'subagent_run_id',
@@ -602,7 +602,7 @@ final class TextMessageChunkEvent extends BaseEvent {
     }
     return TextMessageChunkEvent(
       metadata: _readMetadata(json),
-      subagentRunId: JsonDecoder.optionalEitherField<String>(
+      subagentRunId: JsonDecoder.optionalCipherSafeEitherField<String>(
         json,
         'subagentRunId',
         'subagent_run_id',
@@ -947,7 +947,7 @@ final class ToolCallStartEvent extends BaseEvent {
   factory ToolCallStartEvent.fromJson(Map<String, dynamic> json) {
     return ToolCallStartEvent(
       metadata: _readMetadata(json),
-      subagentRunId: JsonDecoder.optionalEitherField<String>(
+      subagentRunId: JsonDecoder.optionalCipherSafeEitherField<String>(
         json,
         'subagentRunId',
         'subagent_run_id',
@@ -1037,7 +1037,7 @@ final class ToolCallArgsEvent extends BaseEvent {
     final delta = JsonDecoder.requireField<String>(json, 'delta');
     return ToolCallArgsEvent(
       metadata: _readMetadata(json),
-      subagentRunId: JsonDecoder.optionalEitherField<String>(
+      subagentRunId: JsonDecoder.optionalCipherSafeEitherField<String>(
         json,
         'subagentRunId',
         'subagent_run_id',
@@ -1098,7 +1098,7 @@ final class ToolCallEndEvent extends BaseEvent {
   factory ToolCallEndEvent.fromJson(Map<String, dynamic> json) {
     return ToolCallEndEvent(
       metadata: _readMetadata(json),
-      subagentRunId: JsonDecoder.optionalEitherField<String>(
+      subagentRunId: JsonDecoder.optionalCipherSafeEitherField<String>(
         json,
         'subagentRunId',
         'subagent_run_id',
@@ -1165,7 +1165,7 @@ final class ToolCallChunkEvent extends BaseEvent {
   factory ToolCallChunkEvent.fromJson(Map<String, dynamic> json) {
     return ToolCallChunkEvent(
       metadata: _readMetadata(json),
-      subagentRunId: JsonDecoder.optionalEitherField<String>(
+      subagentRunId: JsonDecoder.optionalCipherSafeEitherField<String>(
         json,
         'subagentRunId',
         'subagent_run_id',
@@ -1309,7 +1309,7 @@ final class ToolCallResultEvent extends BaseEvent {
     }
     return ToolCallResultEvent(
       metadata: _readMetadata(json),
-      subagentRunId: JsonDecoder.optionalEitherField<String>(
+      subagentRunId: JsonDecoder.optionalCipherSafeEitherField<String>(
         json,
         'subagentRunId',
         'subagent_run_id',
@@ -1407,7 +1407,7 @@ final class StateSnapshotEvent extends BaseEvent {
     }
     return StateSnapshotEvent(
       metadata: _readMetadata(json),
-      subagentRunId: JsonDecoder.optionalEitherField<String>(
+      subagentRunId: JsonDecoder.optionalCipherSafeEitherField<String>(
         json,
         'subagentRunId',
         'subagent_run_id',
@@ -1468,7 +1468,7 @@ final class StateDeltaEvent extends BaseEvent {
   factory StateDeltaEvent.fromJson(Map<String, dynamic> json) {
     return StateDeltaEvent(
       metadata: _readMetadata(json),
-      subagentRunId: JsonDecoder.optionalEitherField<String>(
+      subagentRunId: JsonDecoder.optionalCipherSafeEitherField<String>(
         json,
         'subagentRunId',
         'subagent_run_id',
@@ -1733,7 +1733,7 @@ final class ActivitySnapshotEvent extends BaseEvent {
     }
     return ActivitySnapshotEvent(
       metadata: _readMetadata(json),
-      subagentRunId: JsonDecoder.optionalEitherField<String>(
+      subagentRunId: JsonDecoder.optionalCipherSafeEitherField<String>(
         json,
         'subagentRunId',
         'subagent_run_id',
@@ -1821,7 +1821,7 @@ final class ActivityDeltaEvent extends BaseEvent {
   factory ActivityDeltaEvent.fromJson(Map<String, dynamic> json) {
     return ActivityDeltaEvent(
       metadata: _readMetadata(json),
-      subagentRunId: JsonDecoder.optionalEitherField<String>(
+      subagentRunId: JsonDecoder.optionalCipherSafeEitherField<String>(
         json,
         'subagentRunId',
         'subagent_run_id',
@@ -1923,7 +1923,7 @@ final class RawEvent extends BaseEvent {
     }
     return RawEvent(
       metadata: _readMetadata(json),
-      subagentRunId: JsonDecoder.optionalEitherField<String>(
+      subagentRunId: JsonDecoder.optionalCipherSafeEitherField<String>(
         json,
         'subagentRunId',
         'subagent_run_id',
@@ -2000,7 +2000,7 @@ final class CustomEvent extends BaseEvent {
     }
     return CustomEvent(
       metadata: _readMetadata(json),
-      subagentRunId: JsonDecoder.optionalEitherField<String>(
+      subagentRunId: JsonDecoder.optionalCipherSafeEitherField<String>(
         json,
         'subagentRunId',
         'subagent_run_id',
@@ -2389,7 +2389,7 @@ final class StepStartedEvent extends BaseEvent {
   factory StepStartedEvent.fromJson(Map<String, dynamic> json) {
     return StepStartedEvent(
       metadata: _readMetadata(json),
-      subagentRunId: JsonDecoder.optionalEitherField<String>(
+      subagentRunId: JsonDecoder.optionalCipherSafeEitherField<String>(
         json,
         'subagentRunId',
         'subagent_run_id',
@@ -2450,7 +2450,7 @@ final class StepFinishedEvent extends BaseEvent {
   factory StepFinishedEvent.fromJson(Map<String, dynamic> json) {
     return StepFinishedEvent(
       metadata: _readMetadata(json),
-      subagentRunId: JsonDecoder.optionalEitherField<String>(
+      subagentRunId: JsonDecoder.optionalCipherSafeEitherField<String>(
         json,
         'subagentRunId',
         'subagent_run_id',
@@ -2586,7 +2586,7 @@ final class ReasoningStartEvent extends BaseEvent {
   factory ReasoningStartEvent.fromJson(Map<String, dynamic> json) {
     return ReasoningStartEvent(
       metadata: _readMetadata(json),
-      subagentRunId: JsonDecoder.optionalEitherField<String>(
+      subagentRunId: JsonDecoder.optionalCipherSafeEitherField<String>(
         json,
         'subagentRunId',
         'subagent_run_id',
@@ -2680,7 +2680,7 @@ final class ReasoningMessageStartEvent extends BaseEvent {
     }
     return ReasoningMessageStartEvent(
       metadata: _readMetadata(json),
-      subagentRunId: JsonDecoder.optionalEitherField<String>(
+      subagentRunId: JsonDecoder.optionalCipherSafeEitherField<String>(
         json,
         'subagentRunId',
         'subagent_run_id',
@@ -2756,7 +2756,7 @@ final class ReasoningMessageContentEvent extends BaseEvent {
 
     return ReasoningMessageContentEvent(
       metadata: _readMetadata(json),
-      subagentRunId: JsonDecoder.optionalEitherField<String>(
+      subagentRunId: JsonDecoder.optionalCipherSafeEitherField<String>(
         json,
         'subagentRunId',
         'subagent_run_id',
@@ -2817,7 +2817,7 @@ final class ReasoningMessageEndEvent extends BaseEvent {
   factory ReasoningMessageEndEvent.fromJson(Map<String, dynamic> json) {
     return ReasoningMessageEndEvent(
       metadata: _readMetadata(json),
-      subagentRunId: JsonDecoder.optionalEitherField<String>(
+      subagentRunId: JsonDecoder.optionalCipherSafeEitherField<String>(
         json,
         'subagentRunId',
         'subagent_run_id',
@@ -2880,7 +2880,7 @@ final class ReasoningMessageChunkEvent extends BaseEvent {
   factory ReasoningMessageChunkEvent.fromJson(Map<String, dynamic> json) {
     return ReasoningMessageChunkEvent(
       metadata: _readMetadata(json),
-      subagentRunId: JsonDecoder.optionalEitherField<String>(
+      subagentRunId: JsonDecoder.optionalCipherSafeEitherField<String>(
         json,
         'subagentRunId',
         'subagent_run_id',
@@ -2948,7 +2948,7 @@ final class ReasoningEndEvent extends BaseEvent {
   factory ReasoningEndEvent.fromJson(Map<String, dynamic> json) {
     return ReasoningEndEvent(
       metadata: _readMetadata(json),
-      subagentRunId: JsonDecoder.optionalEitherField<String>(
+      subagentRunId: JsonDecoder.optionalCipherSafeEitherField<String>(
         json,
         'subagentRunId',
         'subagent_run_id',
@@ -3112,7 +3112,7 @@ final class ReasoningEncryptedValueEvent extends BaseEvent {
     // calling fromJson.
     return ReasoningEncryptedValueEvent(
       metadata: _readMetadata(json),
-      subagentRunId: JsonDecoder.optionalEitherField<String>(
+      subagentRunId: JsonDecoder.optionalCipherSafeEitherField<String>(
         json,
         'subagentRunId',
         'subagent_run_id',

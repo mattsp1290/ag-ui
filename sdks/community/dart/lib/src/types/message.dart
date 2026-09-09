@@ -249,7 +249,7 @@ final class DeveloperMessage extends Message {
         'encrypted_value',
       ),
       metadata: _readMessageMetadata(json),
-      subagentRunId: JsonDecoder.optionalEitherField<String>(
+      subagentRunId: JsonDecoder.optionalCipherSafeEitherField<String>(
         json,
         'subagentRunId',
         'subagent_run_id',
@@ -327,7 +327,7 @@ final class SystemMessage extends Message {
         'encrypted_value',
       ),
       metadata: _readMessageMetadata(json),
-      subagentRunId: JsonDecoder.optionalEitherField<String>(
+      subagentRunId: JsonDecoder.optionalCipherSafeEitherField<String>(
         json,
         'subagentRunId',
         'subagent_run_id',
@@ -454,7 +454,7 @@ final class AssistantMessage extends Message {
         'encrypted_value',
       ),
       metadata: _readMessageMetadata(json),
-      subagentRunId: JsonDecoder.optionalEitherField<String>(
+      subagentRunId: JsonDecoder.optionalCipherSafeEitherField<String>(
         json,
         'subagentRunId',
         'subagent_run_id',
@@ -569,7 +569,7 @@ class UserMessage extends Message {
         'encrypted_value',
       ),
       metadata: _readMessageMetadata(json),
-      subagentRunId: JsonDecoder.optionalEitherField<String>(
+      subagentRunId: JsonDecoder.optionalCipherSafeEitherField<String>(
         json,
         'subagentRunId',
         'subagent_run_id',
@@ -664,7 +664,7 @@ final class ToolMessage extends Message {
         'encrypted_value',
       ),
       metadata: _readMessageMetadata(json),
-      subagentRunId: JsonDecoder.optionalEitherField<String>(
+      subagentRunId: JsonDecoder.optionalCipherSafeEitherField<String>(
         json,
         'subagentRunId',
         'subagent_run_id',
@@ -781,7 +781,7 @@ final class ActivityMessage extends Message {
         'content',
       ),
       metadata: _readMessageMetadata(json),
-      subagentRunId: JsonDecoder.optionalEitherField<String>(
+      subagentRunId: JsonDecoder.optionalCipherSafeEitherField<String>(
         json,
         'subagentRunId',
         'subagent_run_id',
@@ -862,7 +862,7 @@ class ReasoningMessage extends Message {
         'encrypted_value',
       ),
       metadata: _readMessageMetadata(json),
-      subagentRunId: JsonDecoder.optionalEitherField<String>(
+      subagentRunId: JsonDecoder.optionalCipherSafeEitherField<String>(
         json,
         'subagentRunId',
         'subagent_run_id',

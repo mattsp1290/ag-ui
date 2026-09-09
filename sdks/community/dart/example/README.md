@@ -63,6 +63,7 @@ The current approval page uses that existing tool-message flow. Applications
 that receive a canonical `RunFinishedInterruptOutcome` can resume the same run
 with the public typed request API:
 
+<!-- documentation-test:canonical-resume:start -->
 ```dart
 final resumedEvents = client.runAgentInput(
   'human_in_the_loop',
@@ -83,12 +84,48 @@ final resumedEvents = client.runAgentInput(
   ),
 );
 ```
+<!-- documentation-test:canonical-resume:end -->
 
 `runAgentInput` sends the canonical `RunAgentInput` shape, including the
 required `forwardedProps` key when its value is null. The convenience
-`runAgent` method accepts `SimpleRunAgentInput` and retains its legacy omission
-rules. This example does not yet provide a general UI for arbitrary interrupt
+`runAgent` accepts `SimpleRunAgentInput`: it always emits empty state, message,
+tool, context, and `forwardedProps` containers by default, while omitting its
+nullable IDs, configuration, metadata, and resume list. This example does not
+yet provide a general UI for arbitrary interrupt
 `responseSchema` values.
+
+The legacy `state` and `forwardedProps` fields are dynamic and their
+map-or-null checks are debug-only assertions. Prefer `runAgentInput` for
+canonical typed request construction.
+
+The equivalent legacy convenience request is:
+
+<!-- documentation-test:legacy-resume:start -->
+```dart
+final legacyResumedEvents = client.runAgent(
+  'human_in_the_loop',
+  const SimpleRunAgentInput(
+    threadId: 'thread-1',
+    runId: 'run-2',
+    parentRunId: 'run-1',
+    resume: [
+      ResumeEntry(
+        interruptId: 'approval-1',
+        status: ResumeStatus.resolved,
+        payload: {'approved': true},
+      ),
+    ],
+  ),
+);
+```
+<!-- documentation-test:legacy-resume:end -->
+
+The app projects typed root and subagent lifecycle, attribution, outcomes,
+metadata, and usage into page state. Capability declarations are SDK value
+models and are not fetched by this example. Arbitrary interrupt schemas,
+metadata inspection, and encrypted reasoning display remain application-level
+UI choices. See the parent SDK's [protocol parity scope](../README.md#protocol-parity-scope)
+and [exhaustive-switch migration](../README.md#exhaustive-switch-migration).
 
 ## Credential-free fixture
 

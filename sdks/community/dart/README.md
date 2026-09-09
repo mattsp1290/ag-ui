@@ -21,9 +21,9 @@ dependencies:
 
 - 🎯 **Dart-native** – Idiomatic Dart APIs with full type safety and null safety
 - 🔗 **HTTP connectivity** – `AgUiClient` for direct server connections with SSE streaming
-- 📡 **Event streaming** – Event-type parity with the canonical Python and TypeScript SDKs (text messages, tool calls, state, activity, reasoning, lifecycle, and more) for real-time agent communication.
+- 📡 **Event streaming** – 36 canonical event models covering messages, tools, state, activity, reasoning, lifecycle, and subagents, with the remaining compatibility boundaries documented below
 - 🔄 **State management** – Automatic message/state tracking with JSON Patch support
-- 🛠️ **Tool interactions** – Full support for tool calls and generative UI
+- 🛠️ **Tool interactions** – Typed tool calls plus generative UI patterns in the Flutter example
 - ⚡ **High performance** – Efficient event decoding with backpressure handling
 
 ## Quick example
@@ -57,18 +57,272 @@ await for (final event in client.runAgent('agentic_chat', input)) {
 }
 ```
 
-## Packages
+## Package
 
-- **`ag_ui`** – Core client library for AG-UI protocol
-- **`ag_ui.client`** – HTTP client with SSE streaming support
-- **`ag_ui.events`** – Event types and event handling
-- **`ag_ui.types`** – Message types, tools, and data models
-- **`ag_ui.encoder`** – Event encoding/decoding utilities
+Import the public SDK surface from `package:ag_ui/ag_ui.dart`. It exports the
+client, event and message models, protocol codecs, metadata helpers, run
+outcomes, usage helpers, and capability value models.
 
 ## Documentation
 
 - Concepts & architecture: [`docs/concepts`](https://docs.ag-ui.com/concepts/architecture)
 - Full API reference: [`docs/sdk/dart`](https://docs.ag-ui.com/sdk/dart/client/overview)
+
+## Protocol parity scope
+
+The parity suite pins the Dart implementation base
+`aaa75b54d572be8cd1d51c72e951273c5b893ed0` and canonical upstream inspection
+revision `0fa1bebd9772de79347f0caf79744535e94ec37c`. The resolved shared corpus has
+95 cases across 16 cross-language artifact routes. These include Dart direct
+and encoder routes plus six directed Dart-to/from-peer consumer routes. It
+verifies model JSON, canonical HTTP input encoding, SSE event encoding and
+decoding, and cross-language exchange with the Go, Python, and TypeScript SDKs. See the
+[`parity manifest`](test/fixtures/parity_manifest.json),
+[`inventory test`](test/parity/inventory_test.dart),
+[`route test`](test/parity/codec_routes_test.dart), and
+[`parity gate`](../../../scripts/dart-sdk-parity.sh).
+
+This evidence covers the shared wire contract. Language-specific agent,
+middleware, reactive-stream, and UI runtimes remain separate APIs.
+
+### Metadata and subagent attribution
+
+Canonical metadata is represented by `Metadata`; `agUiMetadataKey` is the
+reserved AG-UI key. `mergeMetadata(existing, incoming)` performs a shallow
+merge in which incoming entries win, including explicit null, false, zero, or
+empty values. It does not recursively merge nested maps.
+
+All seven concrete message roles can carry optional `subagentRunId`. The 24
+optional event carriers are text start/content/end/chunk; tool-call
+start/args/end/chunk/result; state snapshot/delta; activity snapshot/delta;
+raw/custom; step start/finish; and reasoning start, message
+start/content/end/chunk, end, and encrypted-value events.
+
+`RUN_*`, `MESSAGES_SNAPSHOT`, and deprecated `THINKING_*` event classes do not
+gain optional attribution. The three subagent lifecycle events instead use a
+required `subagentRunId` as the identity of the child run. A
+`MessagesSnapshotEvent` carries attribution on each contained message.
+
+### Interrupts, resume, and subagents
+
+Use `runAgentInput` for the canonical request shape and typed resume entries:
+
+<!-- documentation-test:canonical-resume:start -->
+```dart
+final resumedEvents = client.runAgentInput(
+  'human_in_the_loop',
+  const RunAgentInput(
+    threadId: 'thread-1',
+    runId: 'run-2',
+    parentRunId: 'run-1',
+    messages: [],
+    tools: [],
+    context: [],
+    resume: [
+      ResumeEntry(
+        interruptId: 'approval-1',
+        status: ResumeStatus.resolved,
+        payload: {'approved': true},
+      ),
+    ],
+  ),
+);
+```
+<!-- documentation-test:canonical-resume:end -->
+
+```dart
+await for (final event in resumedEvents) {
+  if (event case RunFinishedEvent(
+    outcome: final RunFinishedInterruptOutcome outcome,
+  )) {
+    for (final interrupt in outcome.interrupts) {
+      print('Interrupted: ${interrupt.id}');
+    }
+  } else if (event is SubagentStartedEvent) {
+    print('Child started: ${event.subagentRunId}');
+  } else if (event is SubagentFinishedEvent) {
+    print('Child result: ${event.result}');
+  }
+}
+```
+
+The legacy convenience path can carry the same typed resume entry while
+retaining its historical request defaults:
+
+<!-- documentation-test:legacy-resume:start -->
+```dart
+final legacyResumedEvents = client.runAgent(
+  'human_in_the_loop',
+  const SimpleRunAgentInput(
+    threadId: 'thread-1',
+    runId: 'run-2',
+    parentRunId: 'run-1',
+    resume: [
+      ResumeEntry(
+        interruptId: 'approval-1',
+        status: ResumeStatus.resolved,
+        payload: {'approved': true},
+      ),
+    ],
+  ),
+);
+```
+<!-- documentation-test:legacy-resume:end -->
+
+A suspended subagent outcome may have no interrupt IDs when a descendant owns
+the active interrupt. `runAgent(String, SimpleRunAgentInput)` remains the
+convenience API with its legacy empty-container defaults. `RunAgentInput.toJson`
+omits a null `forwardedProps`; `runAgentInput` uses `Encoder` to include the
+required `forwardedProps: null` key in the canonical HTTP request.
+
+### Usage and capabilities
+
+`RunFinishedEvent` and `RunErrorEvent` can carry `TokenUsage`. Use
+`aggregateTokenUsage` to combine entries by the first-seen `(provider, model)`
+pair. Token counts are validated through `maxTokenCount` (`2^53 - 1`), the
+largest exact shared integer range across the supported SDKs.
+
+`AgentCapabilities.fromJson` parses capability declarations for identity,
+transport, tools, output, state, multi-agent operation, reasoning, multimodal
+input, execution, and human-in-the-loop behavior. These are value models; the
+Dart client does not provide capability discovery or negotiation transport.
+
+### Exhaustive-switch migration
+
+The next release containing this Unreleased surface adds three enum values and
+matching sealed event subtypes. Code that previously ended its exhaustive
+switch at `reasoningEncryptedValue` must add these cases:
+
+```diff
+   EventType.reasoningEncryptedValue => 'ReasoningEncryptedValueEvent',
++  EventType.subagentStarted => 'SubagentStartedEvent',
++  EventType.subagentFinished => 'SubagentFinishedEvent',
++  EventType.subagentError => 'SubagentErrorEvent',
+```
+
+The same migration applies to sealed `BaseEvent` switches. This complete
+post-migration probe is compiled directly from this README by
+`test/parity/documentation_test.dart`:
+
+<!-- documentation-test:exhaustive-switch:start -->
+```dart
+String _documentedEventTypeName(EventType type) => switch (type) {
+  EventType.textMessageStart => 'TextMessageStartEvent',
+  EventType.textMessageContent => 'TextMessageContentEvent',
+  EventType.textMessageEnd => 'TextMessageEndEvent',
+  EventType.textMessageChunk => 'TextMessageChunkEvent',
+  EventType.thinkingTextMessageStart => 'ThinkingTextMessageStartEvent',
+  EventType.thinkingTextMessageContent => 'ThinkingTextMessageContentEvent',
+  EventType.thinkingTextMessageEnd => 'ThinkingTextMessageEndEvent',
+  EventType.toolCallStart => 'ToolCallStartEvent',
+  EventType.toolCallArgs => 'ToolCallArgsEvent',
+  EventType.toolCallEnd => 'ToolCallEndEvent',
+  EventType.toolCallChunk => 'ToolCallChunkEvent',
+  EventType.toolCallResult => 'ToolCallResultEvent',
+  EventType.thinkingStart => 'ThinkingStartEvent',
+  EventType.thinkingContent => 'ThinkingContentEvent',
+  EventType.thinkingEnd => 'ThinkingEndEvent',
+  EventType.stateSnapshot => 'StateSnapshotEvent',
+  EventType.stateDelta => 'StateDeltaEvent',
+  EventType.messagesSnapshot => 'MessagesSnapshotEvent',
+  EventType.activitySnapshot => 'ActivitySnapshotEvent',
+  EventType.activityDelta => 'ActivityDeltaEvent',
+  EventType.raw => 'RawEvent',
+  EventType.custom => 'CustomEvent',
+  EventType.runStarted => 'RunStartedEvent',
+  EventType.runFinished => 'RunFinishedEvent',
+  EventType.runError => 'RunErrorEvent',
+  EventType.stepStarted => 'StepStartedEvent',
+  EventType.stepFinished => 'StepFinishedEvent',
+  EventType.reasoningStart => 'ReasoningStartEvent',
+  EventType.reasoningMessageStart => 'ReasoningMessageStartEvent',
+  EventType.reasoningMessageContent => 'ReasoningMessageContentEvent',
+  EventType.reasoningMessageEnd => 'ReasoningMessageEndEvent',
+  EventType.reasoningMessageChunk => 'ReasoningMessageChunkEvent',
+  EventType.reasoningEnd => 'ReasoningEndEvent',
+  EventType.reasoningEncryptedValue => 'ReasoningEncryptedValueEvent',
+  EventType.subagentStarted => 'SubagentStartedEvent',
+  EventType.subagentFinished => 'SubagentFinishedEvent',
+  EventType.subagentError => 'SubagentErrorEvent',
+};
+
+String _documentedEventName(BaseEvent event) => switch (event) {
+  TextMessageStartEvent() => 'TextMessageStartEvent',
+  TextMessageContentEvent() => 'TextMessageContentEvent',
+  TextMessageEndEvent() => 'TextMessageEndEvent',
+  TextMessageChunkEvent() => 'TextMessageChunkEvent',
+  ThinkingStartEvent() => 'ThinkingStartEvent',
+  ThinkingContentEvent() => 'ThinkingContentEvent',
+  ThinkingEndEvent() => 'ThinkingEndEvent',
+  ThinkingTextMessageStartEvent() => 'ThinkingTextMessageStartEvent',
+  ThinkingTextMessageContentEvent() => 'ThinkingTextMessageContentEvent',
+  ThinkingTextMessageEndEvent() => 'ThinkingTextMessageEndEvent',
+  ToolCallStartEvent() => 'ToolCallStartEvent',
+  ToolCallArgsEvent() => 'ToolCallArgsEvent',
+  ToolCallEndEvent() => 'ToolCallEndEvent',
+  ToolCallChunkEvent() => 'ToolCallChunkEvent',
+  ToolCallResultEvent() => 'ToolCallResultEvent',
+  StateSnapshotEvent() => 'StateSnapshotEvent',
+  StateDeltaEvent() => 'StateDeltaEvent',
+  MessagesSnapshotEvent() => 'MessagesSnapshotEvent',
+  ActivitySnapshotEvent() => 'ActivitySnapshotEvent',
+  ActivityDeltaEvent() => 'ActivityDeltaEvent',
+  RawEvent() => 'RawEvent',
+  CustomEvent() => 'CustomEvent',
+  RunStartedEvent() => 'RunStartedEvent',
+  RunFinishedEvent() => 'RunFinishedEvent',
+  RunErrorEvent() => 'RunErrorEvent',
+  StepStartedEvent() => 'StepStartedEvent',
+  StepFinishedEvent() => 'StepFinishedEvent',
+  ReasoningStartEvent() => 'ReasoningStartEvent',
+  ReasoningMessageStartEvent() => 'ReasoningMessageStartEvent',
+  ReasoningMessageContentEvent() => 'ReasoningMessageContentEvent',
+  ReasoningMessageEndEvent() => 'ReasoningMessageEndEvent',
+  ReasoningMessageChunkEvent() => 'ReasoningMessageChunkEvent',
+  ReasoningEndEvent() => 'ReasoningEndEvent',
+  ReasoningEncryptedValueEvent() => 'ReasoningEncryptedValueEvent',
+  SubagentStartedEvent() => 'SubagentStartedEvent',
+  SubagentFinishedEvent() => 'SubagentFinishedEvent',
+  SubagentErrorEvent() => 'SubagentErrorEvent',
+};
+```
+<!-- documentation-test:exhaustive-switch:end -->
+
+### Deliberate compatibility boundaries
+
+- Protobuf event encoding and WebSocket transport are not implemented.
+- Capability models do not add an HTTP discovery endpoint.
+- `Tool.metadata` is declared in TypeScript and Go; Python accepts it through
+  permissive extra fields. Go collapses absent and empty optional metadata
+  maps. Go and Python accept an outer null metadata value, while TypeScript
+  rejects it. All peers retain null values stored under metadata keys.
+- Python's `MetadataMixin` has no direct Dart type; Dart exposes metadata on
+  the concrete public models and through the shared helpers instead.
+- `THINKING_CONTENT` remains a deprecated Dart-only event for compatibility.
+- `Message.id` remains nullable on the base API, although concrete decoders
+  and constructors require IDs where the protocol does.
+- Dart and Python aggregate usage by structural `(provider, model)` tuples.
+  TypeScript joins labels with a space, so distinct tuples whose concatenated
+  labels match can collide. Go uses tuple grouping but may collapse empty
+  labels to absent values. Shared token counts stop at `2^53 - 1` even though
+  Go can represent larger `int64` values.
+- `ExecutionCapabilities.maxIterations` and `maxExecutionTime` use the shared
+  integral signed-`int64` domain; TypeScript-only fractional limits are
+  excluded.
+- `tokenUsageFromLangChainMetadata` accepts nonnegative safe integers and
+  ignores invalid counts. TypeScript preserves some negative, fractional, or
+  unsafe metadata values. The TypeScript-only AI SDK usage mapper is outside
+  this package.
+- Go legacy encrypted-content fields, request aliases, and other extensions
+  remain outside shared unknown-key round-trip guarantees.
+- `SimpleRunAgentInput.state` and `forwardedProps` retain legacy dynamic types;
+  their map-or-null checks are debug-only assertions. Use `RunAgentInput` for
+  canonical typed request construction.
+- Route normalization also covers omitted `ActivitySnapshotEvent.replace`
+  defaulting to true, cipher-event `rawEvent` scrubbing, semantic JSON Patch
+  validation differences, and omitted null subagent results.
+- TypeScript agent, middleware, and reactive runtime facilities are outside
+  the Dart wire-model parity scope.
 
 ## Core Usage
 
@@ -107,6 +361,8 @@ await for (final event in client.runAgent('agentic_chat', input)) {
     case EventType.runFinished:
       print('Complete');
       break;
+    default:
+      break; // This example handles only content and completion.
   }
 }
 ```
@@ -247,6 +503,8 @@ await for (final event in client.runSharedState(input)) {
     case EventType.messagesSnapshot:
       messages = (event as MessagesSnapshotEvent).messages;
       break;
+    default:
+      break; // This example handles only state and message snapshots.
   }
 }
 ```
@@ -282,7 +540,10 @@ try {
 }
 ```
 
-> **Cancellation note:** `CancelToken.cancel()` stops event delivery to your stream, but does **not** abort the underlying HTTP socket. The connection releases when the server closes it or the OS idle-timeout fires. If you need true connection abort, provide a custom `IOClient` per request.
+> **Cancellation note:** `CancelToken.cancel()` stops event delivery to your
+> stream, but does **not** abort the underlying HTTP socket. You may inject an
+> `http.Client` when constructing `AgUiClient`; disposing the `AgUiClient`
+> closes that shared client and all of its connections.
 
 ### Proxy notes: wire-spelling normalization
 
@@ -462,15 +723,19 @@ The [Flutter dojo](example/) pairs this SDK with the local Go example server. It
 ## Testing
 
 ```bash
-# Run unit tests
-dart test
+# From sdks/community/dart:
+dart pub get --no-example
+AGUI_SKIP_DOJO=1 dart test
+dart test test/parity/documentation_test.dart
 
-# Run integration tests (requires server)
-cd test/integration
-./helpers/start_server.sh
-dart test
-./helpers/stop_server.sh
+# From the repository root:
+bash scripts/dart-sdk-parity.sh
 ```
+
+The Dojo smoke and resilience tests under `test/integration` use
+`AGUI_DOJO_BASE_URL` (or `AGUI_BASE_URL`) and skip their live cases when the
+server is unavailable. See [`TEST_GUIDE.md`](TEST_GUIDE.md) for browser and
+cross-language commands.
 
 ## Contributing
 
@@ -487,31 +752,22 @@ Some AG-UI events (`ReasoningEncryptedValueEvent`, `ReasoningMessage`, `ToolMess
 opaque cipher payloads that must be forwarded verbatim between agents. This SDK implements
 defense-in-depth around those payloads:
 
-**Success paths** — the `rawEvent` field on every `BaseEvent` is set to the verbatim
-wire-format map read from the SSE stream. A proxy that needs to re-emit a
-`ReasoningEncryptedValueEvent` should read `rawEvent` (or maintain its own copy of the raw
-bytes) and forward it unchanged rather than calling `toJson()`, which emits only the
-parsed fields.
+**Success paths** — ordinary decoded events can preserve the wire-format map in
+`BaseEvent.rawEvent`. Cipher-bearing paths may intentionally clear it:
+`ReasoningEncryptedValueEvent` always does so, and `RunStartedEvent` or
+`MessagesSnapshotEvent` can do so when nested input or messages contain cipher
+data. A proxy that requires exact forwarding must retain the original map or
+bytes before decoding.
 
 **Error paths** — when a factory (`fromJson`) fails to decode an event, the thrown
 `AGUIValidationError` intentionally omits the raw JSON map (`json:` field) for any event
 that may carry cipher data. This prevents raw cipher bytes from leaking through
 reflection-based log shippers or error serializers that walk the exception cause chain.
 
-**`ReasoningEncryptedValueEvent` specifically** sets `rawEvent: null` unconditionally —
-unlike every other factory, forwarding `_readRawEvent(json)` would store the full cipher
-payload in-memory on `BaseEvent.rawEvent`, undoing the per-field cipher scrubbing above.
-Proxy operators that need the verbatim wire form must maintain their own copy before
-calling `fromJson`.
-
-**`copyWith` and `rawEvent`** — the `copyWith` methods across all event types treat
-`rawEvent` as "sticky": passing `null` keeps the existing value (i.e. `rawEvent ?? this.rawEvent`).
-To clear `rawEvent`, construct the event directly with `rawEvent: null`. This prevents an
-accidental `copyWith()` call from silently preserving a cipher payload that the caller
-intended to drop.
+**Parsed values** — `toJson()` emits the typed event fields and is not an
+exact-byte forwarding mechanism. Never render or log encrypted payloads or
+arbitrary metadata unless the application explicitly owns that disclosure.
 
 ## License
 
 This SDK is part of the AG-UI Protocol project. See the [main repository](https://github.com/ag-ui-protocol/ag-ui) for license information.
-
-

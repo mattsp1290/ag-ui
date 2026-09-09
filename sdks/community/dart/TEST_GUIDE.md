@@ -10,15 +10,25 @@ used for the JavaScript/TypeScript projects only.
 
 ## Running Tests
 
-### Unit Tests Only (Recommended)
-Run unit tests excluding integration tests that require external services:
+### Default suite (Recommended)
+
+Run the full SDK suite. Set `AGUI_SKIP_DOJO=1` to skip the live Dojo cases
+explicitly; the current SDK tests do not use a `requires-server` tag.
 
 ```bash
-dart test --exclude-tags requires-server
+AGUI_SKIP_DOJO=1 dart test
+```
+
+The public documentation examples have an executable API and exhaustiveness
+probe:
+
+```bash
+dart test test/parity/documentation_test.dart
 ```
 
 ### All Tests
-To run all tests including integration tests (requires TypeScript SDK server setup):
+
+To run the full Dart test tree:
 
 ```bash
 dart test
@@ -63,7 +73,7 @@ AG_UI_DART_PARITY_OUTPUT_DIR="$PWD/.dart-parity-output" \
 
 ## Test Categories
 
-### Unit Tests (381+ tests) ✅
+### Unit Tests
 - **SSE Components**: Parser, client, messages, backoff strategies
 - **Types**: Base types, messages, tools, context
 - **Encoder/Decoder**: Client codec, error handling
@@ -71,50 +81,51 @@ AG_UI_DART_PARITY_OUTPUT_DIR="$PWD/.dart-parity-output" \
 - **Client**: Configuration, error handling
 
 ### Integration Tests
-These tests require the TypeScript SDK's Python server to be running:
-- `simple_qa_test.dart` - Tests Q&A functionality
-- `tool_generative_ui_test.dart` - Tests tool-based UI generation
-- `simple_qa_docker_test.dart` - Docker-based integration tests
 
-**Note**: Integration tests are tagged with `@Tags(['integration', 'requires-server'])` and will be skipped by default when using `--exclude-tags requires-server`.
-
-## Test Coverage
-
-The SDK has comprehensive unit test coverage including:
-- 6 SSE client basic tests
-- 8 SSE stream parsing tests
-- 13 SSE message tests
-- 67 base types and JSON decoder tests
-- 39 error handling tests
-- 59 event type tests
-- 23 client configuration tests
-- And many more...
+`event_decoding_integration_test.dart` and `fixtures_integration_test.dart`
+exercise local fixtures. The `dojo_*` tests exercise decoding, smoke, and
+resilience behavior against `AGUI_DOJO_BASE_URL` or `AGUI_BASE_URL`; live cases
+skip when the Dojo is unavailable or when `AGUI_SKIP_DOJO=1`.
 
 ## Parity baseline
 
-`test/fixtures/compatibility.json` records the exact base commit, current
-public event and message-role surface, and the compatibility cases that must
-remain green while Dart parity is implemented. `test/parity/compatibility_test.dart`
-exercises those cases, including the 34 current event variants (the
-Dart-only `THINKING_CONTENT` is recorded separately), constructor and
-`copyWith` call shapes, JSON aliases/defaults, explicit nulls, cipher-safe
-`rawEvent` handling, run inputs, and the no-default exhaustive-switch compile
-probes. Rows for features added by later parity slices are deliberately not
-present as failing future tests.
+`test/fixtures/parity_manifest.json` is the resolved inventory and provenance
+record. Its work packages, test catalog, and verification surfaces identify
+the executable evidence for each slice. The 95-case shared corpus is exercised
+over 16 total cross-language artifact routes by
+`test/parity/codec_routes_test.dart` and `scripts/dart-sdk-parity.sh`. The
+manifest pins implementation base
+`aaa75b54d572be8cd1d51c72e951273c5b893ed0` and upstream inspection revision
+`0fa1bebd9772de79347f0caf79744535e94ec37c`.
 
-The baseline was run on the pinned base `aaa75b54d572be8cd1d51c72e951273c5b893ed0`.
-`dart pub get --no-example` and `dart test --exclude-tags requires-server` pass
-on Dart 3.13.1. The SDK analyzer commands currently report pre-existing
-warnings/TODOs (`dart analyze lib`: 11 warnings; `dart analyze test`: 42
-warnings), and `dart format --output=none --set-exit-if-changed lib test`
-reports 13 existing files requiring formatting. These are recorded baseline
-drift and are not part of the compatibility PR. The Flutter example currently
-passes `flutter analyze`, ordinary `flutter test --exclude-tags
-requires-go-server` (109 tests), and `flutter build web`; its format check
-reports the existing `test/go_server_contract_test.dart` drift.
+`test/fixtures/compatibility.json` and
+`test/parity/compatibility_test.dart` retain the original public call shapes,
+JSON aliases and defaults, explicit null behavior, cipher-safe `rawEvent`
+handling, and no-default exhaustive-switch probes. The current protocol model
+has 36 canonical events plus the deprecated Dart-only `THINKING_CONTENT`
+compatibility case.
+
+Resolve dependencies with `dart pub get --no-example`, then run the suite,
+documentation, and parity commands above. For local static checks, use:
+
+```bash
+dart analyze lib
+dart analyze test
+dart format --output=none --set-exit-if-changed lib test
+```
+
+The analyzer and whole-tree format commands may continue to report drift
+pinned by the original baseline;
+changed Dart files must still be formatted. The Flutter package has its own
+analysis, test, Docker contract, and build gates in `example/README.md`.
 
 ## Known Limitations
 
 1. **SSE Retry Tests**: Two tests are skipped because SSE protocol doesn't support automatic retry on HTTP errors - this is a protocol limitation, not a bug.
 
-2. **Integration Tests**: Require TypeScript SDK infrastructure that may not be available in the Dart SDK directory structure.
+2. **Live Dojo Tests**: Need a reachable compatible Dojo server; otherwise the
+live cases report skips.
+
+3. **Transport and runtime scope**: Protobuf event encoding, WebSockets,
+capability discovery, and the TypeScript-specific agent/middleware/reactive
+runtimes are not part of the Dart parity gate.

@@ -10,13 +10,8 @@ for runtime in dart go node pnpm uv python3; do
   }
 done
 
-mode="dart"
-if [[ "${1:-}" == "--mode" ]]; then
-  mode="${2:?--mode requires dart}"
-  shift 2
-fi
-if [[ $# -ne 0 || "$mode" != "dart" ]]; then
-  echo "usage: $0 [--mode dart]" >&2
+if [[ $# -ne 0 ]]; then
+  echo "usage: $0" >&2
   exit 2
 fi
 
@@ -155,7 +150,9 @@ ids = [case["id"] for case in corpus["cases"]]
 kind_by_id = {case["id"]: case["kind"] for case in corpus["cases"]}
 route_files = manifest["dart_interop"]["routes"]
 expected = set(route_files)
-assert len(route_files) == 16 and len(set(route_files.values())) == 16
+expected_route_count = manifest["dart_interop"]["expected_route_count"]
+assert len(route_files) == expected_route_count
+assert len(set(route_files.values())) == expected_route_count
 documents = {}
 for route in sorted(expected):
     document = json.loads((output / route_files[route]).read_text())
@@ -178,14 +175,7 @@ for route in sorted(expected):
             assert "error" in record and isinstance(record["error"], str) and record["error"], (route, record["id"])
             assert "value" not in record, (route, record["id"])
 
-consumer_sources = {
-    "dart.from-go": "go.direct",
-    "dart.from-python": "python.produced",
-    "dart.from-typescript": "typescript.produced",
-    "go.from-dart": "dart.encoder",
-    "python.from-dart": "dart.encoder",
-    "typescript.from-dart": "dart.encoder",
-}
+consumer_sources = manifest["dart_interop"]["consumer_sources"]
 overrides = {
     (entry["route"], entry["case_id"]): entry
     for entry in manifest["dart_interop"].get("consumer_expectations", [])

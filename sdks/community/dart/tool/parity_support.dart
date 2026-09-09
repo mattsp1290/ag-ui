@@ -260,8 +260,9 @@ ArtifactDocument parseArtifact(
     }
     final unsupported = hasUnsupported && unsupportedValue as bool;
     final hasValue = record.containsKey('value');
+    final hasError = record.containsKey('error');
     final error = record['error'];
-    if ((accepted && (!hasValue || error != null || unsupported)) ||
+    if ((accepted && (!hasValue || hasError || hasUnsupported)) ||
         (accepted &&
             record['value'] == null &&
             corpusById[id]!['kind'] != 'mapper') ||

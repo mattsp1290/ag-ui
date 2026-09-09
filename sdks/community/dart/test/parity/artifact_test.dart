@@ -56,14 +56,15 @@ void main() {
   });
 
   test('consumer expectation registry is case-scoped and complete', () {
-    const consumerRoutes = {
-      'dart.from-go',
-      'dart.from-python',
-      'dart.from-typescript',
-      'go.from-dart',
-      'python.from-dart',
-      'typescript.from-dart',
-    };
+    final consumerSources = asMap(
+      interop['consumer_sources'],
+      'consumer sources',
+    );
+    final routes = asMap(interop['routes'], 'interop routes').keys.toSet();
+    final consumerRoutes = consumerSources.keys.toSet();
+    expect(consumerRoutes, isNotEmpty);
+    expect(routes.containsAll(consumerRoutes), isTrue);
+    expect(routes.containsAll(consumerSources.values), isTrue);
     final seen = <String>{};
     for (final raw in interop['consumer_expectations'] as List) {
       final expectation = asMap(raw, 'consumer expectation');
@@ -129,6 +130,20 @@ void main() {
             .map((value) => Map<String, dynamic>.from(value as Map))
             .toList();
         cases.first['unsupported'] = null;
+        return {...valid, 'cases': cases};
+      },
+      () {
+        final cases = (valid['cases'] as List)
+            .map((value) => Map<String, dynamic>.from(value as Map))
+            .toList();
+        cases.first['unsupported'] = false;
+        return {...valid, 'cases': cases};
+      },
+      () {
+        final cases = (valid['cases'] as List)
+            .map((value) => Map<String, dynamic>.from(value as Map))
+            .toList();
+        cases.first['error'] = null;
         return {...valid, 'cases': cases};
       },
     ];

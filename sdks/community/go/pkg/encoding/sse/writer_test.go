@@ -3,10 +3,13 @@ package sse
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -736,6 +739,65 @@ func TestProtocolMetadataThroughWriters(t *testing.T) {
 				}
 			}
 			require.True(t, found, "SSE payload missing")
+		})
+	}
+}
+
+func TestCrossLanguageSSEWrite(t *testing.T) {
+	type scenario struct {
+		ID     string            `json:"id"`
+		Events []json.RawMessage `json:"events"`
+	}
+	var fixture struct {
+		Version   int        `json:"version"`
+		Scenarios []scenario `json:"scenarios"`
+	}
+	fixtureBytes, err := os.ReadFile(filepath.Join("..", "..", "..", "testdata", "parity", "sse-scenarios.json"))
+	require.NoError(t, err)
+	require.NoError(t, json.Unmarshal(fixtureBytes, &fixture))
+	require.Equal(t, 1, fixture.Version)
+	require.Len(t, fixture.Scenarios, 3)
+	require.Equal(t, []string{"interrupt", "resumed", "root-error"}, []string{fixture.Scenarios[0].ID, fixture.Scenarios[1].ID, fixture.Scenarios[2].ID})
+	require.Equal(t, []int{29, 10, 4}, []int{len(fixture.Scenarios[0].Events), len(fixture.Scenarios[1].Events), len(fixture.Scenarios[2].Events)})
+
+	outputDir, outputRequested := os.LookupEnv("AG_UI_SSE_PARITY_OUTPUT_DIR")
+	if outputRequested {
+		require.NotEmpty(t, outputDir)
+		info, statErr := os.Stat(outputDir)
+		require.NoError(t, statErr)
+		require.True(t, info.IsDir(), "AG_UI_SSE_PARITY_OUTPUT_DIR must name an existing directory")
+	}
+
+	for _, scenario := range fixture.Scenarios {
+		t.Run(scenario.ID, func(t *testing.T) {
+			var output bytes.Buffer
+			writer := NewSSEWriter().WithLogger(slog.New(slog.NewTextHandler(io.Discard, nil)))
+			for index, raw := range scenario.Events {
+				event, decodeErr := events.EventFromJSON(raw)
+				require.NoError(t, decodeErr, "event %d", index)
+				require.NoError(t, writer.WriteEvent(context.Background(), &output, event), "event %d", index)
+			}
+
+			var written []string
+			for _, frame := range strings.Split(strings.TrimSuffix(output.String(), "\n\n"), "\n\n") {
+				lines := strings.Split(frame, "\n")
+				var dataLines []string
+				for _, line := range lines {
+					if strings.HasPrefix(line, "data: ") {
+						dataLines = append(dataLines, strings.TrimPrefix(line, "data: "))
+					}
+				}
+				require.Len(t, dataLines, 1)
+				written = append(written, dataLines[0])
+			}
+			require.Len(t, written, len(scenario.Events))
+			for index, actual := range written {
+				require.JSONEq(t, string(scenario.Events[index]), actual, "event %d", index)
+			}
+
+			if outputRequested {
+				require.NoError(t, os.WriteFile(filepath.Join(outputDir, "go-"+scenario.ID+".sse"), output.Bytes(), 0o644))
+			}
 		})
 	}
 }

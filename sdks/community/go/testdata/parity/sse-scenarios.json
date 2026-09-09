@@ -1,0 +1,51 @@
+{"version":1,"scenarios":[
+{"id":"interrupt","request":{"threadId":"thread-sse","runId":"root-1","state":{"tasks":[]},"messages":[{"id":"user-1","role":"user","content":"synthetic request"}],"tools":[{"name":"approve","description":"synthetic","parameters":{}}],"context":[],"forwardedProps":{}},"events":[
+{"type":"RUN_STARTED","threadId":"thread-sse","runId":"root-1","input":{"threadId":"thread-sse","runId":"root-1","state":{"tasks":[]},"messages":[{"id":"user-1","role":"user","content":"synthetic request"}],"tools":[{"name":"approve","description":"synthetic","parameters":{}}],"context":[],"forwardedProps":{}},"timestamp":1700000000000},
+{"type":"STATE_SNAPSHOT","snapshot":{"tasks":[]},"timestamp":1700000000001},
+{"type":"TOOL_CALL_START","toolCallId":"launch-1","toolCallName":"delegate","parentMessageId":"parent-message","timestamp":1700000000002},
+{"type":"TOOL_CALL_ARGS","toolCallId":"launch-1","delta":"{\"agent\":\"planner\"}","timestamp":1700000000003},
+{"type":"TOOL_CALL_END","toolCallId":"launch-1","timestamp":1700000000004},
+{"type":"SUBAGENT_STARTED","subagentRunId":"planner","name":"Planner","parentToolCallId":"launch-1","parentMessageId":"parent-message","timestamp":1700000000005},
+{"type":"SUBAGENT_STARTED","subagentRunId":"worker","name":"Worker","parentSubagentRunId":"planner","parentToolCallId":"nested-1","parentMessageId":"nested-message","timestamp":1700000000006},
+{"type":"SUBAGENT_STARTED","subagentRunId":"observer","name":"Observer","timestamp":1700000000007},
+{"type":"REASONING_START","messageId":"reason-1","subagentRunId":"worker","timestamp":1700000000008},
+{"type":"REASONING_MESSAGE_START","messageId":"reason-1","role":"reasoning","subagentRunId":"worker","timestamp":1700000000009},
+{"type":"TEXT_MESSAGE_START","messageId":"observer-text","role":"assistant","subagentRunId":"observer","timestamp":1700000000010},
+{"type":"REASONING_MESSAGE_CONTENT","messageId":"reason-1","delta":"Consider α\nThen continue.","subagentRunId":"worker","metadata":{"late":{"trace":"child-trace"},"nullable":null},"timestamp":1700000000011},
+{"type":"TEXT_MESSAGE_CONTENT","messageId":"observer-text","delta":"Observer: café 🐦","subagentRunId":"observer","timestamp":1700000000012},
+{"type":"REASONING_ENCRYPTED_VALUE","subtype":"message","entityId":"reason-1","encryptedValue":"opaque-reasoning:α/+=\nend","subagentRunId":"worker","timestamp":1700000000013},
+{"type":"REASONING_MESSAGE_END","messageId":"reason-1","subagentRunId":"worker","timestamp":1700000000014},
+{"type":"REASONING_END","messageId":"reason-1","subagentRunId":"worker","timestamp":1700000000015},
+{"type":"TEXT_MESSAGE_END","messageId":"observer-text","subagentRunId":"observer","timestamp":1700000000016},
+{"type":"SUBAGENT_ERROR","subagentRunId":"observer","message":"synthetic observer failure","code":"observer-failed","metadata":{"partial":true},"timestamp":1700000000017},
+{"type":"TOOL_CALL_START","toolCallId":"approval-call","toolCallName":"approve","parentMessageId":"worker-message","subagentRunId":"worker","timestamp":1700000000018},
+{"type":"TOOL_CALL_ARGS","toolCallId":"approval-call","delta":"{\"query\":\"pending\"}","subagentRunId":"worker","metadata":{"lateTool":true},"timestamp":1700000000019},
+{"type":"TOOL_CALL_END","toolCallId":"approval-call","subagentRunId":"worker","timestamp":1700000000020},
+{"type":"REASONING_ENCRYPTED_VALUE","subtype":"tool-call","entityId":"approval-call","encryptedValue":"opaque-tool:β/+=","subagentRunId":"worker","timestamp":1700000000021},
+{"type":"ACTIVITY_SNAPSHOT","messageId":"activity-1","activityType":"progress","content":{"phase":"approval"},"replace":true,"subagentRunId":"worker","timestamp":1700000000022},
+{"type":"ACTIVITY_DELTA","messageId":"activity-1","activityType":"progress","patch":[{"op":"add","path":"/waiting","value":true}],"subagentRunId":"worker","timestamp":1700000000023},
+{"type":"STATE_DELTA","delta":[{"op":"add","path":"/tasks/-","value":{"id":"approval-1","ready":false}}],"timestamp":1700000000024},
+{"type":"MESSAGES_SNAPSHOT","messages":[{"id":"worker-message","role":"assistant","content":"","subagentRunId":"worker","toolCalls":[{"id":"approval-call","type":"function","function":{"name":"approve","arguments":"{\"query\":\"pending\"}"},"encryptedValue":"opaque-tool:β/+="}]}],"timestamp":1700000000025},
+{"type":"SUBAGENT_FINISHED","subagentRunId":"worker","outcome":{"type":"suspended","interruptIds":["approval-1"]},"timestamp":1700000000026},
+{"type":"SUBAGENT_FINISHED","subagentRunId":"planner","outcome":{"type":"suspended","interruptIds":[]},"timestamp":1700000000027},
+{"type":"RUN_FINISHED","threadId":"thread-sse","runId":"root-1","outcome":{"type":"interrupt","interrupts":[{"id":"approval-1","reason":"tool_call","toolCallId":"approval-call","message":"Approve synthetic call","metadata":{"owner":"worker"}}]},"usage":[{"provider":"synthetic","model":"planner","inputTokens":10,"outputTokens":0}],"timestamp":1700000000028}
+]},
+{"id":"resumed","request":{"threadId":"thread-sse","runId":"root-2","state":{"tasks":[]},"messages":[{"id":"user-1","role":"user","content":"synthetic request"}],"tools":[{"name":"approve","description":"synthetic","parameters":{}}],"context":[],"forwardedProps":{},"resume":[{"interruptId":"approval-1","status":"resolved","payload":{"approved":true,"editedArgs":{"query":"updated"}},"metadata":{"source":"fixture"}}]},"events":[
+{"type":"RUN_STARTED","threadId":"thread-sse","runId":"root-2","parentRunId":"root-1","input":{"threadId":"thread-sse","runId":"root-2","state":{"tasks":[]},"messages":[{"id":"user-1","role":"user","content":"synthetic request"}],"tools":[{"name":"approve","description":"synthetic","parameters":{}}],"context":[],"forwardedProps":{},"resume":[{"interruptId":"approval-1","status":"resolved","payload":{"approved":true,"editedArgs":{"query":"updated"}},"metadata":{"source":"fixture"}}]},"timestamp":1700000000000},
+{"type":"SUBAGENT_STARTED","subagentRunId":"planner","name":"Planner","timestamp":1700000000001},
+{"type":"SUBAGENT_STARTED","subagentRunId":"worker","name":"Worker","parentSubagentRunId":"planner","timestamp":1700000000002},
+{"type":"TOOL_CALL_RESULT","messageId":"tool-result","toolCallId":"approval-call","content":"approved","role":"tool","subagentRunId":"worker","metadata":{"lateResult":true},"timestamp":1700000000003},
+{"type":"TEXT_MESSAGE_START","messageId":"answer","role":"assistant","subagentRunId":"worker","timestamp":1700000000004},
+{"type":"TEXT_MESSAGE_CONTENT","messageId":"answer","delta":"Done 🐦\r\nComplete.","subagentRunId":"worker","metadata":{"lateAnswer":{"complete":true}},"timestamp":1700000000005},
+{"type":"TEXT_MESSAGE_END","messageId":"answer","subagentRunId":"worker","timestamp":1700000000006},
+{"type":"SUBAGENT_FINISHED","subagentRunId":"worker","outcome":{"type":"success"},"result":{"approved":true},"timestamp":1700000000007},
+{"type":"SUBAGENT_FINISHED","subagentRunId":"planner","outcome":{"type":"success"},"timestamp":1700000000008},
+{"type":"RUN_FINISHED","threadId":"thread-sse","runId":"root-2","outcome":{"type":"success"},"result":{"answer":"complete"},"usage":[{"provider":"synthetic","model":"planner","inputTokens":5,"outputTokens":3,"totalTokens":8,"reasoningTokens":1,"cachedInputTokens":0},{"provider":"synthetic","model":"worker","inputTokens":7,"outputTokens":2}],"timestamp":1700000000009}
+]},
+{"id":"root-error","request":{"threadId":"thread-sse","runId":"root-error","state":{"tasks":[]},"messages":[{"id":"user-1","role":"user","content":"synthetic request"}],"tools":[{"name":"approve","description":"synthetic","parameters":{}}],"context":[],"forwardedProps":{}},"events":[
+{"type":"RUN_STARTED","threadId":"thread-sse","runId":"root-error","input":{"threadId":"thread-sse","runId":"root-error","state":{"tasks":[]},"messages":[{"id":"user-1","role":"user","content":"synthetic request"}],"tools":[{"name":"approve","description":"synthetic","parameters":{}}],"context":[],"forwardedProps":{}},"timestamp":1700000000000},
+{"type":"TEXT_MESSAGE_START","messageId":"partial","role":"assistant","timestamp":1700000000001},
+{"type":"TEXT_MESSAGE_CONTENT","messageId":"partial","delta":"Partial answer","metadata":{"partial":true},"timestamp":1700000000002},
+{"type":"RUN_ERROR","message":"synthetic root failure","code":"root-failed","usage":[{"provider":"synthetic","model":"worker","inputTokens":9,"outputTokens":2,"cachedInputTokens":0}],"timestamp":1700000000003}
+]}
+]}

@@ -4,8 +4,10 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 
 import 'package:ag_ui_example/main.dart';
+import 'package:ag_ui_example/models/chat_message.dart';
 import 'package:ag_ui_example/models/endpoint_config.dart';
 import 'package:ag_ui_example/pages/chat_page.dart';
+import 'package:ag_ui_example/widgets/chat_message_widget.dart';
 
 void main() {
   setUp(() => WidgetController.hitTestWarningShouldBeFatal = true);
@@ -142,6 +144,34 @@ void main() {
       tester.element(find.byType(ChatPageView)).read<ChatPageState>(),
       isNot(same(oldState)),
     );
+  });
+
+  testWidgets('subagent attribution is visible without exposing metadata', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: ChatMessageWidget(
+            message: ChatMessage(
+              id: 'child-message',
+              type: ChatMessageType.assistant,
+              content: 'Child output',
+              timestamp: DateTime(2026),
+              subagentRunId: 'child-1',
+              subagentName: 'Researcher',
+              subagentStatus: 'completed',
+              metadata: const {'private': 'cipher-secret'},
+            ),
+          ),
+        ),
+      ),
+    );
+
+    expect(find.text('Researcher · completed'), findsOneWidget);
+    expect(find.text('Child output'), findsOneWidget);
+    expect(find.textContaining('cipher-secret'), findsNothing);
+    expect(find.textContaining('child-1'), findsNothing);
   });
 }
 

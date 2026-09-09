@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:ag_ui/ag_ui.dart';
 import 'package:ag_ui_example/models/chat_message.dart';
 import 'package:ag_ui_example/models/endpoint_config.dart';
+import 'package:ag_ui_example/pages/agui_event_handling.dart';
 import 'package:ag_ui_example/services/ag_ui_service.dart';
 import 'package:ag_ui_example/pages/client_tools_page.dart';
 
@@ -90,6 +91,153 @@ int _countType(List<ChatMessage> ms, ChatMessageType t) =>
     ms.where((m) => m.type == t).length;
 
 void main() {
+  test('child failure stays local while the root run completes', () async {
+    final service = FakeAgUiService([
+      [
+        const SubagentStartedEvent(subagentRunId: 'child', name: 'Worker'),
+        const TextMessageChunkEvent(
+          messageId: 'child-output',
+          subagentRunId: 'child',
+          delta: 'partial',
+        ),
+        const SubagentErrorEvent(
+          subagentRunId: 'child',
+          message: 'child failed',
+        ),
+        const TextMessageChunkEvent(messageId: 'root', delta: 'root answer'),
+        const RunFinishedEvent(
+          threadId: 't',
+          runId: 'r',
+          outcome: RunFinishedSuccessOutcome(),
+        ),
+      ],
+    ]);
+    final state = ClientToolsPageState(
+      endpoint: _clientToolsEndpoint(),
+      service: service,
+    );
+    addTearDown(state.dispose);
+    final statuses = <AgUiRunStatus>[];
+    state.addListener(() => statuses.add(state.runStatus));
+
+    await state.sendMessage('delegate');
+
+    expect(state.busy, isFalse);
+    expect(service.calls, 1);
+    expect(
+      state.messages
+          .where((m) => m.type == ChatMessageType.system)
+          .single
+          .content,
+      '✅ Run completed',
+    );
+    expect(
+      state.runStatus,
+      AgUiRunStatus.completed,
+      reason: 'observed statuses: $statuses',
+    );
+    expect(state.subagents['child']!.status, AgUiSubagentStatus.failed);
+    expect(
+      state.messages.singleWhere((m) => m.subagentRunId == 'child').content,
+      'partial',
+    );
+    expect(state.messages.any((m) => m.content == 'root answer'), isTrue);
+  });
+
+  test(
+    'streamed child history keeps canonical identity on the next turn',
+    () async {
+      final service = FakeAgUiService([
+        [
+          const SubagentStartedEvent(subagentRunId: 'child', name: 'Worker'),
+          const TextMessageChunkEvent(
+            messageId: 'child-answer',
+            subagentRunId: 'child',
+            delta: 'first',
+            metadata: {'source': 'child'},
+          ),
+          const RunFinishedEvent(threadId: 't', runId: 'r1'),
+        ],
+        [const RunFinishedEvent(threadId: 't', runId: 'r2')],
+      ]);
+      final state = ClientToolsPageState(
+        endpoint: _clientToolsEndpoint(),
+        service: service,
+      );
+      addTearDown(state.dispose);
+
+      await state.sendMessage('first');
+      await state.sendMessage('second');
+
+      final child = service.histories[1]
+          .whereType<AssistantMessage>()
+          .singleWhere((message) => message.subagentRunId == 'child');
+      expect(child.id, 'child-answer');
+      expect(child.content, 'first');
+      expect(child.metadata, {'source': 'child'});
+    },
+  );
+
+  test(
+    'colliding child tool IDs execute and render with attribution',
+    () async {
+      const shared = ToolCall(
+        id: 'shared',
+        function: FunctionCall(
+          name: 'calculate',
+          arguments: '{"expression":"1+1"}',
+        ),
+        metadata: {'kind': 'child-tool'},
+      );
+      final service = FakeAgUiService([
+        [
+          const SubagentStartedEvent(subagentRunId: 'a', name: 'Alpha'),
+          const SubagentStartedEvent(subagentRunId: 'b', name: 'Beta'),
+          MessagesSnapshotEvent(
+            messages: [
+              AssistantMessage(
+                id: 'a-message',
+                subagentRunId: 'a',
+                toolCalls: [shared],
+              ),
+              AssistantMessage(
+                id: 'b-message',
+                subagentRunId: 'b',
+                toolCalls: [shared],
+              ),
+            ],
+          ),
+          const RunFinishedEvent(threadId: 't', runId: 'r1'),
+        ],
+        [const RunFinishedEvent(threadId: 't', runId: 'r2')],
+      ]);
+      final state = ClientToolsPageState(
+        endpoint: _clientToolsEndpoint(),
+        service: service,
+      );
+      addTearDown(state.dispose);
+
+      await state.sendMessage('calculate twice');
+
+      final tools = state.messages.where(
+        (message) => message.type == ChatMessageType.tool,
+      );
+      expect(tools, hasLength(2));
+      expect(tools.map((message) => message.subagentRunId).toSet(), {'a', 'b'});
+      expect(
+        tools.every((message) => message.metadata?['kind'] == 'child-tool'),
+        isTrue,
+      );
+      expect(
+        service.histories[1]
+            .whereType<ToolMessage>()
+            .map((message) => message.subagentRunId)
+            .toSet(),
+        {'a', 'b'},
+      );
+    },
+  );
+
   test(
     'happy round-trip: tool call → result → final answer; busy clears',
     () async {
@@ -698,5 +846,186 @@ void main() {
       jsonDecode(results[1].content)['error']['code'],
       'invalid_tool_call',
     );
+  });
+
+  test('a fresh exchange executes a reused tool-call ID', () async {
+    final cumulativeReuse = MessagesSnapshotEvent(
+      messages: [
+        ..._snapshotWithToolCall('shared', '1+1').messages,
+        const ToolMessage(
+          id: 'historical-result',
+          toolCallId: 'shared',
+          content: '{"result":2}',
+        ),
+        const AssistantMessage(
+          id: 'new-owner',
+          toolCalls: [
+            ToolCall(
+              id: 'shared',
+              function: FunctionCall(
+                name: 'calculate',
+                arguments: '{"expression":"2+2"}',
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+    final service = FakeAgUiService([
+      [_snapshotWithToolCall('shared', '1+1'), _runFinished],
+      [_runFinished],
+      [cumulativeReuse, _runFinished],
+      [_runFinished],
+    ]);
+    final state = ClientToolsPageState(
+      endpoint: _clientToolsEndpoint(),
+      service: service,
+    );
+    addTearDown(state.dispose);
+
+    await state.sendMessage('first');
+    await state.sendMessage('second');
+
+    expect(service.calls, 4);
+    final results = service.histories.last
+        .whereType<ToolMessage>()
+        .where((message) => message.toolCallId == 'shared')
+        .map((message) => jsonDecode(message.content)['result']);
+    expect(results.where((result) => result == 4), hasLength(1));
+  });
+
+  test('one exchange executes reused call IDs from distinct owners', () async {
+    final first = _snapshotWithToolCall('shared', '1+1');
+    final second = MessagesSnapshotEvent(
+      messages: [
+        ...first.messages,
+        const AssistantMessage(
+          id: 'next-owner',
+          toolCalls: [
+            ToolCall(
+              id: 'shared',
+              function: FunctionCall(
+                name: 'calculate',
+                arguments: '{"expression":"2+2"}',
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+    final service = FakeAgUiService([
+      [first, _runFinished],
+      [second, _runFinished],
+      [_runFinished],
+    ]);
+    final state = ClientToolsPageState(
+      endpoint: _clientToolsEndpoint(),
+      service: service,
+    );
+    addTearDown(state.dispose);
+
+    await state.sendMessage('both');
+
+    expect(service.calls, 3);
+    final results = service.histories.last
+        .whereType<ToolMessage>()
+        .where((message) => message.toolCallId == 'shared')
+        .map((message) => jsonDecode(message.content)['result']);
+    expect(results, [2, 4]);
+  });
+
+  test('changed payload under reused owner and call IDs is rejected', () async {
+    final service = FakeAgUiService([
+      [_snapshotWithToolCall('shared', '1+1'), _runFinished],
+      [_runFinished],
+      [_snapshotWithToolCall('shared', '2+2'), _runFinished],
+    ]);
+    final state = ClientToolsPageState(
+      endpoint: _clientToolsEndpoint(),
+      service: service,
+    );
+    addTearDown(state.dispose);
+
+    await state.sendMessage('first');
+    await state.sendMessage('second');
+
+    expect(service.calls, 3);
+    expect(
+      state.messages.last.content,
+      contains('Message and tool-call IDs must remain stable and unique'),
+    );
+  });
+
+  test('changed proposal payload across snapshots is rejected', () async {
+    final service = FakeAgUiService([
+      [
+        _snapshotWithToolCall('shared', '1+1'),
+        _snapshotWithToolCall('shared', '2+2'),
+        _runFinished,
+      ],
+    ]);
+    final state = ClientToolsPageState(
+      endpoint: _clientToolsEndpoint(),
+      service: service,
+    );
+    addTearDown(state.dispose);
+
+    await state.sendMessage('mutate');
+
+    expect(service.calls, 1);
+    expect(
+      state.messages.last.content,
+      contains('Message and tool-call IDs must remain stable and unique'),
+    );
+  });
+
+  test('abandoned reused call IDs settle each assistant owner', () async {
+    final proposals = MessagesSnapshotEvent(
+      messages: const [
+        AssistantMessage(
+          id: 'first-owner',
+          toolCalls: [
+            ToolCall(
+              id: 'shared',
+              function: FunctionCall(
+                name: 'calculate',
+                arguments: '{"expression":"1+1"}',
+              ),
+            ),
+          ],
+        ),
+        AssistantMessage(
+          id: 'second-owner',
+          toolCalls: [
+            ToolCall(
+              id: 'shared',
+              function: FunctionCall(
+                name: 'calculate',
+                arguments: '{"expression":"2+2"}',
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+    final service = FakeAgUiService([
+      [proposals, const RunErrorEvent(message: 'stopped')],
+      [_runFinished],
+    ]);
+    final state = ClientToolsPageState(
+      endpoint: _clientToolsEndpoint(),
+      service: service,
+    );
+    addTearDown(state.dispose);
+
+    await state.sendMessage('first');
+    await state.sendMessage('recover');
+
+    final cancellations = service.histories.last.whereType<ToolMessage>().where(
+      (message) =>
+          message.toolCallId == 'shared' &&
+          jsonDecode(message.content)['error']?['code'] == 'exchange_stopped',
+    );
+    expect(cancellations, hasLength(2));
   });
 }

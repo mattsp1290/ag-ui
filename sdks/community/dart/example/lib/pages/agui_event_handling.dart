@@ -1,216 +1,53 @@
 import 'package:ag_ui/ag_ui.dart';
 import 'package:flutter/foundation.dart';
 
+import 'agui_event_projection.dart';
 import '../models/chat_message.dart';
-import '../services/ids.dart';
+
+export 'agui_event_projection.dart'
+    show AgUiRunStatus, AgUiSubagentState, AgUiSubagentStatus;
 
 mixin AgUiEventHandling on ChangeNotifier {
   bool disposed = false;
-  bool _terminal = false;
-  final List<ChatMessage> messages = [];
-  String? _textMessageId;
+  late final AgUiEventProjection _projection = AgUiEventProjection(
+    onRunError: onRunReset,
+  );
 
-  bool get runIsTerminal => _terminal;
+  List<ChatMessage> get messages => _projection.messages;
+  bool get runIsTerminal => _projection.runIsTerminal;
+  AgUiRunStatus get runStatus => _projection.runStatus;
+  bool get runIsAwaitingInput => _projection.runIsAwaitingInput;
+  RunFinishedOutcome? get runOutcome => _projection.runOutcome;
+  List<TokenUsage> get runUsage => _projection.runUsage;
+  Map<String, AgUiSubagentState> get subagents => _projection.subagents;
 
   void onRunReset() {}
 
-  void beginRun() {
-    _terminal = false;
-    finishStreaming();
-  }
+  void onRunStarted() {}
 
-  /// Handles shared projections. Snapshots deliberately return false so hosts can
-  /// reconcile authoritative tool/state history before calling [reconcileSnapshot].
-  bool handleCommonEvent(BaseEvent event) {
-    if (_terminal) return true;
-    if (event is TextMessageStartEvent) {
-      _textMessageId = event.messageId;
-      _upsert(
-        ChatMessage(
-          id: event.messageId,
-          type: ChatMessageType.assistant,
-          content: '',
-          timestamp: _timestamp(event),
-          isStreaming: true,
-        ),
-      );
-      return true;
-    }
-    if (event is TextMessageContentEvent) {
-      _append(event.messageId, ChatMessageType.assistant, event.delta);
-      return true;
-    }
-    if (event is TextMessageChunkEvent) {
-      final id = event.messageId ?? _textMessageId ?? uid('assistant');
-      _textMessageId = id;
-      _append(id, ChatMessageType.assistant, event.delta ?? '', create: true);
-      return true;
-    }
-    if (event is TextMessageEndEvent) {
-      _finish(event.messageId);
-      _textMessageId = null;
-      return true;
-    }
-    if (event is ReasoningMessageStartEvent) {
-      _upsert(
-        ChatMessage(
-          id: event.messageId,
-          type: ChatMessageType.reasoning,
-          content: '',
-          timestamp: _timestamp(event),
-          isStreaming: true,
-        ),
-      );
-      return true;
-    }
-    if (event is ReasoningStartEvent) {
-      // REASONING_START identifies the enclosing block. Use it unless the
-      // canonical message-start event supplies the message identity afterward.
-      _upsert(
-        ChatMessage(
-          id: event.messageId,
-          type: ChatMessageType.reasoning,
-          content: '',
-          timestamp: _timestamp(event),
-          isStreaming: true,
-        ),
-      );
-      return true;
-    }
-    if (event is ReasoningMessageContentEvent) {
-      _append(
-        event.messageId,
-        ChatMessageType.reasoning,
-        event.delta,
-        create: true,
-      );
-      return true;
-    }
-    if (event is ReasoningMessageEndEvent) {
-      _finish(event.messageId);
-      return true;
-    }
-    if (event is ReasoningEndEvent) {
-      _finish(event.messageId);
-      return true;
-    }
-    if (event is RunErrorEvent) {
-      finishStreaming();
-      messages.add(
-        ChatMessage(
-          id: uid('error'),
-          type: ChatMessageType.system,
-          content: '⚠️ Run error: ${event.message}',
-          timestamp: _timestamp(event),
-        ),
-      );
-      _terminal = true;
-      onRunReset();
-      return true;
-    }
-    if (event is RunFinishedEvent) {
-      finishStreaming();
-      _terminal = true;
-      return false;
-    }
-    return false;
-  }
-
-  void reconcileSnapshot(List<Message> snapshot) {
-    for (final message in snapshot) {
-      final id = message.id;
-      if (id == null || id.isEmpty) continue;
-      if (message is AssistantMessage) {
-        _upsert(
-          ChatMessage(
-            id: id,
-            type: ChatMessageType.assistant,
-            content: message.content ?? '',
-            timestamp: DateTime.now(),
-          ),
-        );
-      } else if (message is ReasoningMessage) {
-        final content = message.content ?? message.thinking ?? '';
-        if (content.isNotEmpty) {
-          _upsert(
-            ChatMessage(
-              id: id,
-              type: ChatMessageType.reasoning,
-              content: content,
-              timestamp: DateTime.now(),
-            ),
-          );
-        }
-      }
-    }
-  }
-
-  void addReasoningMessage(String text, {String? id}) {
-    if (text.isEmpty) return;
-    _upsert(
-      ChatMessage(
-        id: id ?? uid('reasoning'),
-        type: ChatMessageType.reasoning,
-        content: text,
-        timestamp: DateTime.now(),
-      ),
-    );
-  }
-
-  void finishStreaming() {
-    for (var i = 0; i < messages.length; i++) {
-      if (messages[i].isStreaming) {
-        messages[i] = messages[i].copyWith(isStreaming: false);
-      }
-    }
-    _textMessageId = null;
-  }
-
-  void _append(
-    String id,
-    ChatMessageType type,
-    String delta, {
-    bool create = false,
+  void beginRun({
+    Iterable<String> resumedSubagentIds = const [],
+    bool continuation = false,
   }) {
-    final index = messages.indexWhere((message) => message.id == id);
-    if (index < 0) {
-      if (create) {
-        _upsert(
-          ChatMessage(
-            id: id,
-            type: type,
-            content: delta,
-            timestamp: DateTime.now(),
-            isStreaming: true,
-          ),
-        );
-      }
-      return;
-    }
-    messages[index] = messages[index].copyWith(
-      content: messages[index].content + delta,
-      isStreaming: true,
+    if (!continuation) onRunStarted();
+    _projection.beginRun(
+      resumedSubagentIds: resumedSubagentIds,
+      continuation: continuation,
     );
   }
 
-  void _finish(String? id) {
-    if (id == null) return;
-    final index = messages.indexWhere((message) => message.id == id);
-    if (index >= 0) {
-      messages[index] = messages[index].copyWith(isStreaming: false);
-    }
-  }
+  bool handleCommonEvent(BaseEvent event) => _projection.handleEvent(event);
 
-  void _upsert(ChatMessage message) {
-    final index = messages.indexWhere((item) => item.id == message.id);
-    if (index < 0) {
-      messages.add(message);
-    } else {
-      messages[index] = message;
-    }
-  }
+  void reconcileSnapshot(
+    List<Message> snapshot, {
+    bool projectToolCalls = true,
+  }) => _projection.reconcileSnapshot(
+    snapshot,
+    projectToolCalls: projectToolCalls,
+  );
 
-  DateTime _timestamp(BaseEvent event) => event.timestamp == null
-      ? DateTime.now()
-      : DateTime.fromMillisecondsSinceEpoch(event.timestamp!);
+  void addReasoningMessage(String text, {String? id}) =>
+      _projection.addReasoningMessage(text, id: id);
+
+  void finishStreaming() => _projection.finishStreaming();
 }

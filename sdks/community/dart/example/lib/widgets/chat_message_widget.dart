@@ -237,6 +237,31 @@ class ChatMessageWidget extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  if (message.subagentRunId != null) ...[
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          Icons.account_tree_outlined,
+                          size: 14,
+                          color: theme.colorScheme.secondary,
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          [
+                            message.subagentName ?? 'Subagent',
+                            if (message.subagentStatus != null)
+                              message.subagentStatus!,
+                          ].join(' · '),
+                          style: theme.textTheme.labelSmall?.copyWith(
+                            color: theme.colorScheme.secondary,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                  ],
                   if (isTool && message.toolName != null) ...[
                     Row(
                       children: [

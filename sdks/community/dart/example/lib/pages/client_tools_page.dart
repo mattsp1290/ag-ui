@@ -13,6 +13,13 @@ import '../widgets/card_widget.dart';
 import '../widgets/approval_card_widget.dart';
 import 'agui_event_handling.dart';
 
+typedef _ProposalIdentity = (String?, String?, String);
+typedef _PendingToolCall = ({
+  ToolCall call,
+  String? ownerMessageId,
+  String? subagentRunId,
+});
+
 /// Page for the client-tool round-trip features:
 ///  - `agentic_chat` (FeatureKind.clientTools) — model calls a tool, client executes,
 ///    result returns inline.
@@ -144,8 +151,9 @@ class ClientToolsPageState extends ChangeNotifier with AgUiEventHandling {
   final AgUiService _service;
   final String _threadId = uid('thread');
   final List<Message> _history = [];
-  final Set<String> _settledCalls = {};
-  List<ToolCall> _pendingCalls = const [];
+  final Set<_ProposalIdentity> _settledCalls = {};
+  final Map<_ProposalIdentity, _PendingToolCall> _exchangeProposals = {};
+  List<_PendingToolCall> _pendingCalls = const [];
   bool _busy = false;
   bool _aborted = false;
 
@@ -184,6 +192,8 @@ class ClientToolsPageState extends ChangeNotifier with AgUiEventHandling {
   Future<void> sendMessage(String text) async {
     if (disposed || text.trim().isEmpty || _busy) return;
     _pendingCalls = const [];
+    _settledCalls.clear();
+    _exchangeProposals.clear();
     _aborted = false;
     _busy = true;
     final id = uid('user');
@@ -200,7 +210,7 @@ class ClientToolsPageState extends ChangeNotifier with AgUiEventHandling {
 
     try {
       for (var followUps = 0; ; followUps++) {
-        if (!await _consumeRun()) return;
+        if (!await _consumeRun(continuation: followUps > 0)) return;
         if (_pendingCalls.isEmpty) return;
         if (followUps == maxFollowUpRuns) {
           throw StateError(
@@ -209,12 +219,26 @@ class ClientToolsPageState extends ChangeNotifier with AgUiEventHandling {
         }
         final calls = _pendingCalls;
         _pendingCalls = const [];
-        for (final call in calls) {
-          if (!_settledCalls.add(call.id)) continue;
-          final result = await _execute(call);
+        for (final pending in calls) {
+          final call = pending.call;
+          final identity = (
+            pending.subagentRunId,
+            pending.ownerMessageId,
+            call.id,
+          );
+          if (!_settledCalls.add(identity)) continue;
+          final result = await _execute(
+            call,
+            subagentRunId: pending.subagentRunId,
+          );
           if (disposed || _aborted) return;
           _history.add(
-            ToolMessage(id: uid('tool'), toolCallId: call.id, content: result),
+            ToolMessage(
+              id: uid('tool'),
+              toolCallId: call.id,
+              content: result,
+              subagentRunId: pending.subagentRunId,
+            ),
           );
         }
         if (disposed || _aborted) return;
@@ -229,9 +253,18 @@ class ClientToolsPageState extends ChangeNotifier with AgUiEventHandling {
     }
   }
 
-  Future<bool> _consumeRun() async {
+  Future<bool> _consumeRun({required bool continuation}) async {
     final priorMessageIds = messages.map((message) => message.id).toSet();
-    beginRun();
+    final priorProposals = {
+      for (final assistant in _history.whereType<AssistantMessage>())
+        for (final call in assistant.toolCalls ?? const <ToolCall>[])
+          (assistant.subagentRunId, assistant.id, call.id): (
+            call.function.name,
+            call.function.arguments,
+          ),
+    };
+    final knownProposals = Map.of(priorProposals);
+    beginRun(continuation: continuation);
     _pendingCalls = const [];
     await for (final event in _service.run(
       endpoint.path,
@@ -242,14 +275,50 @@ class ClientToolsPageState extends ChangeNotifier with AgUiEventHandling {
     )) {
       if (disposed || _aborted) return false;
       if (event is MessagesSnapshotEvent) {
+        for (final assistant in event.messages.whereType<AssistantMessage>()) {
+          for (final call in assistant.toolCalls ?? const <ToolCall>[]) {
+            final identity = (assistant.subagentRunId, assistant.id, call.id);
+            final priorPayload = knownProposals[identity];
+            final nextPayload = (call.function.name, call.function.arguments);
+            if (priorPayload != null && priorPayload != nextPayload) {
+              throw FormatException(
+                'Assistant/tool proposal identity was reused with a different payload: '
+                '${assistant.id}/${call.id}. Message and tool-call IDs must remain '
+                'stable and unique within a thread.',
+              );
+            }
+            knownProposals[identity] = nextPayload;
+          }
+        }
         _mergeHistory(event.messages);
-        reconcileSnapshot(event.messages);
-        final assistant = event.messages
-            .whereType<AssistantMessage>()
-            .lastOrNull;
-        _pendingCalls = (assistant?.toolCalls ?? const <ToolCall>[])
-            .where((call) => !_settledCalls.contains(call.id))
-            .toList();
+        reconcileSnapshot(event.messages, projectToolCalls: false);
+        _pendingCalls = [
+          for (final assistant in event.messages.whereType<AssistantMessage>())
+            for (final call in assistant.toolCalls ?? const <ToolCall>[])
+              if (!priorProposals.containsKey((
+                    assistant.subagentRunId,
+                    assistant.id,
+                    call.id,
+                  )) &&
+                  !_settledCalls.contains((
+                    assistant.subagentRunId,
+                    assistant.id,
+                    call.id,
+                  )))
+                (
+                  call: call,
+                  ownerMessageId: assistant.id,
+                  subagentRunId: assistant.subagentRunId,
+                ),
+        ];
+        for (final pending in _pendingCalls) {
+          _exchangeProposals[(
+                pending.subagentRunId,
+                pending.ownerMessageId,
+                pending.call.id,
+              )] =
+              pending;
+        }
       } else {
         handleCommonEvent(event);
       }
@@ -260,14 +329,31 @@ class ClientToolsPageState extends ChangeNotifier with AgUiEventHandling {
         // a peer finishes a valid text-only run without a snapshot.
         for (final message in messages) {
           if (priorMessageIds.contains(message.id)) continue;
-          if (_history.any((existing) => existing.id == message.id)) continue;
+          final protocolId = message.protocolId ?? message.id;
+          if (_history.any(
+            (existing) =>
+                existing.id == protocolId &&
+                existing.subagentRunId == message.subagentRunId,
+          )) {
+            continue;
+          }
           if (message.type == ChatMessageType.assistant) {
             _history.add(
-              AssistantMessage(id: message.id, content: message.content),
+              AssistantMessage(
+                id: protocolId,
+                content: message.content,
+                metadata: message.metadata,
+                subagentRunId: message.subagentRunId,
+              ),
             );
           } else if (message.type == ChatMessageType.reasoning) {
             _history.add(
-              ReasoningMessage(id: message.id, content: message.content),
+              ReasoningMessage(
+                id: protocolId,
+                content: message.content,
+                metadata: message.metadata,
+                subagentRunId: message.subagentRunId,
+              ),
             );
           }
         }
@@ -289,18 +375,21 @@ class ClientToolsPageState extends ChangeNotifier with AgUiEventHandling {
           'Snapshot message is missing its protocol ID.',
         );
       }
-      final index = _history.indexWhere((previous) => previous.id == id);
+      final index = _history.indexWhere(
+        (previous) =>
+            previous.id == id &&
+            previous.subagentRunId == message.subagentRunId,
+      );
       if (index < 0) {
         _history.add(message);
       } else {
         _history[index] = message;
       }
-      if (message is ToolMessage) _settledCalls.add(message.toolCallId);
     }
   }
 
   /// Execute one tool call and return the JSON result string the model will read.
-  Future<String> _execute(ToolCall call) async {
+  Future<String> _execute(ToolCall call, {String? subagentRunId}) async {
     try {
       final name = call.function.name;
       if (!endpoint.tools.any((tool) => tool.name == name)) {
@@ -310,12 +399,12 @@ class ClientToolsPageState extends ChangeNotifier with AgUiEventHandling {
       switch (name) {
         case 'get_current_time':
           final result = jsonEncode({'time': DateTime.now().toIso8601String()});
-          _addToolBubble(name, args, result);
+          _addToolBubble(call, args, result, subagentRunId: subagentRunId);
           return result;
         case 'calculate':
           final expression = _requiredString(args, 'expression');
           final result = _calculate(expression);
-          _addToolBubble(name, args, result);
+          _addToolBubble(call, args, result, subagentRunId: subagentRunId);
           return result;
         case 'render_card':
           final title = _requiredString(args, 'title');
@@ -344,6 +433,11 @@ class ClientToolsPageState extends ChangeNotifier with AgUiEventHandling {
               content: title,
               timestamp: DateTime.now(),
               cardData: args,
+              metadata: call.metadata,
+              protocolId: call.id,
+              subagentRunId: subagentRunId,
+              subagentName: subagents[subagentRunId]?.name,
+              subagentStatus: subagents[subagentRunId]?.status.label,
             ),
           );
           _notify();
@@ -415,7 +509,14 @@ class ClientToolsPageState extends ChangeNotifier with AgUiEventHandling {
 
   /// Renders an agentic_chat tool call + its result as a visible bubble, so the
   /// invocation is shown (plan 02), not just the model's final text.
-  void _addToolBubble(String name, Map<String, dynamic> args, String result) {
+  void _addToolBubble(
+    ToolCall call,
+    Map<String, dynamic> args,
+    String result, {
+    String? subagentRunId,
+  }) {
+    final name = call.function.name;
+    final subagent = subagents[subagentRunId];
     messages.add(
       ChatMessage(
         id: uid('tool'),
@@ -425,6 +526,13 @@ class ClientToolsPageState extends ChangeNotifier with AgUiEventHandling {
             : '$name(${jsonEncode(args)})\n→ $result',
         timestamp: DateTime.now(),
         toolName: name,
+        toolArgs: args,
+        toolResult: result,
+        metadata: call.metadata,
+        protocolId: call.id,
+        subagentRunId: subagentRunId,
+        subagentName: subagent?.name,
+        subagentStatus: subagent?.status.label,
       ),
     );
     _notify();
@@ -464,21 +572,18 @@ class ClientToolsPageState extends ChangeNotifier with AgUiEventHandling {
   // A failed/incomplete run must not leave dangling proposals in the next
   // request's provider history. Record cancellation as data without executing.
   void _settleAbandonedProposals() {
-    final results = _history
-        .whereType<ToolMessage>()
-        .map((m) => m.toolCallId)
-        .toSet();
-    final calls = _history
-        .whereType<AssistantMessage>()
-        .expand((message) => message.toolCalls ?? const <ToolCall>[])
-        .toList();
-    for (final call in calls) {
-      if (!results.add(call.id)) continue;
-      _settledCalls.add(call.id);
+    for (final pending in _exchangeProposals.values) {
+      final identity = (
+        pending.subagentRunId,
+        pending.ownerMessageId,
+        pending.call.id,
+      );
+      if (!_settledCalls.add(identity)) continue;
       _history.add(
         ToolMessage(
           id: uid('tool'),
-          toolCallId: call.id,
+          toolCallId: pending.call.id,
+          subagentRunId: pending.subagentRunId,
           content: jsonEncode({
             'error': {
               'code': 'exchange_stopped',

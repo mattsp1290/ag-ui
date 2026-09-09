@@ -1,5 +1,8 @@
 import 'dart:typed_data';
+
 import 'package:ag_ui/ag_ui.dart';
+
+const Object _unsetChatMessageField = Object();
 
 enum ChatMessageType {
   user,
@@ -26,6 +29,11 @@ class ChatMessage {
   final dynamic toolResult;
   final String? fileName;
   final Uint8List? imageBytes;
+  final Metadata? metadata;
+  final String? protocolId;
+  final String? subagentRunId;
+  final String? subagentName;
+  final String? subagentStatus;
 
   /// Parsed arguments for a `card` message (tool_based_generative_ui render_card),
   /// or the proposed-call args for an `approval` message (human_in_the_loop).
@@ -43,6 +51,11 @@ class ChatMessage {
     this.fileName,
     this.imageBytes,
     this.cardData,
+    this.metadata,
+    this.protocolId,
+    this.subagentRunId,
+    this.subagentName,
+    this.subagentStatus,
   });
 
   ChatMessage copyWith({
@@ -57,6 +70,11 @@ class ChatMessage {
     String? fileName,
     Uint8List? imageBytes,
     Map<String, dynamic>? cardData,
+    Object? metadata = _unsetChatMessageField,
+    Object? protocolId = _unsetChatMessageField,
+    Object? subagentRunId = _unsetChatMessageField,
+    Object? subagentName = _unsetChatMessageField,
+    Object? subagentStatus = _unsetChatMessageField,
   }) {
     return ChatMessage(
       id: id ?? this.id,
@@ -70,6 +88,21 @@ class ChatMessage {
       fileName: fileName ?? this.fileName,
       imageBytes: imageBytes ?? this.imageBytes,
       cardData: cardData ?? this.cardData,
+      metadata: identical(metadata, _unsetChatMessageField)
+          ? this.metadata
+          : metadata as Metadata?,
+      protocolId: identical(protocolId, _unsetChatMessageField)
+          ? this.protocolId
+          : protocolId as String?,
+      subagentRunId: identical(subagentRunId, _unsetChatMessageField)
+          ? this.subagentRunId
+          : subagentRunId as String?,
+      subagentName: identical(subagentName, _unsetChatMessageField)
+          ? this.subagentName
+          : subagentName as String?,
+      subagentStatus: identical(subagentStatus, _unsetChatMessageField)
+          ? this.subagentStatus
+          : subagentStatus as String?,
     );
   }
 
@@ -79,6 +112,9 @@ class ChatMessage {
       type: ChatMessageType.user,
       content: message.content ?? '',
       timestamp: DateTime.now(),
+      metadata: message.metadata,
+      protocolId: message.id,
+      subagentRunId: message.subagentRunId,
     );
   }
 
@@ -94,6 +130,9 @@ class ChatMessage {
         content: event.delta,
         timestamp: timestamp,
         isStreaming: true,
+        metadata: event.metadata,
+        protocolId: event.messageId,
+        subagentRunId: event.subagentRunId,
       );
     } else if (event is TextMessageEndEvent) {
       return ChatMessage(
@@ -102,6 +141,9 @@ class ChatMessage {
         content: '',
         timestamp: timestamp,
         isStreaming: false,
+        metadata: event.metadata,
+        protocolId: event.messageId,
+        subagentRunId: event.subagentRunId,
       );
     } else if (event is ToolCallResultEvent) {
       return ChatMessage(
@@ -111,6 +153,9 @@ class ChatMessage {
         timestamp: timestamp,
         toolName: 'Tool',
         toolResult: event.content,
+        metadata: event.metadata,
+        protocolId: event.toolCallId,
+        subagentRunId: event.subagentRunId,
       );
     }
 
@@ -119,6 +164,7 @@ class ChatMessage {
       type: ChatMessageType.system,
       content: 'Unknown event type: ${event.eventType.value}',
       timestamp: timestamp,
+      metadata: event.metadata,
     );
   }
 }

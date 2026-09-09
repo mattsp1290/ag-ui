@@ -59,6 +59,37 @@ Shell-exporting `AG_UI_BASE_URL` alone does not change the compiled app. Restart
 
 Approval is a local demonstration: it sends the AG-UI tool result and continuation, but does not send an external message or execute the described action. Switching destinations disposes the page and starts a fresh thread. History and shared state are ephemeral. Only one exchange runs per page; incomplete streams and provider errors become visible errors, and client-tool continuations stop after eight follow-up runs. Attachments are limited to 5 MiB.
 
+The current approval page uses that existing tool-message flow. Applications
+that receive a canonical `RunFinishedInterruptOutcome` can resume the same run
+with the public typed request API:
+
+```dart
+final resumedEvents = client.runAgentInput(
+  'human_in_the_loop',
+  const RunAgentInput(
+    threadId: 'thread-1',
+    runId: 'run-2',
+    parentRunId: 'run-1',
+    messages: [],
+    tools: [],
+    context: [],
+    resume: [
+      ResumeEntry(
+        interruptId: 'approval-1',
+        status: ResumeStatus.resolved,
+        payload: {'approved': true},
+      ),
+    ],
+  ),
+);
+```
+
+`runAgentInput` sends the canonical `RunAgentInput` shape, including the
+required `forwardedProps` key when its value is null. The convenience
+`runAgent` method accepts `SimpleRunAgentInput` and retains its legacy omission
+rules. This example does not yet provide a general UI for arbitrary interrupt
+`responseSchema` values.
+
 ## Credential-free fixture
 
 Install Docker Engine/CLI (Docker Desktop on macOS), resolve Flutter dependencies above, then:

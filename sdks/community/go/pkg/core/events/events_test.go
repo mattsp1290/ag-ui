@@ -291,7 +291,7 @@ func TestMessageEvents(t *testing.T) {
 
 		event.MessageID = messageID
 		event.Delta = ""
-		assert.Error(t, event.Validate())
+		assert.NoError(t, event.Validate())
 	})
 
 	t.Run("TextMessageEndEvent", func(t *testing.T) {
@@ -349,7 +349,7 @@ func TestToolEvents(t *testing.T) {
 
 		event.ToolCallID = toolCallID
 		event.Delta = ""
-		assert.Error(t, event.Validate())
+		assert.NoError(t, event.Validate())
 	})
 
 	t.Run("ToolCallEndEvent", func(t *testing.T) {
@@ -382,7 +382,7 @@ func TestStateEvents(t *testing.T) {
 
 		// Test validation error
 		event.Snapshot = nil
-		assert.Error(t, event.Validate())
+		assert.NoError(t, event.Validate())
 	})
 
 	t.Run("StateDeltaEvent", func(t *testing.T) {
@@ -399,7 +399,7 @@ func TestStateEvents(t *testing.T) {
 
 		// Test validation errors
 		event.Delta = []JSONPatchOperation{}
-		assert.Error(t, event.Validate())
+		assert.NoError(t, event.Validate())
 
 		// Invalid operation
 		event.Delta = []JSONPatchOperation{
@@ -407,23 +407,23 @@ func TestStateEvents(t *testing.T) {
 		}
 		assert.Error(t, event.Validate())
 
-		// Missing path
+		// Empty path addresses the document root.
 		event.Delta = []JSONPatchOperation{
 			{Op: "add", Value: 42},
 		}
-		assert.Error(t, event.Validate())
+		assert.NoError(t, event.Validate())
 
-		// Missing value for add operation
+		// A nil Go value represents explicit JSON null.
 		event.Delta = []JSONPatchOperation{
 			{Op: "add", Path: "/counter"},
 		}
-		assert.Error(t, event.Validate())
+		assert.NoError(t, event.Validate())
 
-		// Missing from for move operation
+		// Empty from addresses the document root.
 		event.Delta = []JSONPatchOperation{
 			{Op: "move", Path: "/counter"},
 		}
-		assert.Error(t, event.Validate())
+		assert.NoError(t, event.Validate())
 	})
 
 	t.Run("MessagesSnapshotEvent", func(t *testing.T) {
@@ -555,10 +555,10 @@ func TestActivityEvents(t *testing.T) {
 		assert.NoError(t, event.Validate())
 
 		event.Patch = []JSONPatchOperation{}
-		assert.Error(t, event.Validate())
+		assert.NoError(t, event.Validate())
 
 		event.Patch = []JSONPatchOperation{{Op: "replace", Path: ""}}
-		assert.Error(t, event.Validate())
+		assert.NoError(t, event.Validate())
 	})
 }
 
@@ -576,7 +576,7 @@ func TestCustomEvents(t *testing.T) {
 
 		// Test validation error
 		event.Event = nil
-		assert.Error(t, event.Validate())
+		assert.NoError(t, event.Validate())
 	})
 
 	t.Run("CustomEvent", func(t *testing.T) {

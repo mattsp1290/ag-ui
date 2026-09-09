@@ -2,7 +2,6 @@ package events
 
 import (
 	"encoding/json"
-	"fmt"
 )
 
 // ThinkingStartEvent indicates the start of a thinking/reasoning phase.
@@ -114,10 +113,6 @@ func NewThinkingTextMessageContentEvent(delta string) *ThinkingTextMessageConten
 func (e *ThinkingTextMessageContentEvent) Validate() error {
 	if err := e.BaseEvent.Validate(); err != nil {
 		return err
-	}
-
-	if e.Delta == "" {
-		return fmt.Errorf("ThinkingTextMessageContentEvent validation failed: delta field is required")
 	}
 
 	return nil

@@ -74,6 +74,9 @@ type ActivityDeltaEvent struct {
 
 // NewActivityDeltaEvent creates a new activity delta event.
 func NewActivityDeltaEvent(messageID, activityType string, patch []JSONPatchOperation) *ActivityDeltaEvent {
+	if patch == nil {
+		patch = []JSONPatchOperation{}
+	}
 	return &ActivityDeltaEvent{
 		BaseEvent:    NewBaseEvent(EventTypeActivityDelta),
 		MessageID:    messageID,
@@ -96,10 +99,6 @@ func (e *ActivityDeltaEvent) Validate() error {
 		return fmt.Errorf("ActivityDeltaEvent validation failed: activityType field is required")
 	}
 
-	if len(e.Patch) == 0 {
-		return fmt.Errorf("ActivityDeltaEvent validation failed: patch field must contain at least one operation")
-	}
-
 	for i, op := range e.Patch {
 		if err := validateJSONPatchOperation(op); err != nil {
 			return fmt.Errorf("ActivityDeltaEvent validation failed: invalid patch operation at index %d: %w", i, err)
@@ -112,4 +111,23 @@ func (e *ActivityDeltaEvent) Validate() error {
 // ToJSON serializes the event to JSON.
 func (e *ActivityDeltaEvent) ToJSON() ([]byte, error) {
 	return json.Marshal(e)
+}
+
+// MarshalJSON applies the shared default without changing the event.
+func (e ActivitySnapshotEvent) MarshalJSON() ([]byte, error) {
+	type wire ActivitySnapshotEvent
+	if e.Replace == nil {
+		replace := true
+		e.Replace = &replace
+	}
+	return json.Marshal(wire(e))
+}
+
+// MarshalJSON represents an empty patch as a JSON array.
+func (e ActivityDeltaEvent) MarshalJSON() ([]byte, error) {
+	type wire ActivityDeltaEvent
+	if e.Patch == nil {
+		e.Patch = []JSONPatchOperation{}
+	}
+	return json.Marshal(wire(e))
 }

@@ -251,7 +251,7 @@ func TestToolCallResultEvent(t *testing.T) {
 
 		// Invalid - empty content
 		event = NewToolCallResultEvent("msg-456", "tool-123", "")
-		assert.Error(t, event.Validate())
+		assert.NoError(t, event.Validate())
 	})
 
 	t.Run("ToJSON", func(t *testing.T) {

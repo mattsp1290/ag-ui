@@ -6,6 +6,7 @@ FROM golang:1.25.1-bookworm@sha256:c423747fbd96fd8f0b1102d947f51f9b266060217478e
 WORKDIR /src
 COPY go.mod go.sum ./
 COPY pkg/ ./pkg/
+COPY internal/jsonnumber/ ./internal/jsonnumber/
 COPY example/server/go.mod example/server/go.sum ./example/server/
 WORKDIR /src/example/server
 RUN GOWORK=off go mod download

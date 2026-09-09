@@ -22,10 +22,17 @@ FIXTURE_PATH = PARITY_ROOT / "fixtures.json"
 MANIFEST_PATH = PARITY_ROOT / "manifest.json"
 OUTPUT_ENV = "AG_UI_PARITY_OUTPUT_DIR"
 PHASE_ENV = "AG_UI_PARITY_PHASE"
+DART_MODE = os.getenv("AG_UI_DART_PARITY_MODE") == "1"
+DART_OUTPUT_ENV = "AG_UI_DART_PARITY_OUTPUT_DIR"
+DART_PHASE_ENV = "AG_UI_DART_PARITY_PHASE"
 
 
 def _load(path: Path) -> Any:
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _phase() -> str | None:
+    return os.getenv(DART_PHASE_ENV if DART_MODE else PHASE_ENV)
 
 
 def _dump(adapter: TypeAdapter, model: Any) -> Any:
@@ -147,10 +154,11 @@ def _validate_artifact(
 
 
 def _consume(
-    source: dict[str, Any], cases: list[dict[str, Any]], case_ids: list[str], digest: str
+    source: dict[str, Any], cases: list[dict[str, Any]], case_ids: list[str], digest: str,
+    source_route: str = "go.direct", result_route: str = "python.from-go",
 ) -> dict[str, Any]:
     kinds = {case["id"]: case["kind"] for case in cases}
-    paired = _validate_artifact(source, "go.direct", case_ids, digest, kinds)
+    paired = _validate_artifact(source, source_route, case_ids, digest, kinds)
     records = []
     for case in cases:
         incoming = paired[case["id"]]
@@ -167,7 +175,7 @@ def _consume(
         records.append(
             _record(case["id"], lambda c=case, value=incoming["value"]: _parse_peer_value(c, value))
         )
-    return _envelope("python.from-go", records, digest)
+    return _envelope(result_route, records, digest)
 
 
 def _write(output_dir: Path, name: str, document: dict[str, Any]) -> None:
@@ -208,7 +216,12 @@ def _inventory() -> dict[str, Any]:
 class GoParityOracleTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
-        cls.fixture_bytes = FIXTURE_PATH.read_bytes()
+        fixture_path = (
+            Path(os.environ["AG_UI_DART_PARITY_CORPUS"])
+            if DART_MODE and os.getenv("AG_UI_DART_PARITY_CORPUS")
+            else FIXTURE_PATH
+        )
+        cls.fixture_bytes = fixture_path.read_bytes()
         cls.corpus = json.loads(cls.fixture_bytes)
         cls.manifest = _load(MANIFEST_PATH)
         cls.cases = cls.corpus["cases"]
@@ -223,6 +236,20 @@ class GoParityOracleTest(unittest.TestCase):
 
     def test_native_corpus(self) -> None:
         self.assertEqual(1, self.corpus["version"])
+        if DART_MODE:
+            self.assertGreater(len(self.cases), 0)
+            self.assertEqual(len(self.case_ids), len(set(self.case_ids)))
+            produced = _produce(self.cases, self.digest)
+            by_id = _validate_artifact(
+                produced, "python.produced", self.case_ids, self.digest, self.kinds
+            )
+            for case in self.cases:
+                accepted, expected = _route_expectation(case, self.manifest, "python.produced")
+                record = by_id[case["id"]]
+                self.assertEqual(accepted, record["accepted"], case["id"])
+                if accepted:
+                    self.assertEqual(expected, record["value"], case["id"])
+            return
         self.assertEqual(88, len(self.cases))
         self.assertEqual(self.manifest["case_ids"], self.case_ids)
         self.assertEqual(len(self.case_ids), len(set(self.case_ids)))
@@ -263,11 +290,11 @@ class GoParityOracleTest(unittest.TestCase):
                     )
 
     def test_artifact_mode(self) -> None:
-        output_value, phase = os.getenv(OUTPUT_ENV), os.getenv(PHASE_ENV)
+        output_value, phase = os.getenv(DART_OUTPUT_ENV if DART_MODE else OUTPUT_ENV), _phase()
         if output_value is None:
-            self.assertIsNone(phase, f"{PHASE_ENV} requires {OUTPUT_ENV}")
+            self.assertIsNone(phase, "parity phase requires its matching output directory")
             return
-        self.assertTrue(output_value, f"{OUTPUT_ENV} must name a directory")
+        self.assertTrue(output_value, "parity output directory must be non-empty")
         self.assertIn(phase, {"produce", "consume", "verify"})
         output_dir = Path(output_value)
         self.assertTrue(output_dir.is_dir(), "caller must create output directory")
@@ -277,8 +304,25 @@ class GoParityOracleTest(unittest.TestCase):
             self.test_native_corpus()
             _write(output_dir, files["python.produced"], document)
         elif phase == "consume":
-            source = _load(output_dir / files["go.direct"])
-            _write(output_dir, files["python.from-go"], _consume(source, self.cases, self.case_ids, self.digest))
+            if DART_MODE:
+                dart_source = _load(output_dir / "dart.encoder.json")
+                _write(
+                    output_dir,
+                    "python.from-dart.json",
+                    _consume(
+                        dart_source, self.cases, self.case_ids, self.digest,
+                        source_route="dart.encoder", result_route="python.from-dart",
+                    ),
+                )
+                go_source = _load(output_dir / files["go.direct"])
+                _write(
+                    output_dir,
+                    files["python.from-go"],
+                    _consume(go_source, self.cases, self.case_ids, self.digest),
+                )
+            else:
+                source = _load(output_dir / files["go.direct"])
+                _write(output_dir, files["python.from-go"], _consume(source, self.cases, self.case_ids, self.digest))
         else:
             documents = {}
             required_routes = self.manifest["generated_artifacts"]["required_routes"]
@@ -294,9 +338,21 @@ class GoParityOracleTest(unittest.TestCase):
                 _validate_artifact(
                     documents[route], route, self.case_ids, self.digest, self.kinds
                 )
+            if DART_MODE:
+                for route in ("dart.encoder", "python.from-dart"):
+                    documents[route] = _load(output_dir / f"{route}.json")
+                    _validate_artifact(
+                        documents[route], route, self.case_ids, self.digest, self.kinds
+                    )
             self.assertEqual(_produce(self.cases, self.digest), documents["python.produced"])
             replayed = _consume(documents["go.direct"], self.cases, self.case_ids, self.digest)
             self.assertEqual(replayed, documents["python.from-go"])
+            if DART_MODE:
+                replayed = _consume(
+                    documents["dart.encoder"], self.cases, self.case_ids, self.digest,
+                    source_route="dart.encoder", result_route="python.from-dart",
+                )
+                self.assertEqual(replayed, documents["python.from-dart"])
 
 
 if __name__ == "__main__":

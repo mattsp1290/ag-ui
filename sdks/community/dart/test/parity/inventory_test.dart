@@ -633,9 +633,14 @@ void main() {
         final owner = surface['owner'] as String;
         surfaceOwners.add(owner);
         expect(owner, matches(RegExp(r'^PR0[7-9]$')));
-        expect(surface['status'], 'pending');
         final testRecord = _asMap(tests[surface['test_id']]);
-        expect(testRecord['status'], 'planned');
+        if (owner == 'PR07') {
+          expect(surface['status'], 'verified');
+          expect(testRecord['status'], 'executable');
+        } else {
+          expect(surface['status'], 'pending');
+          expect(testRecord['status'], 'planned');
+        }
         expect(testRecord['owner'], owner);
       }
       expect(surfaceOwners, unorderedEquals(['PR07', 'PR08', 'PR09']));

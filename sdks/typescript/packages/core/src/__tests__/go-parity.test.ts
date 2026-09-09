@@ -22,10 +22,13 @@ type Case = {
 type RecordValue = { id: string; accepted: boolean; value?: any; error?: string; unsupported?: boolean };
 type Envelope = { version: number; route: string; corpus_sha256: string; cases: RecordValue[] };
 
+const dartMode = process.env.AG_UI_DART_PARITY_MODE === "1";
 // Nx runs package targets with the package directory as cwd; resolve the
 // checkout root explicitly so corpus paths cannot accidentally use a sibling.
 const root = join(process.cwd(), "../../../../");
-const corpusPath = join(root, "sdks/community/go/testdata/parity/fixtures.json");
+const corpusPath = dartMode && process.env.AG_UI_DART_PARITY_CORPUS
+  ? process.env.AG_UI_DART_PARITY_CORPUS
+  : join(root, "sdks/community/go/testdata/parity/fixtures.json");
 const manifestPath = join(root, "sdks/community/go/testdata/parity/manifest.json");
 const corpusBytes = readFileSync(corpusPath);
 const corpus = JSON.parse(corpusBytes.toString()) as { version: number; cases: Case[] };
@@ -124,9 +127,9 @@ function strictEnvelope(raw: string, route: string): Envelope {
   }
   return e;
 }
-function consumeGo(go: Envelope): Envelope {
+function consumePeer(go: Envelope, resultRoute = "typescript.from-go"): Envelope {
   const byId = new Map(go.cases.map(r => [r.id, r]));
-  return { version: 1, route: "typescript.from-go", corpus_sha256: digest, cases: corpus.cases.map(c => {
+  return { version: 1, route: resultRoute, corpus_sha256: digest, cases: corpus.cases.map(c => {
     const source = byId.get(c.id); expect(source, c.id).toBeTruthy();
     if (!source!.accepted) return { id: c.id, accepted: false, error: `not round-tripped: ${source!.error || "source rejected"}`, unsupported: source!.unsupported };
     try {
@@ -147,25 +150,50 @@ function assertInventory() {
 describe("Go parity oracle", () => {
   it("matches the live exported schema inventory", () => assertInventory());
   it("covers the pinned native corpus", () => {
-    expect(corpus.version).toBe(1); expect(corpus.cases).toHaveLength(88);
-    expect(corpus.cases.map(c => c.id)).toEqual(manifest.case_ids);
+    expect(corpus.version).toBe(1);
+    if (dartMode) {
+      expect(corpus.cases.length).toBeGreaterThan(0);
+      expect(new Set(corpus.cases.map(c => c.id)).size).toBe(corpus.cases.length);
+    } else {
+      expect(corpus.cases).toHaveLength(88);
+      expect(corpus.cases.map(c => c.id)).toEqual(manifest.case_ids);
+    }
     for (const c of corpus.cases) {
       if (c.kind === "aggregate" || c.kind === "mapper") expectedNative(c);
       else { const r = native(c); expect(r.accepted, c.id).toBe(peerValid(c)); if (r.accepted) expect(r.value, c.id).toEqual(expectedFor(c)); }
     }
   });
   it("runs the requested artifact phase", () => {
-    const output = process.env.AG_UI_PARITY_OUTPUT_DIR; const phase = process.env.AG_UI_PARITY_PHASE;
+    const output = dartMode ? process.env.AG_UI_DART_PARITY_OUTPUT_DIR : process.env.AG_UI_PARITY_OUTPUT_DIR;
+    const phase = dartMode ? process.env.AG_UI_DART_PARITY_PHASE : process.env.AG_UI_PARITY_PHASE;
     if (output === undefined && phase === undefined) return;
     expect(output, "AG_UI_PARITY_OUTPUT_DIR is required when a phase is set").toBeTruthy();
     expect(["produce", "consume", "verify"]).toContain(phase);
     if (phase === "produce") { writeFileSync(join(output!, "typescript.produced.json"), JSON.stringify(makeProduced()) + "\n"); return; }
-    const go = strictEnvelope(readFileSync(join(output!, "go.encoder.json"), "utf8"), "go.encoder");
-    const consumed = consumeGo(go);
-    if (phase === "consume") { writeFileSync(join(output!, "typescript.from-go.json"), JSON.stringify(consumed) + "\n"); return; }
+    const sourceRoute = dartMode ? "dart.encoder" : "go.encoder";
+    const resultRoute = dartMode ? "typescript.from-dart" : "typescript.from-go";
+    const sourceFile = dartMode ? "dart.encoder.json" : "go.encoder.json";
+    const peer = strictEnvelope(readFileSync(join(output!, sourceFile), "utf8"), sourceRoute);
+    const consumed = consumePeer(peer, resultRoute);
+    if (phase === "consume") {
+      writeFileSync(join(output!, `${resultRoute}.json`), JSON.stringify(consumed) + "\n");
+      if (dartMode) {
+        const goPeer = strictEnvelope(readFileSync(join(output!, "go.encoder.json"), "utf8"), "go.encoder");
+        writeFileSync(join(output!, "typescript.from-go.json"), JSON.stringify(consumePeer(goPeer)) + "\n");
+      }
+      return;
+    }
     const stored: Record<string, Envelope> = {};
     for (const route of manifest.generated_artifacts.required_routes) stored[route] = strictEnvelope(readFileSync(join(output!, manifest.generated_artifacts.files[route]), "utf8"), route);
+    if (dartMode) {
+      stored["dart.encoder"] = strictEnvelope(readFileSync(join(output!, "dart.encoder.json"), "utf8"), "dart.encoder");
+      stored["typescript.from-dart"] = strictEnvelope(readFileSync(join(output!, "typescript.from-dart.json"), "utf8"), "typescript.from-dart");
+    }
     expect(makeProduced()).toEqual(stored["typescript.produced"]);
-    expect(consumed).toEqual(stored["typescript.from-go"]);
+    expect(consumed).toEqual(stored[resultRoute]);
+    if (dartMode) {
+      const goPeer = strictEnvelope(readFileSync(join(output!, "go.encoder.json"), "utf8"), "go.encoder");
+      expect(consumePeer(goPeer)).toEqual(stored["typescript.from-go"]);
+    }
   });
 });

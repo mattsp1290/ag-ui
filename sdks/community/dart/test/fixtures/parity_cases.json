@@ -1,0 +1,64 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "id": "dart.subagent_finished.result_object",
+      "kind": "event",
+      "valid": true,
+      "event_type": "SUBAGENT_FINISHED",
+      "input": {"type":"SUBAGENT_FINISHED","subagentRunId":"child-object","result":{"nested":{"nullable":null},"ok":false}},
+      "expected": {"type":"SUBAGENT_FINISHED","subagentRunId":"child-object","result":{"nested":{"nullable":null},"ok":false}}
+    },
+    {
+      "id": "dart.subagent_finished.result_list",
+      "kind": "event",
+      "valid": true,
+      "event_type": "SUBAGENT_FINISHED",
+      "input": {"type":"SUBAGENT_FINISHED","subagentRunId":"child-list","result":[0,false,null,{"value":"x"}]},
+      "expected": {"type":"SUBAGENT_FINISHED","subagentRunId":"child-list","result":[0,false,null,{"value":"x"}]}
+    },
+    {
+      "id": "dart.subagent_finished.result_scalar",
+      "kind": "event",
+      "valid": true,
+      "event_type": "SUBAGENT_FINISHED",
+      "input": {"type":"SUBAGENT_FINISHED","subagentRunId":"child-scalar","result":"done"},
+      "expected": {"type":"SUBAGENT_FINISHED","subagentRunId":"child-scalar","result":"done"}
+    },
+    {
+      "id": "dart.subagent_finished.result_false",
+      "kind": "event",
+      "valid": true,
+      "event_type": "SUBAGENT_FINISHED",
+      "input": {"type":"SUBAGENT_FINISHED","subagentRunId":"child-false","result":false},
+      "expected": {"type":"SUBAGENT_FINISHED","subagentRunId":"child-false","result":false}
+    },
+    {
+      "id": "dart.subagent_finished.result_zero",
+      "kind": "event",
+      "valid": true,
+      "event_type": "SUBAGENT_FINISHED",
+      "input": {"type":"SUBAGENT_FINISHED","subagentRunId":"child-zero","result":0},
+      "expected": {"type":"SUBAGENT_FINISHED","subagentRunId":"child-zero","result":0}
+    },
+    {
+      "id": "dart.subagent_finished.result_missing",
+      "kind": "event",
+      "valid": true,
+      "event_type": "SUBAGENT_FINISHED",
+      "input": {"type":"SUBAGENT_FINISHED","subagentRunId":"child-missing"},
+      "expected": {"type":"SUBAGENT_FINISHED","subagentRunId":"child-missing"}
+    },
+    {
+      "id": "dart.subagent_finished.result_null",
+      "kind": "event",
+      "valid": true,
+      "event_type": "SUBAGENT_FINISHED",
+      "input": {"type":"SUBAGENT_FINISHED","subagentRunId":"child-null","result":null},
+      "expected": {"type":"SUBAGENT_FINISHED","subagentRunId":"child-null"},
+      "expected_by_language": {
+        "typescript": {"type":"SUBAGENT_FINISHED","subagentRunId":"child-null","result":null}
+      }
+    }
+  ]
+}

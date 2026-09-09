@@ -249,4 +249,142 @@ void main() {
       expect(tool.isStreaming, isFalse);
     },
   );
+
+  test('no-ID chunks stay isolated by subagent and merge late metadata', () {
+    final projection = _Projection()..beginRun();
+    projection.handleCommonEvent(
+      const SubagentStartedEvent(subagentRunId: 'a', name: 'Alpha'),
+    );
+    projection.handleCommonEvent(
+      const SubagentStartedEvent(subagentRunId: 'b', name: 'Beta'),
+    );
+    projection.handleCommonEvent(
+      const TextMessageChunkEvent(
+        subagentRunId: 'a',
+        delta: 'A1',
+        metadata: {'early': true},
+      ),
+    );
+    projection.handleCommonEvent(
+      const TextMessageChunkEvent(subagentRunId: 'b', delta: 'B1'),
+    );
+    projection.handleCommonEvent(
+      const TextMessageChunkEvent(
+        subagentRunId: 'a',
+        delta: 'A2',
+        metadata: {'late': true},
+      ),
+    );
+
+    final alpha = projection.messages.singleWhere(
+      (message) => message.subagentRunId == 'a',
+    );
+    final beta = projection.messages.singleWhere(
+      (message) => message.subagentRunId == 'b',
+    );
+    expect(alpha.content, 'A1A2');
+    expect(alpha.metadata, {'early': true, 'late': true});
+    expect(alpha.subagentName, 'Alpha');
+    expect(beta.content, 'B1');
+    expect(beta.subagentName, 'Beta');
+    expect(alpha.id, isNot(beta.id));
+  });
+
+  test(
+    'snapshot identity includes attribution and preserves typed metadata',
+    () {
+      final projection = _Projection()..beginRun();
+      projection.reconcileSnapshot(const [
+        AssistantMessage(
+          id: 'same',
+          content: 'alpha',
+          subagentRunId: 'a',
+          metadata: {'source': 'a'},
+        ),
+        AssistantMessage(
+          id: 'same',
+          content: 'beta',
+          subagentRunId: 'b',
+          metadata: {'source': 'b'},
+        ),
+      ]);
+
+      expect(projection.messages, hasLength(2));
+      expect(
+        projection.messages.singleWhere((m) => m.subagentRunId == 'a').metadata,
+        {'source': 'a'},
+      );
+      expect(
+        projection.messages.singleWhere((m) => m.subagentRunId == 'b').content,
+        'beta',
+      );
+    },
+  );
+
+  test('child failure does not terminate root and terminal state is typed', () {
+    final projection = _Projection()..beginRun();
+    projection.handleCommonEvent(
+      const SubagentStartedEvent(subagentRunId: 'child', name: 'Worker'),
+    );
+    projection.handleCommonEvent(
+      const SubagentErrorEvent(subagentRunId: 'child', message: 'failed'),
+    );
+    expect(projection.runIsTerminal, isFalse);
+    expect(projection.subagents['child']!.status, AgUiSubagentStatus.failed);
+
+    projection.handleCommonEvent(
+      const TextMessageChunkEvent(messageId: 'root', delta: 'still running'),
+    );
+    projection.handleCommonEvent(
+      RunFinishedEvent(
+        threadId: 'thread',
+        runId: 'run',
+        outcome: RunFinishedInterruptOutcome(
+          interrupts: const [Interrupt(id: 'approval', reason: 'review')],
+        ),
+        usage: [TokenUsage(inputTokens: 3, outputTokens: 2, totalTokens: 5)],
+      ),
+    );
+
+    expect(projection.runIsTerminal, isTrue);
+    expect(projection.runIsAwaitingInput, isTrue);
+    expect(projection.runStatus, AgUiRunStatus.awaitingInput);
+    expect(projection.runUsage.single.totalTokens, 5);
+    expect(projection.messages.last.content, '⏸️ Run awaiting input');
+  });
+
+  test('suspended child and root error usage reset on the next run', () {
+    final projection = _Projection()..beginRun();
+    projection.handleCommonEvent(
+      const SubagentFinishedEvent(
+        subagentRunId: 'ancestor',
+        outcome: SubagentFinishedSuspendedOutcome(),
+      ),
+    );
+    expect(
+      projection.subagents['ancestor']!.status,
+      AgUiSubagentStatus.suspended,
+    );
+    expect(projection.subagents['ancestor']!.interruptIds, isNull);
+
+    projection.handleCommonEvent(
+      RunErrorEvent(
+        message: 'root failed',
+        usage: [TokenUsage(inputTokens: 7)],
+      ),
+    );
+    expect(projection.runStatus, AgUiRunStatus.error);
+    expect(projection.runUsage.single.inputTokens, 7);
+
+    projection.beginRun(resumedSubagentIds: const ['ancestor']);
+    expect(projection.runStatus, AgUiRunStatus.running);
+    expect(projection.runUsage, isEmpty);
+    expect(projection.subagents.keys, ['ancestor']);
+    expect(
+      projection.subagents['ancestor']!.status,
+      AgUiSubagentStatus.running,
+    );
+    expect(projection.subagents['ancestor']!.interruptIds, isNull);
+    expect(projection.runIsTerminal, isFalse);
+  });
 }

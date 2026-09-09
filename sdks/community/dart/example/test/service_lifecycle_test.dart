@@ -542,4 +542,44 @@ void main() {
       await service.close();
     },
   );
+
+  test('service decodes subagent attribution and terminal usage', () async {
+    final payloads = [
+      const SubagentStartedEvent(subagentRunId: 'child', name: 'Worker'),
+      const TextMessageChunkEvent(
+        messageId: 'answer',
+        subagentRunId: 'child',
+        delta: 'done',
+      ),
+      RunFinishedEvent(
+        threadId: 'thread',
+        runId: 'run',
+        outcome: const RunFinishedSuccessOutcome(),
+        usage: [TokenUsage(inputTokens: 2, outputTokens: 1, totalTokens: 3)],
+      ),
+    ];
+    final body = payloads
+        .map((event) => 'data: ${jsonEncode(event.toJson())}\n\n')
+        .join();
+    final service = AgUiService(
+      httpClient: MockClient(
+        (_) async => http.Response(
+          body,
+          200,
+          headers: {'content-type': 'text/event-stream'},
+        ),
+      ),
+    );
+    addTearDown(service.close);
+
+    final events = await service
+        .run('agentic_chat', threadId: 'thread', messages: const [])
+        .toList();
+
+    expect(events[0], isA<SubagentStartedEvent>());
+    expect((events[1] as TextMessageChunkEvent).subagentRunId, 'child');
+    final finished = events[2] as RunFinishedEvent;
+    expect(finished.outcome, isA<RunFinishedSuccessOutcome>());
+    expect(finished.usage!.single.totalTokens, 3);
+  });
 }

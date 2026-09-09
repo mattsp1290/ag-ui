@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:ag_ui/ag_ui.dart';
 import 'package:ag_ui_example/models/chat_message.dart';
 import 'package:ag_ui_example/models/endpoint_config.dart';
+import 'package:ag_ui_example/pages/agui_event_handling.dart';
 import 'package:ag_ui_example/services/ag_ui_service.dart';
 import 'package:ag_ui_example/pages/client_tools_page.dart';
 
@@ -90,6 +91,59 @@ int _countType(List<ChatMessage> ms, ChatMessageType t) =>
     ms.where((m) => m.type == t).length;
 
 void main() {
+  test('child failure stays local while the root run completes', () async {
+    final service = FakeAgUiService([
+      [
+        const SubagentStartedEvent(subagentRunId: 'child', name: 'Worker'),
+        const TextMessageChunkEvent(
+          messageId: 'child-output',
+          subagentRunId: 'child',
+          delta: 'partial',
+        ),
+        const SubagentErrorEvent(
+          subagentRunId: 'child',
+          message: 'child failed',
+        ),
+        const TextMessageChunkEvent(messageId: 'root', delta: 'root answer'),
+        const RunFinishedEvent(
+          threadId: 't',
+          runId: 'r',
+          outcome: RunFinishedSuccessOutcome(),
+        ),
+      ],
+    ]);
+    final state = ClientToolsPageState(
+      endpoint: _clientToolsEndpoint(),
+      service: service,
+    );
+    addTearDown(state.dispose);
+    final statuses = <AgUiRunStatus>[];
+    state.addListener(() => statuses.add(state.runStatus));
+
+    await state.sendMessage('delegate');
+
+    expect(state.busy, isFalse);
+    expect(service.calls, 1);
+    expect(
+      state.messages
+          .where((m) => m.type == ChatMessageType.system)
+          .single
+          .content,
+      '✅ Run completed',
+    );
+    expect(
+      state.runStatus,
+      AgUiRunStatus.completed,
+      reason: 'observed statuses: $statuses',
+    );
+    expect(state.subagents['child']!.status, AgUiSubagentStatus.failed);
+    expect(
+      state.messages.singleWhere((m) => m.subagentRunId == 'child').content,
+      'partial',
+    );
+    expect(state.messages.any((m) => m.content == 'root answer'), isTrue);
+  });
+
   test(
     'happy round-trip: tool call → result → final answer; busy clears',
     () async {

@@ -1,6 +1,7 @@
 package events
 
 import (
+	"bytes"
 	"encoding/json"
 	"testing"
 
@@ -8,6 +9,134 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestJSONPatchOperationMarshal_AllOperationsAndRootPointers(t *testing.T) {
+	tests := []struct {
+		name string
+		op   JSONPatchOperation
+		want string
+	}{
+		{"add null at root", JSONPatchOperation{Op: "add", Path: "", Value: nil}, `{"op":"add","path":"","value":null}`},
+		{"remove escaped", JSONPatchOperation{Op: "remove", Path: "/a~1b/~0key"}, `{"op":"remove","path":"/a~1b/~0key"}`},
+		{"replace null", JSONPatchOperation{Op: "replace", Path: "/value", Value: nil}, `{"op":"replace","path":"/value","value":null}`},
+		{"move from root", JSONPatchOperation{Op: "move", Path: "/moved", From: ""}, `{"from":"","op":"move","path":"/moved"}`},
+		{"copy escaped", JSONPatchOperation{Op: "copy", Path: "/copy", From: "/a~1b/~0key"}, `{"from":"/a~1b/~0key","op":"copy","path":"/copy"}`},
+		{"test null", JSONPatchOperation{Op: "test", Path: "/value", Value: nil}, `{"op":"test","path":"/value","value":null}`},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := json.Marshal(tt.op)
+			require.NoError(t, err)
+			assert.JSONEq(t, tt.want, string(got))
+		})
+	}
+}
+
+func TestJSONPatchOperationUnmarshal_AllOperations(t *testing.T) {
+	inputs := []string{
+		`{"op":"add","path":"","value":null}`,
+		`{"op":"remove","path":"/a~1b/~0key"}`,
+		`{"op":"replace","path":"/value","value":null}`,
+		`{"op":"move","path":"/moved","from":""}`,
+		`{"op":"copy","path":"/copy","from":"/a~1b/~0key"}`,
+		`{"op":"test","path":"/value","value":null}`,
+	}
+
+	for _, input := range inputs {
+		var op JSONPatchOperation
+		require.NoError(t, json.Unmarshal([]byte(input), &op), input)
+		encoded, err := json.Marshal(op)
+		require.NoError(t, err)
+		assert.JSONEq(t, input, string(encoded))
+	}
+}
+
+func TestJSONPatchOperationUnmarshal_RejectsMalformedRequiredMembers(t *testing.T) {
+	tests := []struct {
+		name string
+		json string
+		err  string
+	}{
+		{"zero operation", `{}`, "op field is required"},
+		{"missing path", `{"op":"remove"}`, "path field is required"},
+		{"null path", `{"op":"remove","path":null}`, "path field must be a string"},
+		{"non-string path", `{"op":"remove","path":1}`, "path field must be a string"},
+		{"missing value", `{"op":"add","path":""}`, "value field is required for add operation"},
+		{"missing from", `{"op":"move","path":""}`, "from field is required for move operation"},
+		{"null from", `{"op":"copy","path":"","from":null}`, "from field must be a string"},
+		{"non-string from", `{"op":"copy","path":"","from":false}`, "from field must be a string"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var op JSONPatchOperation
+			err := json.Unmarshal([]byte(tt.json), &op)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tt.err)
+		})
+	}
+}
+
+func TestJSONPatchOperationValidate_RejectsInvalidOperation(t *testing.T) {
+	for _, op := range []JSONPatchOperation{{}, {Op: "merge", Path: "/x"}} {
+		err := validateJSONPatchOperation(op)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "op field must be one of")
+	}
+}
+
+func TestJSONPatchOperationMarshal_PreservesPopulatedOptionalMembers(t *testing.T) {
+	op := JSONPatchOperation{Op: "remove", Path: "/old", Value: "metadata", From: "/source"}
+	encoded, err := json.Marshal(op)
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"op":"remove","path":"/old","value":"metadata","from":"/source"}`, string(encoded))
+
+	var decoded JSONPatchOperation
+	require.NoError(t, json.Unmarshal(encoded, &decoded))
+	assert.Equal(t, op, decoded)
+}
+
+func TestStatePayloadNullAndEmptyArraySemantics(t *testing.T) {
+	t.Run("null snapshot is valid", func(t *testing.T) {
+		event := NewStateSnapshotEvent(nil)
+		require.NoError(t, event.Validate())
+		encoded, err := event.ToJSON()
+		require.NoError(t, err)
+		assert.Contains(t, string(encoded), `"snapshot":null`)
+	})
+
+	t.Run("nil and empty delta encode as arrays", func(t *testing.T) {
+		for _, delta := range [][]JSONPatchOperation{nil, {}} {
+			event := NewStateDeltaEvent(delta)
+			event.Delta = delta // Also exercise nil slices supplied through public fields.
+			require.NoError(t, event.Validate())
+			encoded, err := event.ToJSON()
+			require.NoError(t, err)
+			assert.Contains(t, string(encoded), `"delta":[]`)
+			if delta == nil {
+				assert.Nil(t, event.Delta, "marshaling must not mutate the event")
+			}
+		}
+	})
+
+	t.Run("nil messages encode as an array", func(t *testing.T) {
+		event := NewMessagesSnapshotEvent(nil)
+		encoded, err := event.ToJSON()
+		require.NoError(t, err)
+		assert.Contains(t, string(encoded), `"messages":[]`)
+		assert.Nil(t, event.Messages, "marshaling must not mutate the event")
+	})
+}
+
+func TestStateDeltaStrictDecoderStillRejectsUnknownEventFields(t *testing.T) {
+	decoder := json.NewDecoder(bytes.NewBufferString(`{"type":"STATE_DELTA","delta":[],"unexpected":true}`))
+	decoder.DisallowUnknownFields()
+	var event StateDeltaEvent
+	err := decoder.Decode(&event)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "unknown field")
+}
 
 func TestMessageMarshalUnmarshal_Text(t *testing.T) {
 	msg := Message{

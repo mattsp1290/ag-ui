@@ -128,10 +128,6 @@ func (e *ToolCallArgsEvent) Validate() error {
 		return fmt.Errorf("ToolCallArgsEvent validation failed: toolCallId field is required")
 	}
 
-	if e.Delta == "" {
-		return fmt.Errorf("ToolCallArgsEvent validation failed: delta field is required")
-	}
-
 	return nil
 }
 
@@ -237,10 +233,6 @@ func (e *ToolCallResultEvent) Validate() error {
 
 	if e.ToolCallID == "" {
 		return fmt.Errorf("ToolCallResultEvent validation failed: toolCallId field is required")
-	}
-
-	if e.Content == "" {
-		return fmt.Errorf("ToolCallResultEvent validation failed: content field is required")
 	}
 
 	return nil

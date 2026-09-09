@@ -162,14 +162,14 @@ func TestThinkingTextMessageContentEvent(t *testing.T) {
 		}
 	})
 
-	t.Run("validation requires delta", func(t *testing.T) {
+	t.Run("validation accepts empty delta", func(t *testing.T) {
 		event := &ThinkingTextMessageContentEvent{
 			BaseEvent: NewBaseEvent(EventTypeThinkingTextMessageContent),
 			Delta:     "",
 		}
 
-		if err := event.Validate(); err == nil {
-			t.Error("expected validation to fail for empty delta")
+		if err := event.Validate(); err != nil {
+			t.Errorf("empty delta must be valid: %v", err)
 		}
 	})
 

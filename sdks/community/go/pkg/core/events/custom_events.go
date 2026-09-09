@@ -45,10 +45,6 @@ func (e *RawEvent) Validate() error {
 		return err
 	}
 
-	if e.Event == nil {
-		return fmt.Errorf("RawEvent validation failed: event field is required")
-	}
-
 	return nil
 }
 

@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Bounded SSE byte parsing
+
+- Add optional positive `maxLineCodeUnits` to `SseClient` and internal
+  `SseParser`, defaulting to the configured data cap plus seven UTF-16 units.
+  Prefixes/spaces count; terminators and legacy initial BOM removals do not.
+- Bound decoding to 1024-byte slices and reject unfinished oversized lines
+  before newline/EOF, including comments and unknown fields. Preserve the
+  separate aggregate data/event and sticky-ID limits, strict UTF-8, framing,
+  metadata, supported EOF flush and existing call shapes.
+- Make byte-parser errors terminal and content-free with upstream cancellation,
+  per-call isolation and borrowed transport reuse. Preserve complete frames
+  before invalid suffixes and pause/resume/cancel before the first message.
+- Reject nonpositive or inexact caps synchronously. Legitimate larger streams
+  can select larger positive finite caps; there is no unlimited mode.
+- Add public VM/Chrome regressions, loopback HTTP and VM Logging capture,
+  memory accounting, and a standalone immutable-dependency probe. This entry
+  does not announce a pub.dev release.
+
 ### Added
 
 - Canonical metadata helpers and subagent attribution across supported message

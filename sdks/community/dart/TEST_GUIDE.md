@@ -129,3 +129,71 @@ live cases report skips.
 3. **Transport and runtime scope**: Protobuf event encoding, WebSockets,
 capability discovery, and the TypeScript-specific agent/middleware/reactive
 runtimes are not part of the Dart parity gate.
+
+## Bounded-byte-parser conformance
+
+```bash
+dart test test/sse/
+dart test test/client/http_endpoints_test.dart
+dart test --platform chrome test/sse/sse_client_stream_test.dart test/sse/sse_client_basic_test.dart
+dart analyze tool/verify_sse_byte_bounds.dart tool/verify_sse_logging.dart
+dart run tool/verify_sse_byte_bounds.dart
+dart --enable-vm-service=0 run tool/verify_sse_logging.dart
+```
+
+The stream suite imports the public barrel. It keeps controllers open through
+L+1 failure, checks all field classes in oversized and fragmented chunks,
+compares explicit fixtures and the old decoding-chain oracle for bounded valid
+input, and observes pause/resume/cancel before any message, during UTF-8 and
+CRLF, and across independent calls. The separate VM HTTP suite disables server
+response buffering to prove failure before the response is released, then
+reuses the same borrowed HTTP client. Controller tests deterministically assert
+one upstream cancellation; an HTTP socket disconnect is not required for client
+reuse. Chrome runs exclude the `dart:io` HTTP harness.
+
+The logging probe subscribes to actual VM-service `Logging` events, exercises
+all overflow field classes and the bounded-but-dropped ID log, and waits for a
+sentinel log before checking synthetic canaries. It also captures Zone prints;
+Zone interception alone does not observe `developer.log`. Do not run probes
+with real prompts or credentials. The byte probe uses runtime checks (not Dart
+assertions), the public barrel and SDK libraries only.
+
+### Fresh public immutable dependency
+
+After pushing the corrected commit, run this from the package directory. Set
+`SSE_PIN` to the **full actual corrected Git SHA**. Do not use the original
+`cce5da216ed936902e703ba4317d206832ff8eee` pin. The directory and cache must be
+new and outside the checkout. The recipe disables Git credential/config
+sources and interactive prompts; it uses neither local paths nor overrides.
+
+```bash
+SSE_CONSUMER=$(mktemp -d)
+SSE_CACHE=$(mktemp -d)
+mkdir -p "$SSE_CONSUMER/bin"
+cp tool/verify_sse_byte_bounds.dart "$SSE_CONSUMER/bin/"
+cat > "$SSE_CONSUMER/pubspec.yaml" <<EOF_PUB
+name: bounded_sse_consumer
+environment:
+  sdk: '>=3.3.0 <4.0.0'
+dependencies:
+  ag_ui:
+    git:
+      url: https://github.com/mattsp1290/ag-ui.git
+      ref: $SSE_PIN
+      path: sdks/community/dart
+EOF_PUB
+cd "$SSE_CONSUMER"
+env -u GITHUB_TOKEN -u GH_TOKEN -u GIT_CONFIG_PARAMETERS \
+  PUB_CACHE="$SSE_CACHE" GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null \
+  GIT_CONFIG_COUNT=0 GIT_TERMINAL_PROMPT=0 GIT_ASKPASS=/usr/bin/false \
+  SSH_ASKPASS=/usr/bin/false dart pub get
+PUB_CACHE="$SSE_CACHE" dart analyze
+PUB_CACHE="$SSE_CACHE" dart run bin/verify_sse_byte_bounds.dart
+```
+
+Inspect `pubspec.lock`: `ag_ui.description.resolved-ref` must equal `SSE_PIN`.
+Inspect `.dart_tool/package_config.json`: `ag_ui.rootUri` must point inside
+`SSE_CACHE`, not a workspace. Retain the exact SHA, probe Git blob hash, tool
+versions, command exit statuses and redacted logs with the owner response.
+The public pin proves availability and conformance; consumer adoption and its
+plan's dependency/readiness updates remain the consumer owner's separate step.

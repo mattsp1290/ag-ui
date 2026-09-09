@@ -1,11 +1,39 @@
-import 'package:ag_ui/src/sse/backoff_strategy.dart';
-import 'package:ag_ui/src/sse/sse_client.dart';
+import 'package:ag_ui/ag_ui.dart';
+import 'package:ag_ui/src/sse/sse_parser.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:test/test.dart';
 
 void main() {
   group('SseClient Basic Tests', () {
+    test('finite exact caps validate synchronously in both constructors', () {
+      for (final invalid in [0, -1, 9007199254740992]) {
+        expect(() => SseClient(maxDataCodeUnits: invalid), throwsArgumentError);
+        expect(() => SseClient(maxLineCodeUnits: invalid), throwsArgumentError);
+        expect(() => SseParser(maxDataCodeUnits: invalid), throwsArgumentError);
+        expect(() => SseParser(maxLineCodeUnits: invalid), throwsArgumentError);
+      }
+      const largest = 9007199254740991;
+      for (final data in [largest - 6, largest]) {
+        expect(() => SseClient(maxDataCodeUnits: data), throwsArgumentError);
+        expect(() => SseParser(maxDataCodeUnits: data), throwsArgumentError);
+      }
+      expect(
+        SseClient(maxDataCodeUnits: largest - 7).maxLineCodeUnits,
+        largest,
+      );
+      expect(
+        SseParser(maxDataCodeUnits: largest, maxLineCodeUnits: 1)
+            .maxLineCodeUnits,
+        1,
+      );
+      expect(SseClient(maxDataCodeUnits: 20).maxLineCodeUnits, 27);
+      expect(SseParser(maxDataCodeUnits: 20).maxLineCodeUnits, 27);
+      expect(
+        SseClient(maxDataCodeUnits: 20, maxLineCodeUnits: 2).maxLineCodeUnits,
+        2,
+      );
+    });
     test('constructor initializes with default parameters', () {
       final client = SseClient();
       expect(client.isConnected, isFalse);

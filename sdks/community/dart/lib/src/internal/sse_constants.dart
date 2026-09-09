@@ -4,3 +4,6 @@
 /// Measured in UTF-16 code units (Dart's internal string unit). ASCII has a
 /// 1:1 ratio; supplementary characters (emoji, etc.) count as two.
 const int kSseDefaultMaxDataCodeUnits = 8 * 1024 * 1024;
+
+/// Maximum input bytes passed to the streaming UTF-8 decoder at once.
+const int kSseDecoderSliceBytes = 1024;

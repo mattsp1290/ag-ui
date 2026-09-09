@@ -1,9 +1,10 @@
 import 'dart:async';
-import 'dart:convert';
 import 'dart:developer' as developer;
 
 import '../internal/sse_constants.dart';
+import 'bounded_sse_lines.dart';
 import 'sse_message.dart';
+import 'sse_transform.dart';
 
 /// Parses Server-Sent Events according to the WHATWG specification.
 ///
@@ -44,19 +45,23 @@ class SseParser {
   /// growing the stored id across reconnects via an oversized `id:` line.
   static const int maxIdCodeUnits = 1024;
 
-  // `_eventBuffer` stores the SSE `event:` field for the current message.
-  // Unlike `_dataBuffer`, it is REPLACED (not appended) on each `event:` line
-  // per the WHATWG SSE spec, so its maximum size is bounded by the line
-  // splitter upstream rather than accumulating across lines. Only `_dataBuffer`
-  // needs an explicit `maxDataCodeUnits` cap because it accumulates across multiple
-  // `data:` lines within a single message.
+  /// Maximum decoded line length, including prefixes/spaces, excluding CR/LF.
+  /// Defaults to [maxDataCodeUnits] + 7. Both limits must be positive exact
+  /// integers; oversized lines fail even for comments and ignored fields.
+  final int maxLineCodeUnits;
+
+  // Event values are replaced per line and independently capped at D.
   final _eventBuffer = StringBuffer();
   final _dataBuffer = StringBuffer();
   String? _lastEventId;
   Duration? _retry;
   bool _hasDataField = false;
 
-  SseParser({this.maxDataCodeUnits = kSseDefaultMaxDataCodeUnits});
+  SseParser({
+    this.maxDataCodeUnits = kSseDefaultMaxDataCodeUnits,
+    int? maxLineCodeUnits,
+  }) : maxLineCodeUnits =
+            effectiveSseLineLimit(maxDataCodeUnits, maxLineCodeUnits);
 
   /// Clears all parser state, including the otherwise-sticky
   /// `_lastEventId`. Use when reusing a parser instance across
@@ -70,50 +75,34 @@ class SseParser {
   ///
   /// The input should be a stream of text lines from an SSE endpoint.
   /// Empty lines trigger message dispatch.
-  Stream<SseMessage> parseLines(Stream<String> lines) async* {
-    await for (final line in lines) {
-      final message = _processLine(line);
-      if (message != null) {
-        yield message;
-      }
-    }
-
-    // Dispatch any remaining buffered message
-    final finalMessage = _dispatchEvent();
-    if (finalMessage != null) {
-      yield finalMessage;
-    }
-  }
-
-  /// Parses raw bytes from an SSE stream.
-  ///
-  /// Routes through [parseLines] so the end-of-stream flush in
-  /// [parseLines] also fires here — a byte source that closes without
-  /// a trailing blank line still emits its final buffered event.
-  Stream<SseMessage> parseBytes(Stream<List<int>> bytes) {
-    // Per WHATWG SSE spec the BOM is stripped once at the very start of the
-    // stream, not from every line. A mid-stream U+FEFF that happens to be the
-    // first character of a data line would otherwise be silently consumed.
-    var firstLine = true;
-    final lines = utf8.decoder
-        .bind(bytes)
-        .transform(const LineSplitter())
-        .transform(StreamTransformer<String, String>.fromHandlers(
-      handleData: (String line, EventSink<String> sink) {
-        if (firstLine) {
-          firstLine = false;
-          if (line.isNotEmpty && line.codeUnitAt(0) == 0xFEFF) {
-            line = line.substring(1);
+  Stream<SseMessage> parseLines(Stream<String> lines) => sseTransform(
+        lines,
+        (line) sync* {
+          final message = _processLine(line);
+          if (message != null) {
+            yield message;
           }
-        }
-        sink.add(line);
-      },
-    ));
-    return parseLines(lines);
-  }
+        },
+        finish: () sync* {
+          final message = _dispatchEvent();
+          if (message != null) {
+            yield message;
+          }
+        },
+        clear: _resetBuffers,
+      );
+
+  /// Parses strict UTF-8 with bounded incremental line framing. Overflow is a
+  /// terminal, content-free [FormatException] and cancels the byte source.
+  /// Normal EOF retains the supported final-message flush in [parseLines].
+  Stream<SseMessage> parseBytes(Stream<List<int>> bytes) =>
+      parseLines(boundedSseLines(bytes, maxLineCodeUnits));
 
   /// Process a single line according to SSE spec.
   SseMessage? _processLine(String line) {
+    if (line.length > maxLineCodeUnits) {
+      throw sseLineOverflow(maxLineCodeUnits);
+    }
     // Empty line dispatches the event
     if (line.isEmpty) {
       return _dispatchEvent();
@@ -153,14 +142,11 @@ class SseParser {
         // concatenated repeated `event:` lines within a single dispatch
         // block — spec-non-compliant and divergent from the canonical
         // SDKs.
-        // Defense-in-depth cap: a single oversized `event:` line cannot
-        // allocate unbounded memory before the dispatch blank line arrives.
-        // The cap mirrors the `data:` path in the same method.
+        // Separate value cap, in addition to the upstream whole-line cap.
         if (value.length > maxDataCodeUnits) {
           _resetBuffers();
           throw FormatException(
-            'SSE event field exceeds $maxDataCodeUnits-code-unit limit '
-            '(${value.length} code units)',
+            'SSE event field exceeds $maxDataCodeUnits-code-unit limit',
           );
         }
         _eventBuffer
@@ -184,13 +170,11 @@ class SseParser {
         // of quietly OOM-ing.
         final newlineBytes =
             _hasDataField ? 1 : 0; // \n separator between lines
-        if (_dataBuffer.length + newlineBytes + value.length >
-            maxDataCodeUnits) {
+        if (value.length >
+            maxDataCodeUnits - _dataBuffer.length - newlineBytes) {
           _resetBuffers();
           throw FormatException(
-            'SSE data field exceeds $maxDataCodeUnits-code-unit limit '
-            '(current ${_dataBuffer.length} + incoming '
-            '${newlineBytes + value.length} code units)',
+            'SSE data field exceeds $maxDataCodeUnits-code-unit limit',
           );
         }
         if (_hasDataField) {

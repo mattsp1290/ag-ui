@@ -8,6 +8,7 @@ import 'package:ag_ui/src/client/client.dart';
 import 'package:ag_ui/src/client/config.dart';
 import 'package:ag_ui/src/client/errors.dart';
 import 'package:ag_ui/src/encoder/client_codec.dart' as codec;
+import 'package:ag_ui/src/encoder/stream_adapter.dart';
 import 'package:ag_ui/src/events/events.dart';
 import 'package:ag_ui/src/types/types.dart';
 import 'package:ag_ui/src/sse/backoff_strategy.dart';
@@ -70,6 +71,54 @@ void main() {
     });
 
     group('runAgent', () {
+      test('adapter data cap derives byte line cap and preserves stream errors',
+          () async {
+        const cap = 8 * 1024 * 1024 + 20;
+        mockHttpClient = MockStreamingClient(
+          (_) async => http.StreamedResponse(
+            Stream.value(
+              utf8.encode(
+                ':${'x' * (cap + 6)}\ndata: {"type":"RUN_ERROR","message":"ok"}\n\n',
+              ),
+            ),
+            200,
+          ),
+        );
+        await client.close();
+        client = AgUiClient(
+          config: AgUiClientConfig(
+            baseUrl: 'http://synthetic.invalid',
+            maxRetries: 0,
+          ),
+          httpClient: mockHttpClient,
+          streamAdapter: EventStreamAdapter(maxDataCodeUnits: cap),
+        );
+        const input =
+            SimpleRunAgentInput(threadId: 't', runId: 'r', messages: []);
+        expect(
+          (await client.runAgent('stream', input).toList()).single,
+          isA<RunErrorEvent>(),
+        );
+        await client.close();
+        mockHttpClient = MockStreamingClient(
+          (_) async => http.StreamedResponse(
+            Stream.value(utf8.encode(':${'x' * 28}')),
+            200,
+          ),
+        );
+        client = AgUiClient(
+          config: AgUiClientConfig(
+            baseUrl: 'http://synthetic.invalid',
+            maxRetries: 0,
+          ),
+          httpClient: mockHttpClient,
+          streamAdapter: EventStreamAdapter(maxDataCodeUnits: 20),
+        );
+        await expectLater(
+          client.runAgent('stream', input),
+          emitsError(isA<FormatException>()),
+        );
+      });
       test('sends correct POST request with SimpleRunAgentInput', () async {
         // Arrange
         final input = SimpleRunAgentInput(

@@ -2,7 +2,9 @@ import 'dart:async';
 
 import 'package:http/http.dart' as http;
 
+import '../internal/sse_constants.dart';
 import 'backoff_strategy.dart';
+import 'bounded_sse_lines.dart';
 import 'sse_message.dart';
 import 'sse_parser.dart';
 
@@ -18,6 +20,11 @@ class SseClient {
   /// cap set on [EventStreamAdapter]. Defaults to 8 MiB (8 × 1024 × 1024
   /// code units), matching [SseParser]'s own default.
   final int maxDataCodeUnits;
+
+  /// Maximum UTF-16 units in a decoded line, including prefixes and spaces.
+  /// Excludes CR/LF and the legacy initial BOM removals. Defaults to the data
+  /// cap plus seven. Both caps must be positive exactly representable integers.
+  final int maxLineCodeUnits;
 
   StreamController<SseMessage>? _controller;
   StreamSubscription<SseMessage>? _subscription;
@@ -40,8 +47,11 @@ class SseClient {
     http.Client? httpClient,
     Duration idleTimeout = const Duration(seconds: 45),
     BackoffStrategy? backoffStrategy,
-    this.maxDataCodeUnits = 8 * 1024 * 1024,
-  })  : _httpClient = httpClient ?? http.Client(),
+    this.maxDataCodeUnits = kSseDefaultMaxDataCodeUnits,
+    int? maxLineCodeUnits,
+  })  : maxLineCodeUnits =
+            effectiveSseLineLimit(maxDataCodeUnits, maxLineCodeUnits),
+        _httpClient = httpClient ?? http.Client(),
         _idleTimeout = idleTimeout,
         _backoffStrategy = backoffStrategy ?? LegacyBackoffStrategy() {
     if (idleTimeout <= Duration.zero) {
@@ -86,13 +96,21 @@ class SseClient {
   /// `_subscription`). Independent of [connect]; safe to call without a prior
   /// [connect] call or concurrently with an active [connect] session.
   ///
+  /// A line over [maxLineCodeUnits], aggregate data/event value over
+  /// [maxDataCodeUnits], or malformed UTF-8 terminates this call with a
+  /// content-free [FormatException], cancels its source, and discards partial
+  /// messages. It does not close the borrowed HTTP transport.
+  ///
   /// [stream] - The byte stream to parse.
   /// [headers] - Optional response headers for context.
   Stream<SseMessage> parseStream(
     Stream<List<int>> stream, {
     Map<String, String>? headers,
   }) {
-    final parser = SseParser(maxDataCodeUnits: maxDataCodeUnits);
+    final parser = SseParser(
+      maxDataCodeUnits: maxDataCodeUnits,
+      maxLineCodeUnits: maxLineCodeUnits,
+    );
     return parser.parseBytes(stream);
   }
 
@@ -143,7 +161,10 @@ class SseClient {
       _hasEverConnected = true;
 
       // Create parser for this connection
-      final parser = SseParser(maxDataCodeUnits: maxDataCodeUnits);
+      final parser = SseParser(
+        maxDataCodeUnits: maxDataCodeUnits,
+        maxLineCodeUnits: maxLineCodeUnits,
+      );
 
       // Set up idle timeout
       _resetIdleTimer();

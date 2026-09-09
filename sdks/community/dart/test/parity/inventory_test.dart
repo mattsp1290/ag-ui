@@ -387,6 +387,7 @@ void main() {
 
     test('assigns every field a disposition, owner, shape, and test', () {
       final tests = _asMap(manifest['test_catalog']);
+      final workPackages = _asMap(manifest['work_packages']);
       final ownerPattern = RegExp(r'^PR0[1-6]$');
 
       for (final row in _fieldRows(manifest)) {
@@ -416,11 +417,16 @@ void main() {
         }
 
         final testRecord = _asMap(tests[testId]);
+        final workPackage = _asMap(workPackages[owner]);
         if (status == 'implemented') {
-          expect(owner, 'PR01', reason: id);
+          expect(
+            workPackage['state'],
+            anyOf('implemented-by-this-slice', 'implemented-by-prior-slice'),
+            reason: id,
+          );
           expect(testRecord['status'], 'executable', reason: id);
         } else {
-          expect(owner, isNot('PR01'), reason: id);
+          expect(workPackage['state'], 'pending', reason: id);
           expect(testRecord['status'], 'planned', reason: id);
           expect(testRecord['owner'], owner, reason: id);
         }
@@ -441,7 +447,17 @@ void main() {
             .where((row) => row['dart_status'] == 'implemented')
             .map((row) => row['id'] as String)
             .toSet();
-        expect(implementedIds.length, 263);
+        expect(implementedIds, isNotEmpty);
+        expect(
+          rows
+              .where(
+                (row) =>
+                    row['owner'] == 'PR02' &&
+                    row['dart_status'] == 'implemented',
+              )
+              .length,
+          76,
+        );
         final evidenceKeys =
             implementedIds.map((id) => 'canonical.$id').toSet();
         expect(evidenceKeys.length, implementedIds.length);

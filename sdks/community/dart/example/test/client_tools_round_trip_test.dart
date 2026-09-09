@@ -849,10 +849,32 @@ void main() {
   });
 
   test('a fresh exchange executes a reused tool-call ID', () async {
+    final cumulativeReuse = MessagesSnapshotEvent(
+      messages: [
+        ..._snapshotWithToolCall('shared', '1+1').messages,
+        const ToolMessage(
+          id: 'historical-result',
+          toolCallId: 'shared',
+          content: '{"result":2}',
+        ),
+        const AssistantMessage(
+          id: 'new-owner',
+          toolCalls: [
+            ToolCall(
+              id: 'shared',
+              function: FunctionCall(
+                name: 'calculate',
+                arguments: '{"expression":"2+2"}',
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
     final service = FakeAgUiService([
       [_snapshotWithToolCall('shared', '1+1'), _runFinished],
       [_runFinished],
-      [_snapshotWithToolCall('shared', '2+2'), _runFinished],
+      [cumulativeReuse, _runFinished],
       [_runFinished],
     ]);
     final state = ClientToolsPageState(
@@ -865,13 +887,10 @@ void main() {
     await state.sendMessage('second');
 
     expect(service.calls, 4);
-    final results = service.histories.last.whereType<ToolMessage>().where(
-      (message) => message.toolCallId == 'shared',
-    );
-    expect(results, hasLength(2));
-    expect(results.map((message) => jsonDecode(message.content)['result']), [
-      2,
-      4,
-    ]);
+    final results = service.histories.last
+        .whereType<ToolMessage>()
+        .where((message) => message.toolCallId == 'shared')
+        .map((message) => jsonDecode(message.content)['result']);
+    expect(results.where((result) => result == 4), hasLength(1));
   });
 }

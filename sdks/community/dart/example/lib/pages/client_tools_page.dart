@@ -242,6 +242,11 @@ class ClientToolsPageState extends ChangeNotifier with AgUiEventHandling {
 
   Future<bool> _consumeRun({required bool continuation}) async {
     final priorMessageIds = messages.map((message) => message.id).toSet();
+    final priorProposals = {
+      for (final assistant in _history.whereType<AssistantMessage>())
+        for (final call in assistant.toolCalls ?? const <ToolCall>[])
+          (assistant.subagentRunId, assistant.id, call.id),
+    };
     beginRun(continuation: continuation);
     _pendingCalls = const [];
     await for (final event in _service.run(
@@ -258,7 +263,12 @@ class ClientToolsPageState extends ChangeNotifier with AgUiEventHandling {
         _pendingCalls = [
           for (final assistant in event.messages.whereType<AssistantMessage>())
             for (final call in assistant.toolCalls ?? const <ToolCall>[])
-              if (!_settledCalls.contains((assistant.subagentRunId, call.id)))
+              if (!priorProposals.contains((
+                    assistant.subagentRunId,
+                    assistant.id,
+                    call.id,
+                  )) &&
+                  !_settledCalls.contains((assistant.subagentRunId, call.id)))
                 (call: call, subagentRunId: assistant.subagentRunId),
         ];
       } else {
@@ -326,9 +336,6 @@ class ClientToolsPageState extends ChangeNotifier with AgUiEventHandling {
         _history.add(message);
       } else {
         _history[index] = message;
-      }
-      if (message is ToolMessage) {
-        _settledCalls.add((message.subagentRunId, message.toolCallId));
       }
     }
   }

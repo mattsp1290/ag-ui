@@ -40,11 +40,7 @@ func WithSource(source string) RawEventOption {
 
 // Validate validates the raw event
 func (e *RawEvent) Validate() error {
-	if err := e.BaseEvent.Validate(); err != nil {
-		return err
-	}
-
-	return nil
+	return e.BaseEvent.Validate()
 }
 
 // ToJSON serializes the event to JSON
@@ -88,11 +84,7 @@ func WithValue(value any) CustomEventOption {
 
 // Validate validates the custom event
 func (e *CustomEvent) Validate() error {
-	if err := e.BaseEvent.Validate(); err != nil {
-		return err
-	}
-
-	return nil
+	return e.BaseEvent.Validate()
 }
 
 // ToJSON serializes the event to JSON

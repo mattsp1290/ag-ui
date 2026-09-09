@@ -63,11 +63,7 @@ func WithParentToolCall(parentToolCallID, parentMessageID string) SubagentStarte
 
 // Validate validates the subagent started event
 func (e *SubagentStartedEvent) Validate() error {
-	if err := e.BaseEvent.Validate(); err != nil {
-		return err
-	}
-
-	return nil
+	return e.BaseEvent.Validate()
 }
 
 // ToJSON serializes the event to JSON
@@ -236,11 +232,7 @@ func WithSubagentErrorCode(code string) SubagentErrorOption {
 
 // Validate validates the subagent error event
 func (e *SubagentErrorEvent) Validate() error {
-	if err := e.BaseEvent.Validate(); err != nil {
-		return err
-	}
-
-	return nil
+	return e.BaseEvent.Validate()
 }
 
 // ToJSON serializes the event to JSON

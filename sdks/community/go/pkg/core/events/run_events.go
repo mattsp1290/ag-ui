@@ -434,11 +434,7 @@ func WithAutoStepName() StepStartedOption {
 
 // Validate validates the step started event
 func (e *StepStartedEvent) Validate() error {
-	if err := e.BaseEvent.Validate(); err != nil {
-		return err
-	}
-
-	return nil
+	return e.BaseEvent.Validate()
 }
 
 // ToJSON serializes the event to JSON
@@ -491,11 +487,7 @@ func WithAutoStepNameFinished() StepFinishedOption {
 
 // Validate validates the step finished event
 func (e *StepFinishedEvent) Validate() error {
-	if err := e.BaseEvent.Validate(); err != nil {
-		return err
-	}
-
-	return nil
+	return e.BaseEvent.Validate()
 }
 
 // ToJSON serializes the event to JSON

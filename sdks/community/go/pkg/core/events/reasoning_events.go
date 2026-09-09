@@ -24,10 +24,7 @@ func NewReasoningStartEvent(messageID string) *ReasoningStartEvent {
 
 // Validate validates the reasoning start event.
 func (e *ReasoningStartEvent) Validate() error {
-	if err := e.BaseEvent.Validate(); err != nil {
-		return err
-	}
-	return nil
+	return e.BaseEvent.Validate()
 }
 
 // ToJSON serializes the event to JSON.
@@ -54,10 +51,7 @@ func NewReasoningEndEvent(messageID string) *ReasoningEndEvent {
 
 // Validate validates the reasoning end event.
 func (e *ReasoningEndEvent) Validate() error {
-	if err := e.BaseEvent.Validate(); err != nil {
-		return err
-	}
-	return nil
+	return e.BaseEvent.Validate()
 }
 
 // ToJSON serializes the event to JSON.
@@ -121,10 +115,7 @@ func NewReasoningMessageContentEvent(messageID, delta string) *ReasoningMessageC
 
 // Validate validates the reasoning message content event.
 func (e *ReasoningMessageContentEvent) Validate() error {
-	if err := e.BaseEvent.Validate(); err != nil {
-		return err
-	}
-	return nil
+	return e.BaseEvent.Validate()
 }
 
 // ToJSON serializes the event to JSON.
@@ -151,10 +142,7 @@ func NewReasoningMessageEndEvent(messageID string) *ReasoningMessageEndEvent {
 
 // Validate validates the reasoning message end event.
 func (e *ReasoningMessageEndEvent) Validate() error {
-	if err := e.BaseEvent.Validate(); err != nil {
-		return err
-	}
-	return nil
+	return e.BaseEvent.Validate()
 }
 
 // ToJSON serializes the event to JSON.
@@ -195,11 +183,7 @@ func (e *ReasoningMessageChunkEvent) WithChunkDelta(delta string) *ReasoningMess
 
 // Validate validates the reasoning message chunk event.
 func (e *ReasoningMessageChunkEvent) Validate() error {
-	if err := e.BaseEvent.Validate(); err != nil {
-		return err
-	}
-
-	return nil
+	return e.BaseEvent.Validate()
 }
 
 // ToJSON serializes the event to JSON.

@@ -133,11 +133,7 @@ func WithAutoMessageIDContent() TextMessageContentOption {
 
 // Validate validates the text message content event
 func (e *TextMessageContentEvent) Validate() error {
-	if err := e.BaseEvent.Validate(); err != nil {
-		return err
-	}
-
-	return nil
+	return e.BaseEvent.Validate()
 }
 
 // ToJSON serializes the event to JSON
@@ -190,11 +186,7 @@ func WithAutoMessageIDEnd() TextMessageEndOption {
 
 // Validate validates the text message end event
 func (e *TextMessageEndEvent) Validate() error {
-	if err := e.BaseEvent.Validate(); err != nil {
-		return err
-	}
-
-	return nil
+	return e.BaseEvent.Validate()
 }
 
 // ToJSON serializes the event to JSON

@@ -52,11 +52,7 @@ func WithAutoToolCallID() ToolCallStartOption {
 
 // Validate validates the tool call start event
 func (e *ToolCallStartEvent) Validate() error {
-	if err := e.BaseEvent.Validate(); err != nil {
-		return err
-	}
-
-	return nil
+	return e.BaseEvent.Validate()
 }
 
 // ToJSON serializes the event to JSON
@@ -112,11 +108,7 @@ func WithAutoToolCallIDArgs() ToolCallArgsOption {
 
 // Validate validates the tool call args event
 func (e *ToolCallArgsEvent) Validate() error {
-	if err := e.BaseEvent.Validate(); err != nil {
-		return err
-	}
-
-	return nil
+	return e.BaseEvent.Validate()
 }
 
 // ToJSON serializes the event to JSON
@@ -169,11 +161,7 @@ func WithAutoToolCallIDEnd() ToolCallEndOption {
 
 // Validate validates the tool call end event
 func (e *ToolCallEndEvent) Validate() error {
-	if err := e.BaseEvent.Validate(); err != nil {
-		return err
-	}
-
-	return nil
+	return e.BaseEvent.Validate()
 }
 
 // ToJSON serializes the event to JSON
@@ -268,11 +256,7 @@ func (e *ToolCallChunkEvent) WithToolCallChunkParentMessageID(parentMessageID st
 
 // Validate validates the tool call chunk event
 func (e *ToolCallChunkEvent) Validate() error {
-	if err := e.BaseEvent.Validate(); err != nil {
-		return err
-	}
-
-	return nil
+	return e.BaseEvent.Validate()
 }
 
 // ToJSON serializes the event to JSON

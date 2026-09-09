@@ -52,6 +52,7 @@ func TestProtocolJSONValidation(t *testing.T) {
 		}, []string{`{}`, `{"id":""}`, `{"reason":""}`, `{"id":null,"reason":""}`, `{"id":"","reason":1}`, `{"id":"","reason":"","metadata":[]}`}},
 		{"request", ValidateRunAgentInputJSON, []string{
 			`{"threadId":"","runId":"","messages":[],"tools":[],"context":[],"forwardedProps":null}`,
+			`{"threadId":"","runId":"","messages":[],"tools":[{"name":"","description":""}],"context":[],"forwardedProps":{}}`,
 			`{"threadId":"","runId":"","state":{"nested":null},"messages":[],"tools":[{"name":"","description":"","parameters":null}],"context":[{"description":"","value":""}],"forwardedProps":{},"resume":[{"interruptId":"","status":"resolved","payload":null,"metadata":{"nested":null}}]}`,
 		}, []string{
 			`{}`, `{"threadId":"","runId":"","messages":[],"tools":[],"context":[]}`,

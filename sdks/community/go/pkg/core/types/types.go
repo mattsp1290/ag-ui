@@ -263,30 +263,24 @@ func (m Message) MarshalJSON() ([]byte, error) {
 	if m.SubagentRunID != "" || m.subagentRunIDExplicitEmpty {
 		subagentRunID = &m.SubagentRunID
 	}
-	if m.Role == RoleTool {
-		return json.Marshal(struct {
-			messageAlias
-			ToolCallID     string  `json:"toolCallId"`
-			Error          *string `json:"error,omitempty"`
-			EncryptedValue *string `json:"encryptedValue,omitempty"`
-			SubagentRunID  *string `json:"subagentRunId,omitempty"`
-		}{messageAlias: messageAlias(m), ToolCallID: m.ToolCallID, Error: errorValue, EncryptedValue: encryptedValue, SubagentRunID: subagentRunID})
+	var toolCallID, activityType *string
+	if m.Role == RoleTool || m.ToolCallID != "" {
+		toolCallID = &m.ToolCallID
 	}
-	if m.Role == RoleActivity {
-		return json.Marshal(struct {
-			messageAlias
-			ActivityType   string  `json:"activityType"`
-			Error          *string `json:"error,omitempty"`
-			EncryptedValue *string `json:"encryptedValue,omitempty"`
-			SubagentRunID  *string `json:"subagentRunId,omitempty"`
-		}{messageAlias: messageAlias(m), ActivityType: m.ActivityType, Error: errorValue, EncryptedValue: encryptedValue, SubagentRunID: subagentRunID})
+	if m.Role == RoleActivity || m.ActivityType != "" {
+		activityType = &m.ActivityType
 	}
 	return json.Marshal(struct {
 		messageAlias
+		ToolCallID     *string `json:"toolCallId,omitempty"`
+		ActivityType   *string `json:"activityType,omitempty"`
 		Error          *string `json:"error,omitempty"`
 		EncryptedValue *string `json:"encryptedValue,omitempty"`
 		SubagentRunID  *string `json:"subagentRunId,omitempty"`
-	}{messageAlias: messageAlias(m), Error: errorValue, EncryptedValue: encryptedValue, SubagentRunID: subagentRunID})
+	}{
+		messageAlias: messageAlias(m), ToolCallID: toolCallID, ActivityType: activityType,
+		Error: errorValue, EncryptedValue: encryptedValue, SubagentRunID: subagentRunID,
+	})
 }
 
 // UnmarshalJSON implements json.Unmarshaler and supports snake_case compatibility.

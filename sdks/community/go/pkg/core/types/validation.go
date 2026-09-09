@@ -303,6 +303,8 @@ func validateToolJSON(data []byte) error {
 	if err := object.strings(true, "name", "description"); err != nil {
 		return err
 	}
+	// Both peers accept omitted parameters: Python defaults to None and the
+	// TypeScript z.any() member accepts undefined.
 	_, err = object.object("metadata", false)
 	return err
 }

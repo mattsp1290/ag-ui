@@ -114,13 +114,13 @@ func main() {
 func run() error {
 	corpusPath := flag.String("corpus", "", "path to parity fixtures.json")
 	outputDir := flag.String("output-dir", "", "existing caller-owned output directory")
-	source := flag.String("source", "", "peer producer to consume: python or typescript")
+	source := flag.String("source", "", "peer producer to consume: python, typescript, or dart")
 	flag.Parse()
 	if *corpusPath == "" || *outputDir == "" || flag.NArg() != 0 {
 		return errors.New("--corpus and --output-dir are required and positional arguments are not accepted")
 	}
-	if *source != "" && *source != "python" && *source != "typescript" {
-		return fmt.Errorf("invalid --source %q: want python or typescript", *source)
+	if *source != "" && *source != "python" && *source != "typescript" && *source != "dart" {
+		return fmt.Errorf("invalid --source %q: want python, typescript, or dart", *source)
 	}
 	info, err := os.Stat(*outputDir)
 	if err != nil {
@@ -212,7 +212,13 @@ func produce(c corpus, digest, outputDir, route string, useEncoder bool) error {
 }
 
 func consumePeer(c corpus, digest, outputDir, source string) error {
-	path := filepath.Join(outputDir, source+".produced.json")
+	artifactName := source + ".produced.json"
+	expectedRoute := source + ".produced"
+	if source == "dart" {
+		artifactName = "dart.encoder.json"
+		expectedRoute = "dart.encoder"
+	}
+	path := filepath.Join(outputDir, artifactName)
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		return fmt.Errorf("read peer artifact: %w", err)
@@ -221,7 +227,7 @@ func consumePeer(c corpus, digest, outputDir, source string) error {
 	if err := unmarshalStrict(raw, &peer); err != nil {
 		return fmt.Errorf("decode peer artifact: %w", err)
 	}
-	if peer.Version != 1 || peer.Route != source+".produced" || peer.CorpusSHA256 != digest {
+	if peer.Version != 1 || peer.Route != expectedRoute || peer.CorpusSHA256 != digest {
 		return errors.New("peer artifact version, route, or corpus digest does not match")
 	}
 	byID := make(map[string]peerRecord, len(peer.Cases))

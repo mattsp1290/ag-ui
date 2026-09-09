@@ -24,6 +24,43 @@ To run all tests including integration tests (requires TypeScript SDK server set
 dart test
 ```
 
+### Browser model tests
+The CI browser lane runs the pure model tests explicitly so it never compiles the
+`dart:io` integration helpers:
+
+```bash
+dart test --platform chrome \
+  test/types/metadata_test.dart \
+  test/types/run_outcome_test.dart \
+  test/types/subagent_outcome_test.dart \
+  test/types/token_usage_test.dart \
+  test/types/capabilities_test.dart
+```
+
+### Cross-language parity
+From the repository root, run the Dart producer/consumer parity gate with:
+
+```bash
+bash scripts/dart-sdk-parity.sh
+```
+
+The gate accepts these optional controls. They are caller-owned and are never
+silently mapped onto or used to override the existing `AG_UI_PARITY_*` variables
+used by the Go parity harness:
+
+| Variable | Meaning |
+| --- | --- |
+| `AG_UI_DART_PARITY_OUTPUT_DIR` | Temporary directory for generated artifacts. The caller owns its lifecycle. |
+| `AG_UI_DART_PARITY_PHASE` | Explicit `produce`, `consume`, or `verify` phase for targeted runs. |
+| `AG_UI_DART_PARITY_CORPUS` | Explicit path to the resolved shared parity corpus. |
+
+For example, to retain artifacts for inspection:
+
+```bash
+AG_UI_DART_PARITY_OUTPUT_DIR="$PWD/.dart-parity-output" \
+  bash scripts/dart-sdk-parity.sh
+```
+
 ## Test Categories
 
 ### Unit Tests (381+ tests) ✅

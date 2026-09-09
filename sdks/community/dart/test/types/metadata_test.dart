@@ -285,7 +285,11 @@ void main() {
             isA<AGUIValidationError>()
                 .having((e) => e.json, 'json', isNull)
                 .having((e) => e.cause, 'cause', isNull)
-                .having((e) => e.value, 'value', 'List<String>')
+                .having(
+                  (e) => e.value,
+                  'value',
+                  matches(RegExp(r'^(?:List|JSArray)<String>$')),
+                )
                 .having((e) => e.message, 'message', isNot(contains('secret'))),
           ),
         );

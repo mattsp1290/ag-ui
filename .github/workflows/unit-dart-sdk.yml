@@ -6,17 +6,58 @@ on:
     paths:
       - "sdks/community/dart/**"
       - "sdks/community/go/**"
+      - "sdks/python/ag_ui_protocol/**"
+      - "sdks/python/tests/test_go_parity.py"
+      - "sdks/typescript/packages/core/src/**"
+      - "sdks/typescript/packages/core/package.json"
+      - "scripts/dart-sdk-parity.sh"
+      - "sdks/community/go/testdata/parity/**"
+      - "sdks/community/go/internal/parity/**"
       - ".gitattributes"
+      - ".node-version"
+      - ".github/python-toolchain.env"
+      - "package.json"
+      - "pnpm-lock.yaml"
+      - "pnpm-workspace.yaml"
+      - "nx.json"
+      - "tsconfig*.json"
+      - ".npmrc"
+      - ".pnpmfile.cjs"
+      - "patches/**"
+      - ".github/actions/**"
       - ".github/workflows/unit-dart-sdk.yml"
   pull_request:
     paths:
       - "sdks/community/dart/**"
       - "sdks/community/go/**"
+      - "sdks/python/ag_ui_protocol/**"
+      - "sdks/python/tests/test_go_parity.py"
+      - "sdks/typescript/packages/core/src/**"
+      - "sdks/typescript/packages/core/package.json"
+      - "scripts/dart-sdk-parity.sh"
+      - "sdks/community/go/testdata/parity/**"
+      - "sdks/community/go/internal/parity/**"
       - ".gitattributes"
+      - ".node-version"
+      - ".github/python-toolchain.env"
+      - "package.json"
+      - "pnpm-lock.yaml"
+      - "pnpm-workspace.yaml"
+      - "nx.json"
+      - "tsconfig*.json"
+      - ".npmrc"
+      - ".pnpmfile.cjs"
+      - "patches/**"
+      - ".github/actions/**"
       - ".github/workflows/unit-dart-sdk.yml"
 
 permissions:
   contents: read
+
+# Checked against .github/python-toolchain.env by the release-workflow pin guard.
+env:
+  UV_VERSION: "0.12.1"
+  PYTHON_VERSION: "3.12"
 
 jobs:
   dart:
@@ -44,11 +85,90 @@ jobs:
       - name: Run tests
         run: dart test --exclude-tags requires-server
 
-      - name: Run numeric model tests in Chrome
+      - name: Run pure model tests in Chrome
         run: >-
-          dart test -p chrome
+          dart test --platform chrome
+          test/types/metadata_test.dart
+          test/types/run_outcome_test.dart
+          test/types/subagent_outcome_test.dart
           test/types/token_usage_test.dart
           test/types/capabilities_test.dart
+
+  dart-cross-language-parity:
+    name: Dart cross-language parity
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout code
+        id: checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          lfs: true
+          persist-credentials: false
+
+      - name: Set up Dart
+        uses: dart-lang/setup-dart@6afc89df92d6eb3834022f73cd65adc8cdfcb92d  # v1.8.1
+        with:
+          sdk: stable
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e  # v7.0.0
+        with:
+          go-version-file: sdks/community/go/go.mod
+          cache-dependency-path: sdks/community/go/go.sum
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020  # v7.0.0
+        with:
+          node-version-file: .node-version
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413  # v6.1.0
+        # Reads the pinned pnpm version from package.json's packageManager field.
+
+      - name: Install uv and Python
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d  # v10.0.1
+        with:
+          version: ${{ env.UV_VERSION }}
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Print tool versions
+        run: |
+          dart --version
+          go version
+          node --version
+          pnpm --version
+          uv --version
+          python --version
+
+      - name: Install JavaScript dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Python SDK dependencies
+        working-directory: sdks/python
+        run: uv sync --locked
+
+      - name: Install Dart dependencies
+        working-directory: sdks/community/dart
+        run: dart pub get --no-example
+
+      - name: Run Dart cross-language parity gate
+        run: bash scripts/dart-sdk-parity.sh
+
+      - name: Assert pnpm lockfile unchanged
+        if: ${{ !cancelled() && steps.checkout.outcome == 'success' }}
+        run: |
+          changed=$(git status --porcelain -- pnpm-lock.yaml)
+          if [[ -n "$changed" ]]; then
+            echo "::error::The parity job modified pnpm-lock.yaml"
+            printf '%s\n' "$changed"
+            exit 1
+          fi
+
+      - name: Assert Python lockfiles unchanged
+        if: ${{ !cancelled() && steps.checkout.outcome == 'success' }}
+        uses: ./.github/actions/assert-lockfiles-unchanged
 
   flutter-example:
     name: Flutter example

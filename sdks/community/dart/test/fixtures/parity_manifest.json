@@ -100,7 +100,7 @@
     "PR04": {"behavior_change":true,"state":"implemented-by-prior-slice","title":"Three subagent lifecycle events and outcomes"},
     "PR05": {"behavior_change":true,"state":"implemented-by-prior-slice","title":"Terminal usage and shared helpers"},
     "PR06": {"behavior_change":true,"state":"implemented-by-this-slice","title":"Capability value models"},
-    "PR07": {"behavior_change":false,"state":"pending","title":"Six Dart peer routes, live SSE/client verification, and CI"},
+    "PR07": {"behavior_change":false,"state":"implemented-by-this-slice","title":"Six Dart peer routes, live SSE/client verification, and CI"},
     "PR08": {"behavior_change":false,"state":"pending","title":"Flutter example projections and regressions"},
     "PR09": {"behavior_change":false,"state":"pending","title":"Public parity and exhaustive-switch migration documentation"}
   },
@@ -113,13 +113,25 @@
     "pr06.capabilities": {"name_fragment":"capabilities","owner":"PR06","path":"test/types/capabilities_test.dart","status":"executable"},
     "planned.documentation": {"name_fragment":"documentation","owner":"PR09","path":"test/parity/documentation_test.dart","status":"planned"},
     "planned.flutter": {"name_fragment":"event projection","owner":"PR08","path":"example/test/event_projection_test.dart","status":"planned"},
-    "planned.interop": {"name_fragment":"artifact","owner":"PR07","path":"test/parity/artifact_test.dart","status":"planned"},
+    "pr07.interop": {"name_fragment":"artifact routes execute the resolved 95-case corpus","owner":"PR07","path":"test/parity/artifact_test.dart","status":"executable"},
     "pr03.interrupt-resume": {"name_fragment":"RunFinishedOutcome","owner":"PR03","path":"test/types/run_outcome_test.dart","status":"executable"},
     "pr02.metadata": {"name_fragment":"all message roles carry metadata and attribution","owner":"PR02","path":"test/types/metadata_test.dart","status":"executable"},
     "pr04.subagents": {"name_fragment":"subagent","owner":"PR04","path":"test/events/subagent_test.dart","status":"executable"},
     "pr05.usage": {"name_fragment":"token usage","owner":"PR05","path":"test/types/token_usage_test.dart","status":"executable"}
   },
   "peer_contract": {"case_kind_counts":{"aggregate":5,"capabilities":4,"content":6,"event":52,"mapper":6,"message":8,"request":4,"usage":3},"cases_sha256":"ebb0cb5729645331b47f666f882a86bf5e64a838893ff1b51f1948d25e3170f8","cases_source":"sdks/community/go/testdata/parity/fixtures.json","compatibility_sha256":"d70ebd76f5f840e79c7e351576aa5289fefbb6ef0e1d08b097b25029a1ac8d82","compatibility_source":"sdks/community/go/testdata/parity/compatibility.json","expected_case_count":88,"manifest_sha256":"78e0473229891762823d7a26dbc7f32a3243f04537ddb681b0b66a2362db9f6b","manifest_source":"sdks/community/go/testdata/parity/manifest.json","sse_sha256":"8873338e7e949ad1430bc09b60ed0dbbd5bcf79572332113d6798d2b8779ecc3","sse_source":"sdks/community/go/testdata/parity/sse-scenarios.json"},
+  "dart_interop": {
+    "corpora": {"frozen":{"case_count":88,"path":"sdks/community/go/testdata/parity/fixtures.json","sha256":"ebb0cb5729645331b47f666f882a86bf5e64a838893ff1b51f1948d25e3170f8"},"supplemental":{"case_count":7,"path":"sdks/community/dart/test/fixtures/parity_cases.json","sha256":"29a6180be57ac50ee78f024a1fc021fcbde6a414b1d539f51b7ae91cba46c53c"},"resolved":{"case_count":95,"construction":"Frozen cases followed by supplemental cases, encoded as compact JSON with one trailing newline.","sha256":"c73fb61d96367eb2c88e472698d87bd1491addc822416f28cbb49ceb757536e2"}},
+    "routes": {"dart.direct":"dart.direct.json","dart.encoder":"dart.encoder.json","dart.from-go":"dart.from-go.json","dart.from-python":"dart.from-python.json","dart.from-typescript":"dart.from-typescript.json","go.direct":"go.direct.json","go.encoder":"go.encoder.json","go.from-dart":"go.from-dart.json","go.from-python":"go.from-python.json","go.from-typescript":"go.from-typescript.json","python.produced":"python.produced.json","python.from-dart":"python.from-dart.json","python.from-go":"python.from-go.json","typescript.produced":"typescript.produced.json","typescript.from-dart":"typescript.from-dart.json","typescript.from-go":"typescript.from-go.json"},
+    "route_expectations": [
+      {"case_id":"event.ACTIVITY_SNAPSHOT.default_replace","routes":["dart.direct","dart.encoder"],"accepted":true,"expected":{"type":"ACTIVITY_SNAPSHOT","timestamp":1700000001,"metadata":{"case":"synthetic","nested":null},"rawEvent":{"source":"parity-corpus","nested":null},"subagentRunId":"sa1","messageId":"a1","activityType":"progress","content":{"percent":0,"detail":null}},"source_evidence":"ActivitySnapshotEvent.toJson omits replace when its restored value is true.","reason":"Retained Dart wire omission for the constructor default.","review_owner":"PR07"},
+      {"case_id":"event.REASONING_ENCRYPTED_VALUE.tool_call","routes":["dart.direct","dart.encoder"],"accepted":true,"expected":{"type":"REASONING_ENCRYPTED_VALUE","timestamp":1700000001,"metadata":{"case":"synthetic","nested":null},"subagentRunId":"sa1","subtype":"tool-call","entityId":"tc1","encryptedValue":"ciphertext"},"source_evidence":"ReasoningEncryptedValueEvent deliberately drops rawEvent when re-emitting cipher-bearing events.","reason":"Retained security scrubbing; encryptedValue remains compared exactly.","review_owner":"PR07"},
+      {"case_id":"aggregate.empty_labels","routes":["dart.direct","dart.encoder"],"accepted":true,"expected":[{"provider":"","model":"","inputTokens":1},{"inputTokens":2}],"source_evidence":"aggregateTokenUsage groups explicit empty labels separately from absent labels.","reason":"Dart follows the TypeScript/Python explicit-label representation rather than Go's empty-string omission.","review_owner":"PR07"},
+      {"case_id":"mapper.langchain.zero","routes":["dart.direct","dart.encoder"],"accepted":true,"expected":{"provider":"","model":"","inputTokens":0},"source_evidence":"tokenUsageFromLangChainMetadata preserves caller-supplied empty provider and model labels.","reason":"Dart follows the TypeScript/Python explicit-label representation rather than Go's empty-string omission.","review_owner":"PR07"},
+      {"case_id":"event.STATE_DELTA.add_missing_value_invalid","routes":["dart.direct","dart.encoder"],"accepted":true,"expected":{"type":"STATE_DELTA","delta":[{"op":"add","path":""}]},"source_evidence":"StateDeltaEvent treats patch entries as arbitrary JSON, matching the peer event schemas.","reason":"Dart does not apply Go's separate RFC 6902 semantic validation in model decoding.","review_owner":"PR07"},
+      {"case_id":"event.ACTIVITY_DELTA.copy_missing_from_invalid","routes":["dart.direct","dart.encoder"],"accepted":true,"expected":{"type":"ACTIVITY_DELTA","messageId":"a","activityType":"progress","patch":[{"op":"copy","path":""}]},"source_evidence":"ActivityDeltaEvent treats patch entries as arbitrary JSON, matching the peer event schemas.","reason":"Dart does not apply Go's separate RFC 6902 semantic validation in model decoding.","review_owner":"PR07"}
+    ]
+  },
   "go_model_policy": {"field_evidence":"Each model field's canonical_case points into the Go parity manifest coverage table and its fresh producer/consumer corpus.","modeling":"Go uses concrete event structs and a generic Message/InputContent wire model rather than duplicating every Python and TypeScript schema alias.","source_roots":["sdks/community/go/pkg/core/events","sdks/community/go/pkg/core/types"]},
   "shape_policy": {"accepted":"A field is accepted when every present peer descriptor permits its requiredness, nullability, literal, and runtime kind.","aliases":"Dart retains existing snake_case input aliases with camelCase key-presence precedence and emits canonical camelCase.","descriptor_paths":"Each inventory field points into peer_shapes. Descriptor values are a recorded review snapshot bound to the exact pinned source bytes by SHA-256; executable extraction independently verifies model and field names only.","descriptor_verification":"recorded-review-snapshot","rejected":"Missing required keys, invalid literals, and wrong non-null runtime kinds are rejected unless explicit_differences names the case."},
   "source_extraction_policy": {"dart":"Resolve relevant declarations through lib/ag_ui.dart and its exported barrels at the immutable implementation base.","field_scope":"Executable Python and TypeScript extraction verifies model/schema names, inheritance or extension, aliases, omissions, and field names. It does not reconstruct requiredness, nullability, literals, defaults, or runtime kinds.","go":"Resolve referenced exported declarations from the pinned Go event/type source set and validate canonical cases against the pinned Go corpus.","python":"Parse Pydantic model inheritance and compare the complete core __all__ public set with shared_exports.","typescript":"Resolve shared-export symbols through the package index.ts barrel; inferred z.infer aliases, Props helper types, error classes, and duplicate schema/type spellings are outside the one-row-per-logical-symbol inventory."},
@@ -500,14 +512,14 @@
     "subagent_outcome_types": [{"dart_status":"implemented","owner":"PR04","test_id":"pr04.subagents","value":"success"},{"dart_status":"implemented","owner":"PR04","test_id":"pr04.subagents","value":"suspended"}]
   },
   "verification_surfaces": [
-    {"id":"dart-direct-factory","owner":"PR07","status":"pending","test_id":"planned.interop"},
-    {"id":"dart-sse-codec","owner":"PR07","status":"pending","test_id":"planned.interop"},
-    {"id":"dart-from-go","owner":"PR07","status":"pending","test_id":"planned.interop"},
-    {"id":"dart-from-python","owner":"PR07","status":"pending","test_id":"planned.interop"},
-    {"id":"dart-from-typescript","owner":"PR07","status":"pending","test_id":"planned.interop"},
-    {"id":"go-from-dart","owner":"PR07","status":"pending","test_id":"planned.interop"},
-    {"id":"python-from-dart","owner":"PR07","status":"pending","test_id":"planned.interop"},
-    {"id":"typescript-from-dart","owner":"PR07","status":"pending","test_id":"planned.interop"},
+    {"id":"dart-direct-factory","owner":"PR07","status":"verified","test_id":"pr07.interop"},
+    {"id":"dart-sse-codec","owner":"PR07","status":"verified","test_id":"pr07.interop"},
+    {"id":"dart-from-go","owner":"PR07","status":"verified","test_id":"pr07.interop"},
+    {"id":"dart-from-python","owner":"PR07","status":"verified","test_id":"pr07.interop"},
+    {"id":"dart-from-typescript","owner":"PR07","status":"verified","test_id":"pr07.interop"},
+    {"id":"go-from-dart","owner":"PR07","status":"verified","test_id":"pr07.interop"},
+    {"id":"python-from-dart","owner":"PR07","status":"verified","test_id":"pr07.interop"},
+    {"id":"typescript-from-dart","owner":"PR07","status":"verified","test_id":"pr07.interop"},
     {"id":"flutter-projection","owner":"PR08","status":"pending","test_id":"planned.flutter"},
     {"id":"public-documentation","owner":"PR09","status":"pending","test_id":"planned.documentation"}
   ],

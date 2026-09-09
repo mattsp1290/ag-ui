@@ -451,6 +451,16 @@ func runParityCase(c parityCase, check string) error {
 }
 
 func runValueCase(c parityCase, check string, value any) error {
+	if check == "validate" {
+		switch value.(type) {
+		case *types.RunAgentInput:
+			return decodeResult(c, types.ValidateRunAgentInputJSON(c.Input))
+		case *types.Message:
+			return decodeResult(c, types.ValidateMessageJSON(c.Input))
+		case *types.InputContent:
+			return decodeResult(c, types.ValidateInputContentJSON(c.Input))
+		}
+	}
 	if err := json.Unmarshal(c.Input, value); err != nil {
 		return decodeResult(c, err)
 	}
@@ -458,9 +468,7 @@ func runValueCase(c parityCase, check string, value any) error {
 		if usage, ok := value.(*events.TokenUsage); ok {
 			return decodeResult(c, usage.Validate())
 		}
-		// Shared payload validation is intentionally owned by W3. Until its
-		// public opt-in validator exists, this row is an explicit W3 gap.
-		return fmt.Errorf("unsupported feature: no public validation API for %s", c.Kind)
+		return fmt.Errorf("unsupported validation target for %s", c.Kind)
 	}
 	if check != "marshal" && check != "jsonMarshal" {
 		return fmt.Errorf("unsupported check %q for %s", check, c.Kind)

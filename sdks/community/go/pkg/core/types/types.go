@@ -204,7 +204,6 @@ func (c *InputContent) UnmarshalJSON(data []byte) error {
 	if err := unmarshalField(raw, &c.Metadata, "metadata"); err != nil {
 		return err
 	}
-
 	if c.Type == InputContentTypeBinary {
 		if err := validateBinaryInputContent(*c); err != nil {
 			return err
@@ -241,6 +240,53 @@ type Message struct {
 	// SubagentRunID attributes this message to a subagent invocation.
 	// Empty when the message comes from the root agent.
 	SubagentRunID string `json:"subagentRunId,omitempty"`
+
+	// These flags retain explicit empty optional wire members without changing
+	// the public field types. Message already contains ToolCalls, so the type is
+	// not comparable and these flags do not alter comparable-value semantics.
+	errorExplicitEmpty          bool
+	encryptedValueExplicitEmpty bool
+	subagentRunIDExplicitEmpty  bool
+}
+
+// MarshalJSON preserves explicit empty optional fields and discriminator-
+// required empty fields while retaining omitempty behavior for Go literals.
+func (m Message) MarshalJSON() ([]byte, error) {
+	type messageAlias Message
+	var errorValue, encryptedValue, subagentRunID *string
+	if m.Error != "" || m.errorExplicitEmpty {
+		errorValue = &m.Error
+	}
+	if m.EncryptedValue != "" || m.encryptedValueExplicitEmpty {
+		encryptedValue = &m.EncryptedValue
+	}
+	if m.SubagentRunID != "" || m.subagentRunIDExplicitEmpty {
+		subagentRunID = &m.SubagentRunID
+	}
+	if m.Role == RoleTool {
+		return json.Marshal(struct {
+			messageAlias
+			ToolCallID     string  `json:"toolCallId"`
+			Error          *string `json:"error,omitempty"`
+			EncryptedValue *string `json:"encryptedValue,omitempty"`
+			SubagentRunID  *string `json:"subagentRunId,omitempty"`
+		}{messageAlias: messageAlias(m), ToolCallID: m.ToolCallID, Error: errorValue, EncryptedValue: encryptedValue, SubagentRunID: subagentRunID})
+	}
+	if m.Role == RoleActivity {
+		return json.Marshal(struct {
+			messageAlias
+			ActivityType   string  `json:"activityType"`
+			Error          *string `json:"error,omitempty"`
+			EncryptedValue *string `json:"encryptedValue,omitempty"`
+			SubagentRunID  *string `json:"subagentRunId,omitempty"`
+		}{messageAlias: messageAlias(m), ActivityType: m.ActivityType, Error: errorValue, EncryptedValue: encryptedValue, SubagentRunID: subagentRunID})
+	}
+	return json.Marshal(struct {
+		messageAlias
+		Error          *string `json:"error,omitempty"`
+		EncryptedValue *string `json:"encryptedValue,omitempty"`
+		SubagentRunID  *string `json:"subagentRunId,omitempty"`
+	}{messageAlias: messageAlias(m), Error: errorValue, EncryptedValue: encryptedValue, SubagentRunID: subagentRunID})
 }
 
 // UnmarshalJSON implements json.Unmarshaler and supports snake_case compatibility.
@@ -286,6 +332,9 @@ func (m *Message) UnmarshalJSON(data []byte) error {
 	if err := unmarshalField(raw, &m.SubagentRunID, "subagentRunId", "subagent_run_id"); err != nil {
 		return err
 	}
+	m.errorExplicitEmpty = hasEmptyStringField(raw, "error")
+	m.encryptedValueExplicitEmpty = hasEmptyStringField(raw, "encryptedValue", "encrypted_value")
+	m.subagentRunIDExplicitEmpty = hasEmptyStringField(raw, "subagentRunId", "subagent_run_id")
 
 	return nil
 }
@@ -529,11 +578,13 @@ func findRawField(raw map[string]json.RawMessage, keys ...string) (json.RawMessa
 	return nil, false
 }
 
+func hasEmptyStringField(raw map[string]json.RawMessage, keys ...string) bool {
+	value, ok := findRawField(raw, keys...)
+	return ok && bytes.Equal(bytes.TrimSpace(value), []byte(`""`))
+}
+
 // validateBinaryInputContent validates required fields for a binary fragment.
 func validateBinaryInputContent(content InputContent) error {
-	if content.MimeType == "" {
-		return fmt.Errorf("BinaryInputContent requires mimeType to be provided")
-	}
 	if content.ID == "" && content.URL == "" && content.Data == "" {
 		return fmt.Errorf("BinaryInputContent requires at least one of id, url, or data")
 	}

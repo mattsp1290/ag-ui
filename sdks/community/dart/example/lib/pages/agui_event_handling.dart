@@ -1,10 +1,10 @@
 import 'package:ag_ui/ag_ui.dart';
 import 'package:flutter/foundation.dart';
 
-import '../models/agui_event_projection.dart';
+import 'agui_event_projection.dart';
 import '../models/chat_message.dart';
 
-export '../models/agui_event_projection.dart'
+export 'agui_event_projection.dart'
     show AgUiRunStatus, AgUiSubagentState, AgUiSubagentStatus;
 
 mixin AgUiEventHandling on ChangeNotifier {
@@ -23,8 +23,18 @@ mixin AgUiEventHandling on ChangeNotifier {
 
   void onRunReset() {}
 
-  void beginRun({Iterable<String> resumedSubagentIds = const []}) =>
-      _projection.beginRun(resumedSubagentIds: resumedSubagentIds);
+  void onRunStarted() {}
+
+  void beginRun({
+    Iterable<String> resumedSubagentIds = const [],
+    bool continuation = false,
+  }) {
+    if (!continuation) onRunStarted();
+    _projection.beginRun(
+      resumedSubagentIds: resumedSubagentIds,
+      continuation: continuation,
+    );
+  }
 
   bool handleCommonEvent(BaseEvent event) => _projection.handleEvent(event);
 

@@ -406,6 +406,57 @@ void main() {
     expect(childRows.single.content, 'before after');
   });
 
+  test('fresh runs isolate reused root and child protocol identities', () {
+    final projection = _Projection()..beginRun();
+    projection.handleCommonEvent(
+      const SubagentStartedEvent(subagentRunId: 'child', name: 'First'),
+    );
+    projection.handleCommonEvent(
+      const TextMessageContentEvent(
+        messageId: 'answer',
+        subagentRunId: 'child',
+        delta: 'old child',
+      ),
+    );
+    projection.handleCommonEvent(
+      const TextMessageContentEvent(messageId: 'root', delta: 'old root'),
+    );
+
+    projection.beginRun();
+    projection.handleCommonEvent(
+      const SubagentStartedEvent(subagentRunId: 'child', name: 'Second'),
+    );
+    projection.handleCommonEvent(
+      const TextMessageContentEvent(
+        messageId: 'answer',
+        subagentRunId: 'child',
+        delta: 'new child',
+      ),
+    );
+    projection.handleCommonEvent(
+      const TextMessageContentEvent(messageId: 'root', delta: 'new root'),
+    );
+
+    final childRows = projection.messages.where(
+      (message) => message.subagentRunId == 'child',
+    );
+    expect(childRows, hasLength(2));
+    expect(childRows.map((message) => message.content), {
+      'old child',
+      'new child',
+    });
+    expect(childRows.first.subagentName, 'First');
+    expect(childRows.last.subagentName, 'Second');
+    final rootRows = projection.messages.where(
+      (message) => message.protocolId == 'root',
+    );
+    expect(rootRows, hasLength(2));
+    expect(rootRows.map((message) => message.content), {
+      'old root',
+      'new root',
+    });
+  });
+
   test('child failure does not terminate root and terminal state is typed', () {
     final projection = _Projection()..beginRun();
     projection.handleCommonEvent(

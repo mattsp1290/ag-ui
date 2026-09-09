@@ -200,7 +200,7 @@ class ClientToolsPageState extends ChangeNotifier with AgUiEventHandling {
 
     try {
       for (var followUps = 0; ; followUps++) {
-        if (!await _consumeRun()) return;
+        if (!await _consumeRun(continuation: followUps > 0)) return;
         if (_pendingCalls.isEmpty) return;
         if (followUps == maxFollowUpRuns) {
           throw StateError(
@@ -239,9 +239,9 @@ class ClientToolsPageState extends ChangeNotifier with AgUiEventHandling {
     }
   }
 
-  Future<bool> _consumeRun() async {
+  Future<bool> _consumeRun({required bool continuation}) async {
     final priorMessageIds = messages.map((message) => message.id).toSet();
-    beginRun();
+    beginRun(continuation: continuation);
     _pendingCalls = const [];
     await for (final event in _service.run(
       endpoint.path,

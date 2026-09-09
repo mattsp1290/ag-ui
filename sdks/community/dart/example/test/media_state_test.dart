@@ -321,6 +321,74 @@ void main() {
   }
 
   testWidgets(
+    'a new multimodal run does not apply deltas to prior state rows',
+    (tester) async {
+      final endpoint = EndpointConfig.availableEndpoints.firstWhere(
+        (item) => item.path == 'vision',
+      );
+      Future<PlatformFile> picker(List<String> _) async => PlatformFile(
+        name: 'tiny.png',
+        size: 1,
+        bytes: Uint8List.fromList([1]),
+      );
+      final service = _CapturingService([
+        Stream.fromIterable(const [
+          StateSnapshotEvent(
+            snapshot: {
+              'steps': [
+                {'description': 'Old step', 'status': 'pending'},
+              ],
+            },
+          ),
+          RunFinishedEvent(threadId: 'thread', runId: 'first'),
+        ]),
+        Stream.fromIterable(const [
+          StateDeltaEvent(
+            delta: [
+              {
+                'op': 'replace',
+                'path': '/steps/0/status',
+                'value': 'completed',
+              },
+            ],
+          ),
+          RunFinishedEvent(threadId: 'thread', runId: 'second'),
+        ]),
+      ]);
+      final state = MultimodalChatPageState(
+        endpoint: endpoint,
+        service: service,
+        filePicker: picker,
+      );
+      addTearDown(state.dispose);
+      await tester.pumpWidget(
+        const MaterialApp(home: Scaffold(body: Text('host'))),
+      );
+      final context = tester.element(find.byType(Scaffold));
+
+      await state.pickFile(['png'], context);
+      state.sendMultimodal('first');
+      await tester.pump();
+      await tester.pump();
+      final stateRow = state.messages.singleWhere(
+        (message) => message.content.contains('Old step'),
+      );
+
+      await state.pickFile(['png'], context);
+      state.sendMultimodal('second');
+      await tester.pump();
+      await tester.pump();
+
+      expect(
+        state.messages
+            .singleWhere((message) => message.id == stateRow.id)
+            .content,
+        stateRow.content,
+      );
+    },
+  );
+
+  testWidgets(
     'media RUN_ERROR ignores trailing events and next interruption recovers',
     (tester) async {
       final endpoint = EndpointConfig.availableEndpoints.firstWhere(

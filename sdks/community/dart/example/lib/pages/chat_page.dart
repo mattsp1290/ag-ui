@@ -175,11 +175,15 @@ class ChatPageState extends ChangeNotifier with AgUiEventHandling {
   bool get isLoading => _isLoading;
   ConnectionStatus get connectionStatus => _connectionStatus;
 
+  @override
+  void onRunStarted() {
+    _stateMessageIds.clear();
+  }
+
   void sendMessage(String text) async {
     final trimmed = text.trim();
     if (trimmed.isEmpty || _isLoading || _disposed) return;
     beginRun();
-    _stateMessageIds.clear();
     final userId = uid('user');
 
     final userMessage = ChatMessage(

@@ -62,7 +62,13 @@ void main() {
       expect(mergeMetadata(existing, null), same(existing));
       expect(mergeMetadata(null, incoming), isNot(same(incoming)));
       expect(mergeMetadata(null, incoming), incoming);
-      expect(mergeMetadata(existing, <String, dynamic>{}), isNotNull);
+      final emptyIncoming = <String, dynamic>{};
+      expect(mergeMetadata(existing, emptyIncoming), existing);
+      expect(emptyIncoming, isEmpty);
+      expect(existing, {
+        agUiMetadataKey: {'old': true},
+        'keep': 1,
+      });
     });
 
     test('retains ordinary __proto__ keys', () {

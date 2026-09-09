@@ -706,9 +706,13 @@ void main() {
 
       expect(error.field, 'messages[0].toolCalls[0].metadata');
       expect(error.actualValue, isNull);
+      expect(error.cause, isA<AGUIValidationError>());
       _expectNoSecrets(error.message, const [cipher, metadataSecret]);
       _expectNoSecrets(error.actualValue, const [cipher, metadataSecret]);
-      _expectNoSecrets(error.cause, const [cipher, metadataSecret]);
+      _expectSanitizedValidationTree(
+        error.cause! as AGUIValidationError,
+        const [cipher, metadataSecret],
+      );
       _expectNoSecrets(error, const [cipher, metadataSecret]);
     });
   });

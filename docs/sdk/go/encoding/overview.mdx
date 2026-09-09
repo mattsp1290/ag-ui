@@ -66,6 +66,26 @@ type Codec interface {
 
 ## JSON Encoding
 
+### Three canonical decoders
+
+Use `events.EventFromJSON(data)` to decode a complete event selected by its JSON
+`type`. Use `events.NewEventDecoder(nil).DecodeEvent(eventName, data)` when a
+separate event name selects the concrete Go type; this legacy entry point preserves
+its existing payload-discriminator behavior and does not call `Validate`. Use
+`json.NewJSONDecoder(nil).Decode(ctx, data)` for context-aware decoding with strict
+unknown-field checks and event validation enabled by default. Its `json.NewDecoder()`
+convenience alias returns the common `encoding.Decoder` interface.
+
+All three paths cover the 36 canonical event types: the four text message types, five
+tool call types, five state/activity/message snapshot types, `RAW`, `CUSTOM`, three
+run types, two step types, five deprecated `THINKING_*` types, seven `REASONING_*`
+types, and three `SUBAGENT_*` types. The concrete values implement `events.Event`.
+
+`Strict` and `ValidateEvents` are independent controls. Strict decoding rejects
+unknown fields when `AllowUnknownFields` is false; validation calls `Event.Validate`
+after decoding. Set either explicitly in `DecodingOptions` when you need a different
+policy.
+
 The JSON encoder provides high-performance JSON serialization with support for cross-SDK compatibility:
 
 ```go

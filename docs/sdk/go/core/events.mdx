@@ -5,7 +5,9 @@ description: "Documentation for the events used in the Go AG-UI Protocol SDK"
 
 # Events
 
-The AG-UI Protocol SDK uses a streaming event-based architecture. Events are the fundamental units of communication between agents and the frontend. This section documents the event types and their properties in the Go SDK.
+The AG-UI Protocol SDK uses a streaming event-based architecture. Events are the
+fundamental units of communication between agents and the frontend. This section
+documents the event types and their properties in the Go SDK.
 
 ## EventType Constants
 
@@ -27,6 +29,8 @@ const (
     EventTypeStateSnapshot      EventType = "STATE_SNAPSHOT"
     EventTypeStateDelta         EventType = "STATE_DELTA"
     EventTypeMessagesSnapshot   EventType = "MESSAGES_SNAPSHOT"
+    EventTypeActivitySnapshot   EventType = "ACTIVITY_SNAPSHOT"
+    EventTypeActivityDelta      EventType = "ACTIVITY_DELTA"
     EventTypeRaw                EventType = "RAW"
     EventTypeCustom             EventType = "CUSTOM"
     EventTypeRunStarted         EventType = "RUN_STARTED"
@@ -34,8 +38,20 @@ const (
     EventTypeRunError           EventType = "RUN_ERROR"
     EventTypeStepStarted        EventType = "STEP_STARTED"
     EventTypeStepFinished       EventType = "STEP_FINISHED"
-    
-    // Thinking events (DEPRECATED — use the REASONING_* events below; removed in 1.0.0)
+
+    EventTypeReasoningStart          EventType = "REASONING_START"
+    EventTypeReasoningMessageStart   EventType = "REASONING_MESSAGE_START"
+    EventTypeReasoningMessageContent EventType = "REASONING_MESSAGE_CONTENT"
+    EventTypeReasoningMessageEnd     EventType = "REASONING_MESSAGE_END"
+    EventTypeReasoningMessageChunk   EventType = "REASONING_MESSAGE_CHUNK"
+    EventTypeReasoningEnd            EventType = "REASONING_END"
+    EventTypeReasoningEncryptedValue EventType = "REASONING_ENCRYPTED_VALUE"
+
+    EventTypeSubagentStarted  EventType = "SUBAGENT_STARTED"
+    EventTypeSubagentFinished EventType = "SUBAGENT_FINISHED"
+    EventTypeSubagentError    EventType = "SUBAGENT_ERROR"
+
+    // Thinking events (DEPRECATED — retained for compatibility; use REASONING_*)
     EventTypeThinkingStart              EventType = "THINKING_START"
     EventTypeThinkingEnd                EventType = "THINKING_END"
     EventTypeThinkingTextMessageStart   EventType = "THINKING_TEXT_MESSAGE_START"
@@ -46,31 +62,32 @@ const (
 
 ## Event Interface
 
-All events implement the `Event` interface, which provides a common contract for event handling:
+All events implement the `Event` interface, which provides a common contract for
+event handling:
 
 ```go
 type Event interface {
     // Type returns the event type
     Type() EventType
-    
+
     // Timestamp returns the event timestamp (Unix milliseconds)
     Timestamp() *int64
-    
+
     // SetTimestamp sets the event timestamp
     SetTimestamp(timestamp int64)
-    
+
     // ThreadID returns the thread ID associated with this event
     ThreadID() string
-    
+
     // RunID returns the run ID associated with this event
     RunID() string
-    
+
     // Validate validates the event structure and content
     Validate() error
-    
+
     // ToJSON serializes the event to JSON for cross-SDK compatibility
     ToJSON() ([]byte, error)
-    
+
     // GetBaseEvent returns the underlying base event
     GetBaseEvent() *BaseEvent
 }
@@ -78,21 +95,24 @@ type Event interface {
 
 ## BaseEvent
 
-All events embed the `BaseEvent` struct, which provides common fields and functionality:
+All events embed the `BaseEvent` struct, which provides common fields and
+functionality:
 
 ```go
 type BaseEvent struct {
     EventType   EventType `json:"type"`
     TimestampMs *int64    `json:"timestamp,omitempty"`
     RawEvent    any       `json:"rawEvent,omitempty"`
+    Metadata    types.Metadata `json:"metadata,omitempty"`
 }
 ```
 
 | Field | Type | Description |
-|-------|------|-------------|
+| ------------- | ---------------- | ---------------------------------------------------------------------------------- |
 | `EventType` | `EventType` | The type of event (discriminator field) |
 | `TimestampMs` | `*int64` | Timestamp when the event was created (Unix milliseconds) |
 | `RawEvent` | `any` | Original event data if this event was transformed |
+| `Metadata`    | `types.Metadata` | Optional arbitrary JSON metadata available on every event through `GetBaseEvent()` |
 
 ### Creating a Base Event
 
@@ -102,6 +122,50 @@ import "github.com/ag-ui-protocol/ag-ui/sdks/community/go/pkg/core/events"
 // Create a new base event with automatic timestamp
 baseEvent := events.NewBaseEvent(events.EventTypeCustom)
 ```
+
+`NewBaseEvent` sets the timestamp. Every concrete event constructor embeds it,
+and every event implements all methods in `Event`, including `GetBaseEvent`. Use
+that method for fields shared across concrete event types:
+
+```go
+func addTrace(event events.Event, traceID string) {
+    event.GetBaseEvent().Metadata = types.Metadata{"traceId": traceID}
+}
+```
+
+## Complete event catalogue
+
+The Go package implements all 36 current event types. The constructors below are
+the public entry points; `With...` options add optional fields without changing
+the established simple constructors.
+
+| Group                    | Events and constructors                                                                                                                                                                                                                                                                                                             |
+| ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Text                     | `TextMessageStart` (`NewTextMessageStartEvent`), `TextMessageContent` (`NewTextMessageContentEvent`, `NewTextMessageContentEventWithOptions`), `TextMessageEnd` (`NewTextMessageEndEvent`, `NewTextMessageEndEventWithOptions`), `TextMessageChunk` (`NewTextMessageChunkEvent`)                                                    |
+| Tool                     | `ToolCallStart` (`NewToolCallStartEvent`), `ToolCallArgs` (`NewToolCallArgsEvent`, `NewToolCallArgsEventWithOptions`), `ToolCallEnd` (`NewToolCallEndEvent`, `NewToolCallEndEventWithOptions`), `ToolCallChunk` (`NewToolCallChunkEvent`), `ToolCallResult` (`NewToolCallResultEvent`)                                              |
+| State and activity       | `StateSnapshot` (`NewStateSnapshotEvent`), `StateDelta` (`NewStateDeltaEvent`), `MessagesSnapshot` (`NewMessagesSnapshotEvent`), `ActivitySnapshot` (`NewActivitySnapshotEvent`), `ActivityDelta` (`NewActivityDeltaEvent`)                                                                                                         |
+| Run                      | `RunStarted` (`NewRunStartedEvent`, `NewRunStartedEventWithOptions`), `RunFinished` (`NewRunFinishedEvent`, `NewRunFinishedEventWithOptions`), `RunError` (`NewRunErrorEvent`), `StepStarted` (`NewStepStartedEvent`, `NewStepStartedEventWithOptions`), `StepFinished` (`NewStepFinishedEvent`, `NewStepFinishedEventWithOptions`) |
+| Reasoning                | `ReasoningStart`, `ReasoningMessageStart`, `ReasoningMessageContent`, `ReasoningMessageEnd`, `ReasoningMessageChunk`, `ReasoningEnd`, and `ReasoningEncryptedValue`, each with the corresponding `New...Event` constructor                                                                                                          |
+| Subagent                 | `SubagentStarted` (`NewSubagentStartedEvent`), `SubagentFinished` (`NewSubagentFinishedEvent`), `SubagentError` (`NewSubagentErrorEvent`)                                                                                                                                                                                           |
+| Escape hatches           | `Custom` (`NewCustomEvent`) and `Raw` (`NewRawEvent`)                                                                                                                                                                                                                                                                               |
+| Deprecated compatibility | `ThinkingStart`, `ThinkingEnd`, `ThinkingTextMessageStart`, `ThinkingTextMessageContent`, and `ThinkingTextMessageEnd`, each with the corresponding constructor; prefer reasoning events for new producers                                                                                                                          |
+
+Chunk events accept optional pieces and are useful when a producer cannot emit
+the full start/content/end lifecycle separately. Activity deltas carry JSON
+Patch operations. `REASONING_ENCRYPTED_VALUE` carries an opaque `encryptedValue`
+for either a reasoning `message` or `tool`; consumers should forward it without
+inspecting it.
+
+Most stream events expose optional `SubagentRunID` attribution. Subagent
+lifecycle events describe the invocation itself: start can include its parent
+subagent and spawning tool/message, finish can include a result and a `success`
+or `suspended` outcome, and error terminates the subagent independently of the
+root run. A suspended subagent can be announced again with the same ID after the
+client resumes the run.
+
+The canonical definitions are the Go files in
+[`pkg/core/events`](https://github.com/ag-ui-protocol/ag-ui/tree/main/sdks/community/go/pkg/core/events),
+including the event constructors and their option functions.
 
 ## Text Message Events
 
@@ -120,7 +184,7 @@ type TextMessageStartEvent struct {
 ```
 
 | Field | Type | Description |
-|-------|------|-------------|
+| ----------- | --------- | ------------------------------------------------------ |
 | `MessageID` | `string` | Unique identifier for the message |
 | `Role` | `*string` | Role of the message sender (e.g., "assistant", "user") |
 
@@ -150,7 +214,7 @@ type TextMessageContentEvent struct {
 ```
 
 | Field | Type | Description |
-|-------|------|-------------|
+| ----------- | -------- | ----------------------------------------- |
 | `MessageID` | `string` | ID of the message this content belongs to |
 | `Delta` | `string` | The text content chunk |
 
@@ -179,7 +243,7 @@ type TextMessageEndEvent struct {
 ```
 
 | Field | Type | Description |
-|-------|------|-------------|
+| ----------- | -------- | -------------------------------- |
 | `MessageID` | `string` | ID of the message that has ended |
 
 **Usage Example:**
@@ -213,7 +277,7 @@ type ToolCallStartEvent struct {
 ```
 
 | Field | Type | Description |
-|-------|------|-------------|
+| ----------------- | --------- | ---------------------------------------- |
 | `ToolCallID` | `string` | Unique identifier for the tool call |
 | `ToolCallName` | `string` | Name of the tool being called |
 | `ParentMessageID` | `*string` | ID of the parent message (if applicable) |
@@ -248,7 +312,7 @@ type ToolCallArgsEvent struct {
 ```
 
 | Field | Type | Description |
-|-------|------|-------------|
+| ------------ | -------- | ---------------------------------- |
 | `ToolCallID` | `string` | ID of the tool call |
 | `Delta` | `string` | JSON string chunk of the arguments |
 
@@ -278,7 +342,7 @@ type ToolCallEndEvent struct {
 ```
 
 | Field | Type | Description |
-|-------|------|-------------|
+| ------------ | -------- | ---------------------------------- |
 | `ToolCallID` | `string` | ID of the tool call that has ended |
 
 ### ToolCallResultEvent
@@ -296,13 +360,30 @@ type ToolCallResultEvent struct {
 ```
 
 | Field | Type | Description |
-|-------|------|-------------|
+| ------------ | --------- | ---------------------------- |
 | `MessageID` | `string` | ID of the result message |
 | `ToolCallID` | `string` | ID of the tool call |
 | `Content` | `string` | Result content from the tool |
 | `Role` | `*string` | Role (typically "tool") |
 
 ## Run Lifecycle Events
+
+`RUN_STARTED` can carry `parentRunId` and the original `RunAgentInput`:
+
+```go
+started := events.NewRunStartedEventWithOptions(
+    "thread-1",
+    "run-2",
+    events.WithParentRunID("run-1"),
+    events.WithRunInput(input),
+)
+```
+
+`RUN_FINISHED` accepts an optional result, usage, and discriminated outcome. Use
+`WithSuccessOutcome()` for completion or `WithInterruptOutcome(interrupts)` for
+a paused run; an interrupt outcome must contain at least one valid interrupt.
+`RUN_ERROR` may carry partial usage. Omitted outcomes keep the legacy success
+interpretation.
 
 These events track the lifecycle of agent runs.
 
@@ -319,7 +400,7 @@ type RunStartedEvent struct {
 ```
 
 | Field | Type | Description |
-|-------|------|-------------|
+| --------------- | -------- | ----------------------------- |
 | `ThreadIDValue` | `string` | ID of the conversation thread |
 | `RunIDValue` | `string` | ID of the agent run |
 
@@ -350,7 +431,7 @@ type RunFinishedEvent struct {
 ```
 
 | Field | Type | Description |
-|-------|------|-------------|
+| --------------- | ------------- | ------------------------------ |
 | `ThreadIDValue` | `string` | ID of the conversation thread |
 | `RunIDValue` | `string` | ID of the agent run |
 | `Result` | `interface{}` | Result data from the agent run |
@@ -369,7 +450,7 @@ type RunErrorEvent struct {
 ```
 
 | Field | Type | Description |
-|-------|------|-------------|
+| ------------ | --------- | ---------------------------------------- |
 | `Code` | `*string` | Error code |
 | `Message` | `string` | Error message |
 | `RunIDValue` | `string` | ID of the run that encountered the error |
@@ -384,6 +465,36 @@ event := events.NewRunErrorEvent(
     events.WithRunID("run-012"),
 )
 ```
+
+### Token usage helpers
+
+Counts are `*int64`, so an explicit zero is different from an unreported count.
+`TokenCount` makes that intent concise:
+
+```go
+usage := []events.TokenUsage{{
+    Provider: "openai",
+    Model: "example-model",
+    InputTokens: events.TokenCount(0),
+    OutputTokens: events.TokenCount(12),
+}}
+finished := events.NewRunFinishedEventWithOptions(
+    "thread-1", "run-2", events.WithUsage(usage),
+)
+```
+
+`AggregateTokenUsage` validates non-negative counts and groups by the exact
+`(provider, model)` pair in first-seen order. It returns fresh pointers, checks
+every sum for `int64` overflow, preserves unreported versus zero fields, and
+never derives `totalTokens` from input and output counts.
+
+`TokenUsageFromLangChainMetadata` reads only `input_tokens`, `output_tokens`,
+`total_tokens`, `input_token_details.cache_read`, and
+`output_token_details.reasoning`. It accepts Go integer types, `json.Number`,
+and finite integral floats from `0` through `2^53-1`. Invalid fields are ignored
+independently; strings, booleans, negative or fractional values, non-finite
+floats, and out-of-range integers do not become counts. The helper returns `nil`
+if no count survives, even when provider or model labels exist.
 
 ## State Management Events
 
@@ -401,7 +512,7 @@ type StateSnapshotEvent struct {
 ```
 
 | Field | Type | Description |
-|-------|------|-------------|
+| ---------- | ----- | ----------------------- |
 | `Snapshot` | `any` | Complete state snapshot |
 
 **Usage Example:**
@@ -434,7 +545,7 @@ type JSONPatchOperation struct {
 ```
 
 | Field | Type | Description |
-|-------|------|-------------|
+| ------- | ---------------------- | ------------------------------ |
 | `Delta` | `[]JSONPatchOperation` | Array of JSON Patch operations |
 
 **Usage Example:**
@@ -459,11 +570,12 @@ event := events.NewStateDeltaEvent(delta)
 ## Thinking Events (Deprecated)
 
 <Warning>
-  The `THINKING_*` events are deprecated and will be removed in version 1.0.0.
-  New implementations should use `REASONING_*` events instead.
+  The `THINKING_*` events are deprecated compatibility aliases. New
+  implementations should use `REASONING_*` events instead.
 </Warning>
 
-These events support reasoning/thinking phases where the agent shows its thought process.
+These events support reasoning/thinking phases where the agent shows its thought
+process.
 
 The following event types are deprecated:
 
@@ -490,7 +602,7 @@ type ThinkingStartEvent struct {
 ```
 
 | Field | Type | Description |
-|-------|------|-------------|
+| ------- | --------- | ------------------------------------- |
 | `Title` | `*string` | Optional title for the thinking phase |
 
 ### ThinkingTextMessageContentEvent
@@ -505,7 +617,7 @@ type ThinkingTextMessageContentEvent struct {
 ```
 
 | Field | Type | Description |
-|-------|------|-------------|
+| ------- | -------- | ---------------------- |
 | `Delta` | `string` | Thinking content chunk |
 
 ## Event Decoding
@@ -542,7 +654,8 @@ case *events.ToolCallStartEvent:
 
 ## Event Validation
 
-All events support validation to ensure they conform to the protocol specification:
+All events support validation to ensure they conform to the protocol
+specification:
 
 ### Individual Event Validation
 
@@ -558,11 +671,12 @@ if err := event.Validate(); err != nil {
 
 ### Sequence Validation
 
-The SDK can validate entire event sequences to ensure they follow the protocol rules:
+The SDK can validate entire event sequences to ensure they follow the protocol
+rules:
 
 ```go
 // Validate a sequence of events
-events := []events.Event{
+sequence := []events.Event{
     events.NewRunStartedEvent("thread-1", "run-1"),
     events.NewTextMessageStartEvent("msg-1"),
     events.NewTextMessageContentEvent("msg-1", "Hello"),
@@ -570,13 +684,14 @@ events := []events.Event{
     events.NewRunFinishedEvent("thread-1", "run-1"),
 }
 
-if err := events.ValidateSequence(events); err != nil {
+if err := events.ValidateSequence(sequence); err != nil {
     // Handle sequence validation error
     fmt.Printf("Invalid event sequence: %v\n", err)
 }
 ```
 
 Sequence validation ensures:
+
 - Runs are started before they can be finished or errored
 - Messages are started before content can be added or ended
 - Tool calls follow the proper start → args → end lifecycle

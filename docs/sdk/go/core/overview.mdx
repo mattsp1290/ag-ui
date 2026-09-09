@@ -6,31 +6,69 @@ description: "Core concepts in the Agent User Interaction Protocol Go SDK"
 # Package Import
 
 ```go
-import "github.com/ag-ui-protocol/ag-ui/sdks/community/go/pkg/core/events"
+import (
+    "github.com/ag-ui-protocol/ag-ui/sdks/community/go/pkg/core/events"
+    "github.com/ag-ui-protocol/ag-ui/sdks/community/go/pkg/core/types"
+)
 ```
 
 ## Types Overview
 
-The core package provides the fundamental types and interfaces that power the AG-UI protocol in Go. These types represent the building blocks for agent-to-frontend communication through a strongly typed, event-driven architecture.
+The core package provides the fundamental types and interfaces that power the
+AG-UI protocol in Go. These types represent the building blocks for
+agent-to-frontend communication through a strongly typed, event-driven
+architecture.
 
 Key types include:
+
 - **Event Interface** - The base interface implemented by all AG-UI events
 - **BaseEvent** - Common fields shared across all event types
 - **Event Type Constants** - Strongly typed event identifiers
+- **Protocol Payloads** - Messages, multimodal input, tools, interrupts, resume
+  entries, and run input
+- **Capabilities** - Optional declarations for identity, transport, tools,
+  output, state, multi-agent, reasoning, multimodal, execution, and human
+  interaction
+- **Token Usage** - Numeric-only usage records, aggregation, and LangChain
+  metadata mapping
 - **Validation Methods** - Built-in event validation
 
 ## Events Overview
 
-The events package (`core/events`) forms the foundation of the SDK, providing a comprehensive event-driven system for real-time communication between agents and frontends. The architecture is built around Server-Sent Events (SSE) for efficient streaming.
+The events package (`core/events`) forms the foundation of the SDK, providing a
+comprehensive event-driven system for real-time communication between agents and
+frontends. The architecture is built around Server-Sent Events (SSE) for
+efficient streaming.
 
-The event system includes:
-- **Text Message Events** - Streaming assistant responses with start, content, and end markers
-- **Tool Call Events** - Function execution lifecycle from invocation through result
-- **Run Lifecycle Events** - Tracking agent execution states and errors
-- **State Management Events** - Synchronizing agent state with snapshots and deltas
-- **Thinking Events** - Supporting reasoning phases with dedicated event streams
+The package covers all 36 current event types, including:
 
-All events implement the common `Event` interface, enabling consistent handling patterns while maintaining type safety through Go's type system.
+- **Text Message Events** - Streaming assistant responses with start, content,
+  and end markers
+- **Tool Call Events** - Function execution lifecycle from invocation through
+  result
+- **Run Lifecycle Events** - Parent runs, original input, success/interrupt
+  outcomes, errors, and usage
+- **State Management Events** - Synchronizing agent state with snapshots and
+  deltas
+- **Reasoning and Activity Events** - Visible, chunked, or encrypted reasoning
+  and structured activity
+- **Subagent Events** - Nested invocation lifecycle and attribution across the
+  stream
+- **Thinking Events** - Deprecated compatibility events retained for older
+  producers
+
+All events implement the common `Event` interface, including `GetBaseEvent`,
+which exposes timestamp, raw-event data, and metadata uniformly. Payloads use
+seven message roles and preserve wire distinctions that matter: required nil
+request arrays encode as `[]`, optional nil arrays are omitted, explicit empty
+optional arrays stay `[]`, and pointer counts preserve a reported zero.
+
+For producer-side boundary checks, call the relevant `Validate` or
+`ValidateProtocol` method before encoding. For the canonical API surface, see
+the Go sources for
+[`events`](https://github.com/ag-ui-protocol/ag-ui/tree/main/sdks/community/go/pkg/core/events)
+and
+[`types`](https://github.com/ag-ui-protocol/ag-ui/tree/main/sdks/community/go/pkg/core/types).
 
 ## Navigation Cards
 

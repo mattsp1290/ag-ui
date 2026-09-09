@@ -179,27 +179,45 @@ func (c *Client) stream(opts StreamOptions) (<-chan Frame, <-chan error, error) 
 }
 
 func (c *Client) readStream(ctx context.Context, resp *http.Response, frames chan<- Frame, errors chan<- error) {
-	defer func() {
-		_ = resp.Body.Close()
-		close(frames)
-		close(errors)
-		if c.logger != nil {
-			c.logger.Info("SSE connection closed")
-		}
-	}()
-
-	reader := bufio.NewReader(resp.Body)
-	var buffer bytes.Buffer
-	var frameCount int64
-	var byteCount int64
-	startTime := time.Now()
-
-	// Create a channel for read results
 	type readResult struct {
 		line []byte
 		err  error
 	}
+
 	readCh := make(chan readResult)
+	stopReader := make(chan struct{})
+	readerDone := make(chan struct{})
+	reader := bufio.NewReader(resp.Body)
+	go func() {
+		defer close(readerDone)
+		for {
+			line, err := reader.ReadBytes('\n')
+			select {
+			case readCh <- readResult{line: line, err: err}:
+			case <-stopReader:
+				return
+			}
+			if err != nil {
+				return
+			}
+		}
+	}()
+
+	defer func() {
+		close(stopReader)
+		_ = resp.Body.Close()
+		<-readerDone
+		if c.logger != nil {
+			c.logger.Info("SSE connection closed")
+		}
+		close(frames)
+		close(errors)
+	}()
+
+	var buffer bytes.Buffer
+	var frameCount int64
+	var byteCount int64
+	startTime := time.Now()
 
 	for {
 		select {
@@ -211,22 +229,14 @@ func (c *Client) readStream(ctx context.Context, resp *http.Response, frames cha
 		default:
 		}
 
-		// Start async read
-		go func() {
-			line, err := reader.ReadBytes('\n')
-			select {
-			case readCh <- readResult{line: line, err: err}:
-			case <-ctx.Done():
-			}
-		}()
-
 		// Wait for read result with timeout
 		var result readResult
 		if c.config.ReadTimeout > 0 {
+			timer := time.NewTimer(c.config.ReadTimeout)
 			select {
 			case result = <-readCh:
-				// Got result
-			case <-time.After(c.config.ReadTimeout):
+				timer.Stop()
+			case <-timer.C:
 				// Timeout occurred
 				select {
 				case errors <- fmt.Errorf("read timeout after %v", c.config.ReadTimeout):
@@ -234,6 +244,7 @@ func (c *Client) readStream(ctx context.Context, resp *http.Response, frames cha
 				}
 				return
 			case <-ctx.Done():
+				timer.Stop()
 				return
 			}
 		} else {

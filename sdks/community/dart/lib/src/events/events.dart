@@ -10,9 +10,9 @@ library;
 import 'dart:developer' as developer;
 
 import '../types/base.dart';
+import '../types/context.dart';
 import '../types/metadata.dart';
 import '../types/message.dart';
-import '../types/context.dart';
 import 'event_type.dart';
 
 export 'event_type.dart';
@@ -63,7 +63,9 @@ bool _containsCipher(Object? value) {
     }
     return value.values.any(_containsCipher);
   }
-  if (value is List<dynamic>) return value.any(_containsCipher);
+  if (value is List<dynamic>) {
+    return value.any(_containsCipher);
+  }
   return false;
 }
 
@@ -72,7 +74,9 @@ Metadata? _readMetadata(Map<String, dynamic> json) {
   try {
     return JsonDecoder.optionalField<Map<String, dynamic>>(json, 'metadata');
   } on AGUIValidationError catch (e) {
-    if (!_containsCipher(json)) rethrow;
+    if (!_containsCipher(json)) {
+      rethrow;
+    }
     throw AGUIValidationError(
       message: e.message,
       field: e.field,

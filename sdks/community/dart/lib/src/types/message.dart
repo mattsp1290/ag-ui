@@ -21,7 +21,9 @@ Metadata? _readMessageMetadata(Map<String, dynamic> json) {
         }
         return value.values.any(containsCipher);
       }
-      if (value is List<dynamic>) return value.any(containsCipher);
+      if (value is List<dynamic>) {
+        return value.any(containsCipher);
+      }
       return false;
     }
 

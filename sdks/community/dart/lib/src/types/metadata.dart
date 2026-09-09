@@ -12,7 +12,11 @@ const String agUiMetadataKey = 'ag-ui';
 /// Neither source map is mutated. A null incoming map returns the existing map
 /// unchanged; when only incoming is present, a new map is returned.
 Metadata? mergeMetadata(Metadata? existing, Metadata? incoming) {
-  if (incoming == null) return existing;
-  if (existing == null) return <String, dynamic>{...incoming};
+  if (incoming == null) {
+    return existing;
+  }
+  if (existing == null) {
+    return <String, dynamic>{...incoming};
+  }
   return <String, dynamic>{...existing, ...incoming};
 }

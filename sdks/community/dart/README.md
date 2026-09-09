@@ -771,3 +771,88 @@ arbitrary metadata unless the application explicitly owns that disclosure.
 ## License
 
 This SDK is part of the AG-UI Protocol project. See the [main repository](https://github.com/ag-ui-protocol/ag-ui) for license information.
+
+## Bounded SSE byte parsing
+
+`SseClient.parseStream` incrementally decodes strict UTF-8 and bounds every
+unfinished line, including comments, unknown/colonless fields, IDs and retry
+fields. `connect` uses the same parser limits and retains its existing reconnect
+policy. `parseStream` errors are terminal for that call: a content-free
+`FormatException` cancels the source and discards partial data/event/retry state.
+Completed messages before a malformed or oversized suffix remain delivered.
+The caller's HTTP client remains usable, and concurrent `parseStream` calls
+have independent state and do not change `SseClient.lastEventId`.
+
+```dart
+final sse = SseClient(
+  maxDataCodeUnits: 1024 * 1024,
+  maxLineCodeUnits: 1024 * 1024 + 7, // optional; this is the derived default
+);
+final messages = sse.parseStream(responseBytes);
+```
+
+Both limits count **UTF-16 code units**, not UTF-8 bytes: a supplementary
+character counts as two. The data/event cap D defaults to `8 * 1024 * 1024`.
+Data aggregation counts the newline separators between `data:` fields,
+including empty fields; an event value is replaced on each `event:` line and
+is separately limited to D. The line cap L defaults to the actual D **plus 7**,
+preserving full D-unit `data: ` and `event: ` values. `AgUiClient` derives L
+from its existing `EventStreamAdapter.maxDataCodeUnits` configuration as well.
+
+L counts the entire line, including field name, colon and all spaces, and
+excludes CR/LF terminators. For compatibility, the standard decoder removes
+one initial UTF-8 BOM and the first-line adjustment removes one more leading
+U+FEFF. A third initial BOM remains and counts; later BOMs are never stripped.
+The internal `SseParser.parseLines` also checks L, but does not strip BOMs or
+control allocations of caller-supplied complete strings.
+
+Overflow fails as soon as a decoded unit would exceed L, without waiting for a
+terminator, EOF, or another source chunk. IDs longer than 1024 units but within
+L still get dropped with a content-free log and preserve the prior ID. IDs
+exceeding L fail like every other line. Malformed/truncated UTF-8 fails without
+replacement characters or partial EOF flush. If malformed UTF-8 and overflow
+coexist in one decoder slice, encoding failure can take precedence. Normal EOF
+still flushes a final unterminated line/message; CR, LF and fragmented CRLF
+retain their dispatch behavior.
+
+Existing call shapes remain valid. Oversized ignored lines and nonpositive
+limits that were previously accepted are now rejected. Migrate legitimate
+larger inputs by setting larger positive finite caps; there is no unlimited
+mode or feature flag. Both caps must be integers in `1..9007199254740991`, the
+exact range shared by VM and JavaScript; omitted L also requires D + 7 to fit.
+Invalid configurations throw `ArgumentError` synchronously.
+
+### Memory and backpressure
+
+Let C = 1024 decoder-input bytes and I = 1024 sticky-ID units. The framer uses
+geometrically growing `Uint16List` storage with capacity at most L, avoiding a
+string or list entry for each one-byte source fragment. A decoder slice ends at
+the earliest CR, LF or C-byte boundary. The strict decoder retains at most three
+incomplete UTF-8 bytes. Logical state is at most L unfinished line units, D
+aggregate data units, D event units, I ID units, one bounded decoded slice
+(at most C + 2 units), and constant counters/BOM/CR flags.
+
+A conservative bound including simultaneous transient payloads is
+**6L + 8D + 2I + 8(C + 3) UTF-16 units, plus C + 3 bytes**:
+
+- 6L covers typed storage and its old allocation during growth, the completed
+  line string, field/value substrings and the optional leading-space copy.
+- 8D + 2I covers both message buffers, buffer-to-string copies, and the current
+  message during dispatch/handoff (ID references normally share storage).
+- 8(C + 3) plus C + 3 bytes covers bounded decoder output, StringBuffer/join
+  copies, the current byte-slice copy and UTF-8 carry.
+
+This is an O(L + D + I + C) payload bound, not an exact heap-byte or RSS promise.
+StringBuffer capacity, object headers, iterator objects and allocator overhead
+are runtime-dependent and separate from logical payload units. Buffer fragment
+counts are bounded by their contents; line framing does not create one heap
+object per code unit. The parser retains no completed-message history.
+Producer-owned current chunks (which may remain referenced until consumed),
+producer/transport queues, caller `parseLines` strings and messages retained by
+consumers are excluded. On cancellation/error, pending iterators, line buffers
+and decoder state are released. Each transform keeps at most one lazy input
+iterator and propagates pause/resume/cancel; it never expands a chunk into an
+eager list or queues an unbounded number of output events.
+
+See [TEST_GUIDE.md](TEST_GUIDE.md#bounded-byte-parser-conformance) for public API,
+VM/Chrome lifecycle, diagnostic-capture and external immutable-pin probes.

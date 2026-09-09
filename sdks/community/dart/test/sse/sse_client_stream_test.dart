@@ -1,10 +1,13 @@
 import 'dart:async';
 import 'dart:convert';
 
-import 'package:ag_ui/src/sse/sse_client.dart';
+import 'package:ag_ui/ag_ui.dart';
 import 'package:test/test.dart';
 
+import 'byte_bounds_cases.dart';
+
 void main() {
+  boundedByteTests();
   group('SseClient Stream Parsing', () {
     test('parseStream parses properly formatted SSE messages', () async {
       final client = SseClient();

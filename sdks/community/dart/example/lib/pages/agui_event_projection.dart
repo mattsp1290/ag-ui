@@ -111,17 +111,20 @@ class AgUiEventProjection {
     Iterable<String> resumedSubagentIds = const [],
     bool continuation = false,
   }) {
+    final explicitResumes = resumedSubagentIds.toSet();
     final retainedSubagentIds = continuation
         ? _subagents.keys.toList()
-        : resumedSubagentIds;
+        : explicitResumes;
     final resumed = <String, AgUiSubagentState>{
       for (final id in retainedSubagentIds)
         if (_subagents[id] case final state?)
-          id: state.copyWith(
-            status: AgUiSubagentStatus.running,
-            result: null,
-            interruptIds: null,
-          ),
+          id: explicitResumes.contains(id)
+              ? state.copyWith(
+                  status: AgUiSubagentStatus.running,
+                  result: null,
+                  interruptIds: null,
+                )
+              : state,
     };
     _store.beginRun(retainedSubagentIds, preserveAll: continuation);
     _terminal = false;

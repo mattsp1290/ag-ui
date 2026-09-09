@@ -457,6 +457,31 @@ void main() {
     });
   });
 
+  test('transport continuation preserves terminal child lifecycle state', () {
+    final projection = _Projection()..beginRun();
+    projection.handleCommonEvent(
+      const SubagentStartedEvent(subagentRunId: 'child', name: 'Worker'),
+    );
+    projection.handleCommonEvent(
+      const SubagentFinishedEvent(
+        subagentRunId: 'child',
+        result: {'answer': 42},
+      ),
+    );
+    projection.beginRun(continuation: true);
+
+    expect(
+      projection.subagents['child'],
+      isA<AgUiSubagentState>()
+          .having(
+            (state) => state.status,
+            'status',
+            AgUiSubagentStatus.completed,
+          )
+          .having((state) => state.result, 'result', {'answer': 42}),
+    );
+  });
+
   test('child failure does not terminate root and terminal state is typed', () {
     final projection = _Projection()..beginRun();
     projection.handleCommonEvent(

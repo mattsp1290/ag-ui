@@ -184,6 +184,7 @@ class ClientToolsPageState extends ChangeNotifier with AgUiEventHandling {
   Future<void> sendMessage(String text) async {
     if (disposed || text.trim().isEmpty || _busy) return;
     _pendingCalls = const [];
+    _settledCalls.clear();
     _aborted = false;
     _busy = true;
     final id = uid('user');

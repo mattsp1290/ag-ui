@@ -847,4 +847,31 @@ void main() {
       'invalid_tool_call',
     );
   });
+
+  test('a fresh exchange executes a reused tool-call ID', () async {
+    final service = FakeAgUiService([
+      [_snapshotWithToolCall('shared', '1+1'), _runFinished],
+      [_runFinished],
+      [_snapshotWithToolCall('shared', '2+2'), _runFinished],
+      [_runFinished],
+    ]);
+    final state = ClientToolsPageState(
+      endpoint: _clientToolsEndpoint(),
+      service: service,
+    );
+    addTearDown(state.dispose);
+
+    await state.sendMessage('first');
+    await state.sendMessage('second');
+
+    expect(service.calls, 4);
+    final results = service.histories.last.whereType<ToolMessage>().where(
+      (message) => message.toolCallId == 'shared',
+    );
+    expect(results, hasLength(2));
+    expect(results.map((message) => jsonDecode(message.content)['result']), [
+      2,
+      4,
+    ]);
+  });
 }

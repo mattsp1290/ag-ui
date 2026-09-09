@@ -49,6 +49,9 @@ func TestReasoningDemoBalancedStableSnapshot(t *testing.T) {
 	if frames[1]["messageId"] != frames[2]["messageId"] {
 		t.Fatal("reasoning lifecycle IDs differ")
 	}
+	if frames[2]["role"] != "reasoning" {
+		t.Fatalf("reasoning message role=%v want=reasoning", frames[2]["role"])
+	}
 	messages := frames[10]["messages"].([]any)
 	reasoning := messages[0].(map[string]any)
 	answer := messages[1].(map[string]any)

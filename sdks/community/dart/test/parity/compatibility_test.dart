@@ -267,6 +267,7 @@ Map<String, dynamic> _canonicalEvidence() {
       'type' => 'type',
       'outcome' => 'outcome',
       'usage' => 'usage',
+      'capability' => 'capability',
       _ => throw StateError('No evidence adapter for $kind ($rowId)'),
     };
     evidence['canonical.$rowId'] = <String, dynamic>{
@@ -302,6 +303,8 @@ Map<String, dynamic> _decodeEvidence(
           : RunFinishedOutcome.fromJson(input).toJson();
     case 'usage':
       return TokenUsage.fromJson(input).toJson();
+    case 'capability':
+      return AgentCapabilities.fromJson(input).toJson();
     case 'type':
       switch (model) {
         case 'Context':

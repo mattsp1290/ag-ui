@@ -5,6 +5,23 @@
 library;
 
 import 'base.dart';
+import 'metadata.dart';
+
+Metadata? _readToolCallMetadata(Map<String, dynamic> json) {
+  try {
+    return JsonDecoder.optionalField<Map<String, dynamic>>(json, 'metadata');
+  } on AGUIValidationError catch (e) {
+    if (!json.containsKey('encryptedValue') &&
+        !json.containsKey('encrypted_value')) {
+      rethrow;
+    }
+    throw AGUIValidationError(
+      message: e.message,
+      field: e.field,
+      value: e.value?.runtimeType.toString(),
+    );
+  }
+}
 
 // `kUnsetSentinel` (from `base.dart`) is the shared sentinel for all
 // `copyWith` methods in this file.
@@ -59,12 +76,14 @@ class ToolCall extends AGUIModel {
   final String type;
   final FunctionCall function;
   final String? encryptedValue;
+  final Metadata? metadata;
 
   const ToolCall({
     required this.id,
     this.type = 'function',
     required this.function,
     this.encryptedValue,
+    this.metadata,
   });
 
   factory ToolCall.fromJson(Map<String, dynamic> json) {
@@ -79,6 +98,7 @@ class ToolCall extends AGUIModel {
         'encryptedValue',
         'encrypted_value',
       ),
+      metadata: _readToolCallMetadata(json),
     );
   }
 
@@ -88,6 +108,7 @@ class ToolCall extends AGUIModel {
         'type': type,
         'function': function.toJson(),
         if (encryptedValue != null) 'encryptedValue': encryptedValue,
+        if (metadata != null) 'metadata': metadata,
       };
 
   // `encryptedValue` is nullable — sentinel lets callers clear it
@@ -99,6 +120,7 @@ class ToolCall extends AGUIModel {
     String? type,
     FunctionCall? function,
     Object? encryptedValue = kUnsetSentinel,
+    Object? metadata = kUnsetSentinel,
   }) {
     return ToolCall(
       id: id ?? this.id,
@@ -107,6 +129,9 @@ class ToolCall extends AGUIModel {
       encryptedValue: identical(encryptedValue, kUnsetSentinel)
           ? this.encryptedValue
           : encryptedValue as String?,
+      metadata: identical(metadata, kUnsetSentinel)
+          ? this.metadata
+          : metadata as Metadata?,
     );
   }
 }

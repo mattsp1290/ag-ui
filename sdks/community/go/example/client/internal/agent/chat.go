@@ -75,6 +75,9 @@ func consumeStream(ctx context.Context, frames <-chan sse.Frame, errorCh <-chan 
 				frames = nil
 				continue
 			}
+			if err := ctx.Err(); err != nil {
+				return err
+			}
 
 			rawEvent, err := event.Parse(frame.Data)
 			if err != nil {

@@ -122,3 +122,19 @@ func TestConsumeStreamDoesNotLoseBufferedErrorAfterFramesClose(t *testing.T) {
 		t.Fatalf("got %v", err)
 	}
 }
+
+func TestConsumeStreamCanceledBeforeBufferedFrame(t *testing.T) {
+	frames := make(chan sse.Frame, 1)
+	frames <- sse.Frame{Data: []byte(`{"type":"RUN_STARTED","threadId":"t","runId":"r"}`)}
+	close(frames)
+	errorCh := make(chan error)
+	close(errorCh)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	called := false
+	err := consumeStream(ctx, frames, errorCh, func(*message.Message) { called = true })
+	if !errors.Is(err, context.Canceled) || called {
+		t.Fatalf("canceled consumer: error=%v callback called=%t", err, called)
+	}
+}

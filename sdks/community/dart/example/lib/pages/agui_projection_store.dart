@@ -206,8 +206,11 @@ class _AgUiProjectionStore {
     String? result,
     Metadata? metadata,
     bool? isStreaming,
+    bool reconcileHistory = false,
   }) {
-    final displayId = toolDisplayId(subagentRunId, protocolId);
+    final displayId = reconcileHistory
+        ? snapshotToolDisplayId(subagentRunId, protocolId)
+        : toolDisplayId(subagentRunId, protocolId);
     final index = messageIndex(displayId, ChatMessageType.tool);
     final previous = index < 0 ? null : messages[index];
     final toolName = name ?? previous?.toolName ?? 'Tool';
@@ -266,6 +269,25 @@ class _AgUiProjectionStore {
     });
   }
 
+  String snapshotDisplayId(
+    String? subagentRunId,
+    String protocolId,
+    ChatMessageType type,
+  ) {
+    final key = (_runScope, subagentRunId, protocolId, type);
+    return _messageDisplayIds.putIfAbsent(key, () {
+      final historical = messages.lastIndexWhere(
+        (message) =>
+            message.protocolId == protocolId &&
+            message.subagentRunId == subagentRunId &&
+            message.type == type,
+      );
+      return historical < 0
+          ? displayId(subagentRunId, protocolId, type)
+          : messages[historical].id;
+    });
+  }
+
   String toolDisplayId(String? subagentRunId, String protocolId) {
     final key = (_runScope, subagentRunId, protocolId);
     return _toolDisplayIds.putIfAbsent(key, () {
@@ -273,6 +295,21 @@ class _AgUiProjectionStore {
       return messageIndex(protocolId, ChatMessageType.tool) < 0
           ? protocolId
           : uid('tool');
+    });
+  }
+
+  String snapshotToolDisplayId(String? subagentRunId, String protocolId) {
+    final key = (_runScope, subagentRunId, protocolId);
+    return _toolDisplayIds.putIfAbsent(key, () {
+      final historical = messages.lastIndexWhere(
+        (message) =>
+            message.protocolId == protocolId &&
+            message.subagentRunId == subagentRunId &&
+            message.type == ChatMessageType.tool,
+      );
+      return historical < 0
+          ? toolDisplayId(subagentRunId, protocolId)
+          : messages[historical].id;
     });
   }
 

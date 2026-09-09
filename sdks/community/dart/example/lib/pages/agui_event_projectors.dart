@@ -320,7 +320,11 @@ extension _AgUiEventProjectors on AgUiEventProjection {
       if (message is AssistantMessage) {
         _store.upsert(
           ChatMessage(
-            id: _store.displayId(subagentRunId, id, ChatMessageType.assistant),
+            id: _store.snapshotDisplayId(
+              subagentRunId,
+              id,
+              ChatMessageType.assistant,
+            ),
             type: ChatMessageType.assistant,
             content: message.content ?? '',
             timestamp: DateTime.now(),
@@ -336,7 +340,11 @@ extension _AgUiEventProjectors on AgUiEventProjection {
         if (content.isEmpty) continue;
         _store.upsert(
           ChatMessage(
-            id: _store.displayId(subagentRunId, id, ChatMessageType.reasoning),
+            id: _store.snapshotDisplayId(
+              subagentRunId,
+              id,
+              ChatMessageType.reasoning,
+            ),
             type: ChatMessageType.reasoning,
             content: content,
             timestamp: DateTime.now(),
@@ -354,11 +362,16 @@ extension _AgUiEventProjectors on AgUiEventProjection {
           result: message.content,
           metadata: message.metadata,
           isStreaming: false,
+          reconcileHistory: true,
         );
       } else if (message is ActivityMessage) {
         _store.upsert(
           ChatMessage(
-            id: _store.displayId(subagentRunId, id, ChatMessageType.system),
+            id: _store.snapshotDisplayId(
+              subagentRunId,
+              id,
+              ChatMessageType.system,
+            ),
             type: ChatMessageType.system,
             content: 'Activity: ${message.activityType}',
             timestamp: DateTime.now(),
@@ -379,6 +392,7 @@ extension _AgUiEventProjectors on AgUiEventProjection {
             args: toolCall.function.arguments,
             metadata: toolCall.metadata,
             isStreaming: false,
+            reconcileHistory: true,
           );
         }
       }

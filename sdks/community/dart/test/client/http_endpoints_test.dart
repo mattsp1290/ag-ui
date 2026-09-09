@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io';
 
 import 'package:test/test.dart';
 import 'package:http/http.dart' as http;
@@ -8,6 +7,7 @@ import 'package:http/http.dart' as http;
 import 'package:ag_ui/src/client/client.dart';
 import 'package:ag_ui/src/client/config.dart';
 import 'package:ag_ui/src/client/errors.dart';
+import 'package:ag_ui/src/encoder/client_codec.dart' as codec;
 import 'package:ag_ui/src/events/events.dart';
 import 'package:ag_ui/src/types/types.dart';
 import 'package:ag_ui/src/sse/backoff_strategy.dart';
@@ -21,6 +21,23 @@ class MockStreamingClient extends http.BaseClient {
   @override
   Future<http.StreamedResponse> send(http.BaseRequest request) async {
     return _handler(request);
+  }
+}
+
+class RecordingEncoder extends codec.Encoder {
+  int simpleCalls = 0;
+  int canonicalCalls = 0;
+
+  @override
+  Map<String, dynamic> encodeRunAgentInput(SimpleRunAgentInput input) {
+    simpleCalls++;
+    return super.encodeRunAgentInput(input);
+  }
+
+  @override
+  Map<String, dynamic> encodeCanonicalRunAgentInput(RunAgentInput input) {
+    canonicalCalls++;
+    return super.encodeCanonicalRunAgentInput(input);
   }
 }
 
@@ -66,6 +83,13 @@ void main() {
           ],
           config: {'temperature': 0.7},
           metadata: {'source': 'test'},
+          resume: const [
+            ResumeEntry(
+              interruptId: 'interrupt_1',
+              status: ResumeStatus.resolved,
+              payload: false,
+            ),
+          ],
         );
 
         String? capturedBody;
@@ -112,6 +136,13 @@ void main() {
         expect(bodyJson['messages'], hasLength(1));
         expect(bodyJson['config']['temperature'], 0.7);
         expect(bodyJson['metadata']['source'], 'test');
+        expect(bodyJson['resume'], [
+          {
+            'interruptId': 'interrupt_1',
+            'status': 'resolved',
+            'payload': false,
+          },
+        ]);
 
         expect(events, hasLength(2));
         expect(events[0], isA<RunStartedEvent>());
@@ -242,6 +273,200 @@ void main() {
           throwsA(isA<CancellationError>()
               .having((e) => e.message, 'message', contains('cancelled'))),
         );
+      });
+
+      test('canonical input sends exact arbitrary JSON values and resume',
+          () async {
+        final bodies = <Map<String, dynamic>>[];
+        mockHttpClient = MockStreamingClient((request) async {
+          bodies.add(
+            (jsonDecode((request as http.Request).body) as Map)
+                .cast<String, dynamic>(),
+          );
+          return http.StreamedResponse(
+            Stream.value(
+              utf8.encode(
+                'data: {"type":"RUN_FINISHED","threadId":"t","runId":"r"}\n\n',
+              ),
+            ),
+            200,
+            headers: {'content-type': 'text/event-stream'},
+          );
+        });
+        client = AgUiClient(
+          config: AgUiClientConfig(
+            baseUrl: 'http://localhost:8000',
+            maxRetries: 0,
+          ),
+          httpClient: mockHttpClient,
+        );
+
+        final values = <(Object?, Object?)>[
+          (['state'], 'scalar-props'),
+          (0, ['list-props']),
+          (null, null),
+        ];
+        for (var index = 0; index < values.length; index++) {
+          final (state, forwardedProps) = values[index];
+          await client
+              .runAgentInput(
+                'resume',
+                RunAgentInput(
+                  threadId: 't$index',
+                  runId: 'r$index',
+                  state: state,
+                  messages: const [],
+                  tools: const [],
+                  context: const [],
+                  forwardedProps: forwardedProps,
+                  resume: const [
+                    ResumeEntry(
+                      interruptId: 'interrupt_1',
+                      status: ResumeStatus.resolved,
+                      payload: {'approved': true},
+                    ),
+                  ],
+                ),
+              )
+              .toList();
+        }
+
+        expect(bodies, hasLength(3));
+        expect(bodies[0]['state'], ['state']);
+        expect(bodies[0]['forwardedProps'], 'scalar-props');
+        expect(bodies[1]['state'], 0);
+        expect(bodies[1]['forwardedProps'], ['list-props']);
+        expect(bodies[2].containsKey('state'), isFalse);
+        expect(bodies[2].containsKey('forwardedProps'), isTrue);
+        expect(bodies[2]['forwardedProps'], isNull);
+        expect(bodies[0]['resume'], [
+          {
+            'interruptId': 'interrupt_1',
+            'status': 'resolved',
+            'payload': {'approved': true},
+          },
+        ]);
+      });
+
+      test('uses the injected encoder override on both input paths', () async {
+        final recording = RecordingEncoder();
+        mockHttpClient = MockStreamingClient((request) async {
+          return http.StreamedResponse(
+            Stream.value(
+              utf8.encode(
+                'data: {"type":"RUN_FINISHED","threadId":"t","runId":"r"}\n\n',
+              ),
+            ),
+            200,
+            headers: {'content-type': 'text/event-stream'},
+          );
+        });
+        client = AgUiClient(
+          config: AgUiClientConfig(
+            baseUrl: 'http://localhost:8000',
+            maxRetries: 0,
+          ),
+          httpClient: mockHttpClient,
+          encoder: recording,
+        );
+
+        await client
+            .runAgent('simple', const SimpleRunAgentInput(runId: 'simple'))
+            .toList();
+        await client
+            .runAgentInput(
+              'canonical',
+              const RunAgentInput(
+                threadId: 't',
+                runId: 'canonical',
+                messages: [],
+                tools: [],
+                context: [],
+              ),
+            )
+            .toList();
+
+        expect(recording.simpleCalls, 1);
+        expect(recording.canonicalCalls, 1);
+      });
+
+      test('canonical cancellation uses the shared lifecycle', () async {
+        final response = Completer<http.StreamedResponse>();
+        mockHttpClient = MockStreamingClient((request) => response.future);
+        client = AgUiClient(
+          config: AgUiClientConfig(
+            baseUrl: 'http://localhost:8000',
+            maxRetries: 0,
+          ),
+          httpClient: mockHttpClient,
+        );
+        final token = CancelToken();
+        final future = client
+            .runAgentInput(
+              'canonical',
+              const RunAgentInput(
+                threadId: 't',
+                runId: 'r',
+                messages: [],
+                tools: [],
+                context: [],
+              ),
+              cancelToken: token,
+            )
+            .toList();
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+        token.cancel();
+        response.complete(http.StreamedResponse(Stream.empty(), 200));
+
+        await expectLater(future, throwsA(isA<CancellationError>()));
+      });
+
+      test('duplicate run IDs collide across simple and canonical paths',
+          () async {
+        final response = Completer<http.StreamedResponse>();
+        mockHttpClient = MockStreamingClient((request) => response.future);
+        client = AgUiClient(
+          config: AgUiClientConfig(
+            baseUrl: 'http://localhost:8000',
+            maxRetries: 0,
+          ),
+          httpClient: mockHttpClient,
+        );
+        final firstToken = CancelToken();
+        final first = client
+            .runAgent(
+              'simple',
+              const SimpleRunAgentInput(runId: 'shared'),
+              cancelToken: firstToken,
+            )
+            .toList();
+        await Future<void>.delayed(Duration.zero);
+
+        await expectLater(
+          client
+              .runAgentInput(
+                'canonical',
+                const RunAgentInput(
+                  threadId: 't',
+                  runId: 'shared',
+                  messages: [],
+                  tools: [],
+                  context: [],
+                ),
+                cancelToken: firstToken,
+              )
+              .toList(),
+          throwsA(
+            isA<ValidationError>().having(
+              (error) => error.constraint,
+              'constraint',
+              'unique-in-flight',
+            ),
+          ),
+        );
+        firstToken.cancel();
+        response.complete(http.StreamedResponse(Stream.empty(), 200));
+        await expectLater(first, throwsA(isA<CancellationError>()));
       });
     });
 

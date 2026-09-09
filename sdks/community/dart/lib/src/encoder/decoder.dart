@@ -10,6 +10,7 @@ import '../client/errors.dart';
 import '../client/validators.dart';
 import '../events/events.dart';
 import '../types/base.dart';
+import '../types/run_outcome.dart';
 // `encoder/errors.dart` defines its own `ValidationError`, distinct from
 // the `client/errors.dart` one. Hide it on import so the `on ValidationError`
 // clauses below unambiguously resolve to the client-side class that
@@ -439,6 +440,30 @@ class EventDecoder {
       case RunFinishedEvent():
         Validators.validateThreadId(event.threadId);
         Validators.validateRunId(event.runId);
+        switch (event.outcome) {
+          case null:
+          case RunFinishedSuccessOutcome():
+            break;
+          case RunFinishedInterruptOutcome(:final interrupts):
+            if (interrupts.isEmpty) {
+              throw ValidationError(
+                "Outcome 'interrupt' requires at least one interrupt",
+                field: 'outcome.interrupts',
+                constraint: 'non-empty',
+                value: interrupts.length,
+              );
+            }
+            for (var index = 0; index < interrupts.length; index++) {
+              Validators.requireNonEmpty(
+                interrupts[index].id,
+                'outcome.interrupts[$index].id',
+              );
+              Validators.requireNonEmpty(
+                interrupts[index].reason,
+                'outcome.interrupts[$index].reason',
+              );
+            }
+        }
       case RunErrorEvent():
         Validators.requireNonEmpty(event.message, 'message');
       case StepStartedEvent():

@@ -417,6 +417,18 @@ Set<String> extractPublicDartDeclarations(
       throw StateError('Missing Dart export source $path.');
     }
     final declarations = _extractDartDeclarations(source);
+    final partPattern = RegExp(
+      r"^part '([^']+)'\s*;",
+      multiLine: true,
+    );
+    for (final match in partPattern.allMatches(source)) {
+      final partPath = Uri.parse(path).resolve(match.group(1)!).path;
+      final partSource = sources[partPath];
+      if (partSource == null) {
+        throw StateError('Missing Dart part source $partPath.');
+      }
+      declarations.addAll(_extractDartDeclarations(partSource));
+    }
     final exportPattern = RegExp(
       r"^export '([^']+)'(?:\s+(show|hide)\s+([^;]+))?\s*;",
       multiLine: true,

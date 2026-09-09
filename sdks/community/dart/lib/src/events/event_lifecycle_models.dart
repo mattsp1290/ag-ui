@@ -180,6 +180,7 @@ final class RunStartedEvent extends BaseEvent {
 final class RunFinishedEvent extends BaseEvent {
   final String threadId;
   final String runId;
+  final RunFinishedOutcome? outcome;
 
   /// Optional run-completion payload (`z.any().optional()` /
   /// `Optional[Any] = None` in TS/Python). On the wire, an explicit
@@ -202,6 +203,7 @@ final class RunFinishedEvent extends BaseEvent {
     required this.threadId,
     required this.runId,
     this.result,
+    this.outcome,
     super.timestamp,
     super.metadata,
     super.rawEvent,
@@ -212,18 +214,26 @@ final class RunFinishedEvent extends BaseEvent {
     // which use containsKey to enforce key presence, `result` is truly optional
     // (canonical `z.any().optional()` / `Optional[Any] = None`). An absent key
     // and an explicit `'result': null` are equivalent — both produce `result == null`.
-    return RunFinishedEvent(
-      metadata: _readMetadata(json),
-      threadId: JsonDecoder.requireEitherField<String>(
-        json,
-        'threadId',
-        'thread_id',
-      ),
-      runId: JsonDecoder.requireEitherField<String>(json, 'runId', 'run_id'),
-      result: json['result'],
-      timestamp: JsonDecoder.optionalIntField(json, 'timestamp'),
-      rawEvent: _readRawEvent(json),
-    );
+    try {
+      return RunFinishedEvent(
+        metadata: _readMetadata(json),
+        threadId: JsonDecoder.requireEitherField<String>(
+          json,
+          'threadId',
+          'thread_id',
+        ),
+        runId: JsonDecoder.requireEitherField<String>(json, 'runId', 'run_id'),
+        result: json['result'],
+        outcome: _readRunFinishedOutcome(json),
+        timestamp: JsonDecoder.optionalIntField(json, 'timestamp'),
+        rawEvent: _readRawEvent(json),
+      );
+    } on AGUIValidationError catch (error) {
+      throw sanitizeValidationError(
+        enclosingJson: json,
+        error: error,
+      );
+    }
   }
 
   @override
@@ -232,6 +242,7 @@ final class RunFinishedEvent extends BaseEvent {
         'threadId': threadId,
         'runId': runId,
         if (result != null) 'result': result,
+        if (outcome != null) 'outcome': outcome!.toJson(),
       };
 
   // See `_Unset` (top of file) for the sentinel rationale.
@@ -241,6 +252,7 @@ final class RunFinishedEvent extends BaseEvent {
     String? threadId,
     String? runId,
     Object? result = kUnsetSentinel,
+    Object? outcome = kUnsetSentinel,
     int? timestamp,
     dynamic rawEvent,
   }) {
@@ -249,6 +261,9 @@ final class RunFinishedEvent extends BaseEvent {
       threadId: threadId ?? this.threadId,
       runId: runId ?? this.runId,
       result: identical(result, kUnsetSentinel) ? this.result : result,
+      outcome: identical(outcome, kUnsetSentinel)
+          ? this.outcome
+          : outcome as RunFinishedOutcome?,
       timestamp: timestamp ?? this.timestamp,
       rawEvent: rawEvent ?? this.rawEvent,
     );

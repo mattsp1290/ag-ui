@@ -2,11 +2,43 @@
 library;
 
 import 'base.dart';
+import 'interrupt.dart';
 import 'message.dart';
 import 'tool.dart';
+import 'wire_safety.dart';
 
 // `kUnsetSentinel` (from `base.dart`) is the shared sentinel for all
 // `copyWith` methods in this file.
+
+List<ResumeEntry>? _readResume(Map<String, dynamic> json) {
+  if (!json.containsKey('resume') || json['resume'] == null) {
+    return null;
+  }
+  try {
+    final raw = JsonDecoder.requireListField<Map<String, dynamic>>(
+      json,
+      'resume',
+    );
+    final result = <ResumeEntry>[];
+    for (var index = 0; index < raw.length; index++) {
+      try {
+        result.add(ResumeEntry.fromJson(raw[index]));
+      } on AGUIValidationError catch (error) {
+        throw wrapNestedValidationError(
+          enclosingJson: json,
+          error: error,
+          field: 'resume[$index].${error.field ?? 'unknown'}',
+        );
+      }
+    }
+    return result;
+  } on AGUIValidationError catch (error) {
+    throw sanitizeValidationError(
+      enclosingJson: json,
+      error: error,
+    );
+  }
+}
 
 /// Additional context for the agent
 class Context extends AGUIModel {
@@ -57,6 +89,7 @@ class RunAgentInput extends AGUIModel {
   final List<Tool> tools;
   final List<Context> context;
   final dynamic forwardedProps;
+  final List<ResumeEntry>? resume;
 
   const RunAgentInput({
     required this.threadId,
@@ -67,122 +100,131 @@ class RunAgentInput extends AGUIModel {
     required this.tools,
     required this.context,
     this.forwardedProps,
+    this.resume,
   });
 
   factory RunAgentInput.fromJson(Map<String, dynamic> json) {
-    return RunAgentInput(
-      threadId: JsonDecoder.requireEitherField<String>(
-        json,
-        'threadId',
-        'thread_id',
-      ),
-      runId: JsonDecoder.requireEitherField<String>(
-        json,
-        'runId',
-        'run_id',
-      ),
-      parentRunId: JsonDecoder.optionalEitherField<String>(
-        json,
-        'parentRunId',
-        'parent_run_id',
-      ),
-      state: json['state'],
-      messages: () {
-        final raw = JsonDecoder.requireListField<Map<String, dynamic>>(
+    try {
+      return RunAgentInput(
+        threadId: JsonDecoder.requireEitherField<String>(
           json,
-          'messages',
-        );
-        final out = <Message>[];
-        for (var i = 0; i < raw.length; i++) {
-          try {
-            out.add(Message.fromJson(raw[i]));
-          } on AGUIValidationError catch (e) {
-            // Drop json: — the inner payload may carry encryptedValue or tool
-            // arguments. Preserve cause: when the inner error already cleared
-            // its own json: (e.json == null), meaning the inner factory was
-            // cipher-aware and the cause chain is safe to forward.
-            throw AGUIValidationError(
-              message: e.message,
-              field: 'messages[$i].${e.field ?? 'unknown'}',
-              value: e.value,
-              cause: e.json == null ? e : null,
-            );
-          } catch (e) {
-            throw AGUIValidationError(
-              message: 'Failed to decode message at index $i: $e',
-              field: 'messages[$i]',
-              cause: e,
-            );
-          }
-        }
-        return out;
-      }(),
-      tools: () {
-        final raw = JsonDecoder.requireListField<Map<String, dynamic>>(
+          'threadId',
+          'thread_id',
+        ),
+        runId: JsonDecoder.requireEitherField<String>(
           json,
-          'tools',
-        );
-        final out = <Tool>[];
-        for (var i = 0; i < raw.length; i++) {
-          try {
-            out.add(Tool.fromJson(raw[i]));
-          } on AGUIValidationError catch (e) {
-            // Drop json: — tool arguments may be sensitive. Preserve cause:
-            // when e.json == null (inner factory already scrubbed it).
-            throw AGUIValidationError(
-              message: e.message,
-              field: 'tools[$i].${e.field ?? 'unknown'}',
-              value: e.value,
-              cause: e.json == null ? e : null,
-            );
-          } catch (e) {
-            throw AGUIValidationError(
-              message: 'Failed to decode tool at index $i: $e',
-              field: 'tools[$i]',
-              cause: e,
-            );
-          }
-        }
-        return out;
-      }(),
-      context: () {
-        final raw = JsonDecoder.requireListField<Map<String, dynamic>>(
+          'runId',
+          'run_id',
+        ),
+        parentRunId: JsonDecoder.optionalEitherField<String>(
           json,
-          'context',
-        );
-        final out = <Context>[];
-        for (var i = 0; i < raw.length; i++) {
-          try {
-            out.add(Context.fromJson(raw[i]));
-          } on AGUIValidationError catch (e) {
-            // Drop json: — context values may carry sensitive data. Preserve
-            // cause: when e.json == null (inner factory already scrubbed it).
-            throw AGUIValidationError(
-              message: e.message,
-              field: 'context[$i].${e.field ?? 'unknown'}',
-              value: e.value,
-              cause: e.json == null ? e : null,
-            );
-          } catch (e) {
-            throw AGUIValidationError(
-              message: 'Failed to decode context at index $i: $e',
-              field: 'context[$i]',
-              cause: e,
-            );
+          'parentRunId',
+          'parent_run_id',
+        ),
+        state: json['state'],
+        messages: () {
+          final raw = JsonDecoder.requireListField<Map<String, dynamic>>(
+            json,
+            'messages',
+          );
+          final out = <Message>[];
+          for (var i = 0; i < raw.length; i++) {
+            try {
+              out.add(Message.fromJson(raw[i]));
+            } on AGUIValidationError catch (e) {
+              // Drop json: — the inner payload may carry encryptedValue or tool
+              // arguments. Preserve cause: when the inner error already cleared
+              // its own json: (e.json == null), meaning the inner factory was
+              // cipher-aware and the cause chain is safe to forward.
+              throw AGUIValidationError(
+                message: e.message,
+                field: 'messages[$i].${e.field ?? 'unknown'}',
+                value: e.value,
+                cause: e.json == null ? e : null,
+              );
+            } catch (e) {
+              throw AGUIValidationError(
+                message: 'Failed to decode message at index $i: $e',
+                field: 'messages[$i]',
+                cause: e,
+              );
+            }
           }
-        }
-        return out;
-      }(),
-      // `forwardedProps` is intentionally `dynamic` (any JSON shape),
-      // so the inline KEY-presence chain is preferred over
-      // `optionalEitherField<T>` (which requires a concrete `T`). Behavior
-      // matches the helper: `camelKey` wins when the key is present (even
-      // when its value is explicitly `null`); `snake_case` is consulted
-      // ONLY when camelCase is entirely absent.
-      forwardedProps: json.containsKey('forwardedProps')
-          ? json['forwardedProps']
-          : json['forwarded_props'],
-    );
+          return out;
+        }(),
+        tools: () {
+          final raw = JsonDecoder.requireListField<Map<String, dynamic>>(
+            json,
+            'tools',
+          );
+          final out = <Tool>[];
+          for (var i = 0; i < raw.length; i++) {
+            try {
+              out.add(Tool.fromJson(raw[i]));
+            } on AGUIValidationError catch (e) {
+              // Drop json: — tool arguments may be sensitive. Preserve cause:
+              // when e.json == null (inner factory already scrubbed it).
+              throw AGUIValidationError(
+                message: e.message,
+                field: 'tools[$i].${e.field ?? 'unknown'}',
+                value: e.value,
+                cause: e.json == null ? e : null,
+              );
+            } catch (e) {
+              throw AGUIValidationError(
+                message: 'Failed to decode tool at index $i: $e',
+                field: 'tools[$i]',
+                cause: e,
+              );
+            }
+          }
+          return out;
+        }(),
+        context: () {
+          final raw = JsonDecoder.requireListField<Map<String, dynamic>>(
+            json,
+            'context',
+          );
+          final out = <Context>[];
+          for (var i = 0; i < raw.length; i++) {
+            try {
+              out.add(Context.fromJson(raw[i]));
+            } on AGUIValidationError catch (e) {
+              // Drop json: — context values may carry sensitive data. Preserve
+              // cause: when e.json == null (inner factory already scrubbed it).
+              throw AGUIValidationError(
+                message: e.message,
+                field: 'context[$i].${e.field ?? 'unknown'}',
+                value: e.value,
+                cause: e.json == null ? e : null,
+              );
+            } catch (e) {
+              throw AGUIValidationError(
+                message: 'Failed to decode context at index $i: $e',
+                field: 'context[$i]',
+                cause: e,
+              );
+            }
+          }
+          return out;
+        }(),
+        // `forwardedProps` is intentionally `dynamic` (any JSON shape),
+        // so the inline KEY-presence chain is preferred over
+        // `optionalEitherField<T>` (which requires a concrete `T`). Behavior
+        // matches the helper: `camelKey` wins when the key is present (even
+        // when its value is explicitly `null`); `snake_case` is consulted
+        // ONLY when camelCase is entirely absent.
+        forwardedProps: json.containsKey('forwardedProps')
+            ? json['forwardedProps']
+            : json['forwarded_props'],
+        resume: _readResume(json),
+      );
+    } on AGUIValidationError catch (error) {
+      throw sanitizeValidationError(
+        enclosingJson: json,
+        error: error,
+      );
+    }
   }
 
   @override
@@ -195,6 +237,8 @@ class RunAgentInput extends AGUIModel {
         'tools': tools.map((t) => t.toJson()).toList(),
         'context': context.map((c) => c.toJson()).toList(),
         if (forwardedProps != null) 'forwardedProps': forwardedProps,
+        if (resume != null)
+          'resume': resume!.map((entry) => entry.toJson()).toList(),
       };
 
   // `parentRunId`, `state`, and `forwardedProps` are nullable —
@@ -210,6 +254,7 @@ class RunAgentInput extends AGUIModel {
     List<Tool>? tools,
     List<Context>? context,
     Object? forwardedProps = kUnsetSentinel,
+    Object? resume = kUnsetSentinel,
   }) {
     return RunAgentInput(
       threadId: threadId ?? this.threadId,
@@ -224,6 +269,9 @@ class RunAgentInput extends AGUIModel {
       forwardedProps: identical(forwardedProps, kUnsetSentinel)
           ? this.forwardedProps
           : forwardedProps,
+      resume: identical(resume, kUnsetSentinel)
+          ? this.resume
+          : resume as List<ResumeEntry>?,
     );
   }
 }

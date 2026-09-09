@@ -1,7 +1,6 @@
 /// Client-specific encoding and decoding extensions for AG-UI protocol.
 library;
 
-import 'dart:convert';
 import '../client/client.dart' show SimpleRunAgentInput;
 import '../types/types.dart';
 
@@ -12,6 +11,18 @@ class Encoder {
   /// Encode RunAgentInput to JSON
   Map<String, dynamic> encodeRunAgentInput(SimpleRunAgentInput input) {
     return input.toJson();
+  }
+
+  /// Encode a canonical [RunAgentInput] for the HTTP request boundary.
+  ///
+  /// The model itself preserves Dart's legacy null-omission behavior. The
+  /// canonical transport must include `forwardedProps` because peer schemas
+  /// require the key even when the arbitrary JSON value is null.
+  Map<String, dynamic> encodeCanonicalRunAgentInput(RunAgentInput input) {
+    return {
+      ...input.toJson(),
+      'forwardedProps': input.forwardedProps,
+    };
   }
 
   /// Encode UserMessage to JSON

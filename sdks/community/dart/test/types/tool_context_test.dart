@@ -265,6 +265,105 @@ void main() {
       expect(input.state, isNull);
       expect(input.forwardedProps, isNull);
     });
+
+    test('RunAgentInput decodes, copies, and serializes resume entries', () {
+      final input = RunAgentInput.fromJson({
+        'threadId': 'thread_resume',
+        'runId': 'run_resume',
+        'messages': <Map<String, dynamic>>[],
+        'tools': <Map<String, dynamic>>[],
+        'context': <Map<String, dynamic>>[],
+        'resume': [
+          {
+            'interrupt_id': 'interrupt_1',
+            'status': 'resolved',
+            'payload': false,
+            'metadata': {'signature': 'ok'},
+          },
+        ],
+      });
+
+      expect(input.resume, hasLength(1));
+      expect(input.resume!.single.interruptId, 'interrupt_1');
+      expect(input.toJson()['resume'], [
+        {
+          'interruptId': 'interrupt_1',
+          'status': 'resolved',
+          'payload': false,
+          'metadata': {'signature': 'ok'},
+        },
+      ]);
+      expect(input.copyWith().resume, same(input.resume));
+      expect(input.copyWith(resume: null).resume, isNull);
+      expect(
+        input.copyWith(resume: const <ResumeEntry>[]).toJson()['resume'],
+        isEmpty,
+      );
+    });
+
+    test('RunAgentInput normalizes absent/null resume and rejects bad indexes',
+        () {
+      Map<String, dynamic> requiredInput() => {
+            'threadId': 'thread',
+            'runId': 'run',
+            'messages': <Map<String, dynamic>>[],
+            'tools': <Map<String, dynamic>>[],
+            'context': <Map<String, dynamic>>[],
+          };
+
+      expect(RunAgentInput.fromJson(requiredInput()).resume, isNull);
+      expect(
+        RunAgentInput.fromJson({...requiredInput(), 'resume': null}).resume,
+        isNull,
+      );
+      expect(
+        RunAgentInput.fromJson({...requiredInput(), 'resume': <Object>[]})
+            .toJson()['resume'],
+        isEmpty,
+      );
+      expect(
+        () => RunAgentInput.fromJson({
+          ...requiredInput(),
+          'resume': [
+            {'interruptId': 'i', 'status': 'future'},
+          ],
+        }),
+        throwsA(isA<AGUIValidationError>().having(
+          (error) => error.field,
+          'field',
+          'resume[0].status',
+        )),
+      );
+    });
+
+    test('malformed resume beside cipher-bearing messages is scrubbed', () {
+      const secret = 'run-input-cipher-secret';
+      try {
+        RunAgentInput.fromJson({
+          'threadId': 'thread',
+          'runId': 'run',
+          'messages': [
+            {
+              'id': 'reasoning',
+              'role': 'reasoning',
+              'encryptedValue': secret,
+            },
+          ],
+          'tools': <Map<String, dynamic>>[],
+          'context': <Map<String, dynamic>>[],
+          'resume': [
+            {'interruptId': 'i', 'status': secret},
+          ],
+        });
+        fail('Expected AGUIValidationError');
+      } on AGUIValidationError catch (error) {
+        expect(error.field, 'resume[0].status');
+        expect(error.message, isNot(contains(secret)));
+        expect(error.value?.toString(), isNot(contains(secret)));
+        expect(error.json, isNull);
+        expect(error.cause, isNull);
+      }
+    });
   });
 
   group('Run Type', () {

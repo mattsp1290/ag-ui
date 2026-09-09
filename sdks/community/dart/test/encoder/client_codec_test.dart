@@ -72,6 +72,69 @@ void main() {
       expect(encoded['forwardedProps'], isEmpty); // null → emitted as {}
     });
 
+    test('simple input preserves absent, empty, and populated resume lists',
+        () {
+      expect(
+        encoder
+            .encodeRunAgentInput(const SimpleRunAgentInput())
+            .containsKey('resume'),
+        isFalse,
+      );
+      expect(
+        encoder.encodeRunAgentInput(const SimpleRunAgentInput(resume: [])),
+        containsPair('resume', <Object>[]),
+      );
+      expect(
+        encoder.encodeRunAgentInput(
+          const SimpleRunAgentInput(
+            resume: [
+              ResumeEntry(
+                interruptId: 'i',
+                status: ResumeStatus.cancelled,
+                payload: 0,
+              ),
+            ],
+          ),
+        )['resume'],
+        [
+          {'interruptId': 'i', 'status': 'cancelled', 'payload': 0},
+        ],
+      );
+    });
+
+    test('canonical codec preserves arbitrary values and required null props',
+        () {
+      for (final state in <Object?>[
+        null,
+        false,
+        0,
+        ['state'],
+        {'nested': null},
+      ]) {
+        final input = RunAgentInput(
+          threadId: 'thread',
+          runId: 'run',
+          state: state,
+          messages: const [],
+          tools: const [],
+          context: const [],
+          forwardedProps: null,
+          resume: const [],
+        );
+        final encoded = encoder.encodeCanonicalRunAgentInput(input);
+        expect(encoded['threadId'], 'thread');
+        expect(encoded['runId'], 'run');
+        if (state == null) {
+          expect(encoded.containsKey('state'), isFalse);
+        } else {
+          expect(encoded['state'], state);
+        }
+        expect(encoded.containsKey('forwardedProps'), isTrue);
+        expect(encoded['forwardedProps'], isNull);
+        expect(encoded['resume'], isEmpty);
+      }
+    });
+
     test('encodeUserMessage encodes UserMessage correctly', () {
       final message = UserMessage(
         id: 'msg-test',

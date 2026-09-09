@@ -449,6 +449,23 @@ type RunErrorEvent struct {
 }
 ```
 
+| Field | Type | Description |
+| ------------ | --------- | ---------------------------------------- |
+| `Code` | `*string` | Error code |
+| `Message` | `string` | Error message |
+| `RunIDValue` | `string` | ID of the run that encountered the error |
+
+**Usage Example:**
+
+```go
+// Create an error event
+event := events.NewRunErrorEvent(
+    "Tool execution failed",
+    events.WithErrorCode("TOOL_ERROR"),
+    events.WithRunID("run-012"),
+)
+```
+
 ### Token usage helpers
 
 Counts are `*int64`, so an explicit zero is different from an unreported count.
@@ -478,23 +495,6 @@ and finite integral floats from `0` through `2^53-1`. Invalid fields are ignored
 independently; strings, booleans, negative or fractional values, non-finite
 floats, and out-of-range integers do not become counts. The helper returns `nil`
 if no count survives, even when provider or model labels exist.
-
-| Field | Type | Description |
-| ------------ | --------- | ---------------------------------------- |
-| `Code` | `*string` | Error code |
-| `Message` | `string` | Error message |
-| `RunIDValue` | `string` | ID of the run that encountered the error |
-
-**Usage Example:**
-
-```go
-// Create an error event
-event := events.NewRunErrorEvent(
-    "Tool execution failed",
-    events.WithErrorCode("TOOL_ERROR"),
-    events.WithRunID("run-012"),
-)
-```
 
 ## State Management Events
 

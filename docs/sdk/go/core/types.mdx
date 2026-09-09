@@ -369,8 +369,9 @@ message := types.Message{
 `video`, and `document` fragments. Typed media uses an `InputContentSource` with
 a `data` or `url` discriminator; inline data requires `mimeType`.
 `ValidateProtocol` is opt-in for producer-side validation and is available on
-`Message`, `InputContent`, `InputContentSource`, `Interrupt`, `ResumeEntry`, and
-`RunAgentInput`.
+`Message`, `InputContent`, `ToolCall`, `Interrupt`, and `RunAgentInput`.
+Nested input sources and resume entries are checked through their containing
+`InputContent` or `RunAgentInput` value.
 
 ### Run input, interrupts, and resume
 

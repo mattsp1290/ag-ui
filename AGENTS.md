@@ -15,3 +15,27 @@
 - For Nx plugin best practices, check `node_modules/@nx/<plugin>/PLUGIN.md`. Not all plugins have this file - proceed without it if unavailable.
 
 <!-- nx configuration end-->
+
+
+# Go SDK validation
+
+- The Go SDK and its consumers are separate modules:
+  `sdks/community/go`, `sdks/community/go/example/client`,
+  `sdks/community/go/example/server`, and
+  `integrations/community/genkit/go/genkit`. SDK-root `go test ./...` does not
+  test the nested modules. Use each module's `go.mod` toolchain and run its
+  build, race tests, and vet checks separately with `GOWORK=off`.
+- These Go modules currently have no Nx targets. Use direct Go commands for
+  them; continue using Nx for the TypeScript projects. The
+  [Go SDK README](sdks/community/go/README.md#verify-a-checkout) contains the
+  module checks and cross-language parity commands.
+- Before running `scripts/go-sdk-parity.sh`, install checkout dependencies
+  with the repository's pinned Node/pnpm/Python toolchains,
+  `pnpm install --frozen-lockfile`, and `uv sync --locked` in `sdks/python`.
+  The coordinator owns fresh temporary artifacts and disables Nx caching for
+  its oracle calls. A missing runtime or artifact is a failure, not a skip.
+- Go server Docker builds use the SDK-root `.dockerignore` and both
+  `example/server/Dockerfile` targets. Flutter also creates a separate context
+  through `sdks/community/dart/example/test/helpers/go_build_context.dart`.
+  When changing Go runtime dependencies, check both direct image builds and
+  the Flutter contract suite described in the server README.

@@ -3,15 +3,22 @@ package sse
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/ag-ui-protocol/ag-ui/sdks/community/go/pkg/core/events"
 	"github.com/ag-ui-protocol/ag-ui/sdks/community/go/pkg/core/types"
+	encodingpkg "github.com/ag-ui-protocol/ag-ui/sdks/community/go/pkg/encoding"
+	jsoncodec "github.com/ag-ui-protocol/ag-ui/sdks/community/go/pkg/encoding/json"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -28,6 +35,158 @@ func newTestRunAgentInput() types.RunAgentInput {
 		Context:        []types.Context{},
 		ForwardedProps: map[string]any{},
 	}
+}
+
+func TestCrossLanguageSSERead(t *testing.T) {
+	outputDir, outputRequested := os.LookupEnv("AG_UI_SSE_PARITY_OUTPUT_DIR")
+	if !outputRequested {
+		t.Skip("AG_UI_SSE_PARITY_OUTPUT_DIR is not set")
+	}
+	require.NotEmpty(t, outputDir)
+	type scenario struct {
+		ID      string            `json:"id"`
+		Request json.RawMessage   `json:"request"`
+		Events  []json.RawMessage `json:"events"`
+	}
+	var fixture struct {
+		Version   int        `json:"version"`
+		Scenarios []scenario `json:"scenarios"`
+	}
+	fixtureBytes, err := os.ReadFile(filepath.Join("..", "..", "..", "testdata", "parity", "sse-scenarios.json"))
+	require.NoError(t, err)
+	require.NoError(t, json.Unmarshal(fixtureBytes, &fixture))
+	require.Equal(t, 1, fixture.Version)
+	require.Len(t, fixture.Scenarios, 3)
+	require.Equal(t, []string{"interrupt", "resumed", "root-error"}, []string{fixture.Scenarios[0].ID, fixture.Scenarios[1].ID, fixture.Scenarios[2].ID})
+	require.Equal(t, []int{29, 10, 4}, []int{len(fixture.Scenarios[0].Events), len(fixture.Scenarios[1].Events), len(fixture.Scenarios[2].Events)})
+
+	for _, source := range []string{"python", "typescript"} {
+		for _, scenario := range fixture.Scenarios {
+			streamBytes, readErr := os.ReadFile(filepath.Join(outputDir, source+"-"+scenario.ID+".sse"))
+			require.NoError(t, readErr)
+			for _, variant := range []struct {
+				name string
+				data []byte
+			}{
+				{name: "raw", data: streamBytes},
+				{name: "crlf-multiline-fields", data: parityDecoratedSSE(t, streamBytes)},
+			} {
+				t.Run(source+"/"+scenario.ID+"/"+variant.name, func(t *testing.T) {
+					requestBodies := make(chan []byte, 1)
+					server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+						requestBody, readBodyErr := io.ReadAll(r.Body)
+						if readBodyErr != nil {
+							requestBodies <- nil
+							return
+						}
+						requestBodies <- requestBody
+						w.Header().Set("Content-Type", "text/event-stream")
+						w.WriteHeader(http.StatusOK)
+						flusher := w.(http.Flusher)
+						pattern := []int{1, 2, 5, 3, 8}
+						for offset, part := 0, 0; offset < len(variant.data); part++ {
+							size := pattern[part%len(pattern)]
+							end := offset + size
+							if end > len(variant.data) {
+								end = len(variant.data)
+							}
+							_, _ = w.Write(variant.data[offset:end])
+							flusher.Flush()
+							offset = end
+						}
+					}))
+					defer server.Close()
+
+					var payload types.RunAgentInput
+					require.NoError(t, json.Unmarshal(scenario.Request, &payload))
+					logger := logrus.New()
+					logger.SetOutput(io.Discard)
+					client := NewClient(Config{Endpoint: server.URL, BufferSize: len(scenario.Events) + 1, Logger: logger})
+					ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+					defer cancel()
+					frames, streamErrors, streamErr := client.Stream(StreamOptions{Context: ctx, Payload: payload})
+					require.NoError(t, streamErr)
+					var received [][]byte
+					for frames != nil || streamErrors != nil {
+						select {
+						case frame, ok := <-frames:
+							if !ok {
+								frames = nil
+								continue
+							}
+							require.False(t, frame.Timestamp.IsZero())
+							received = append(received, append([]byte(nil), frame.Data...))
+						case streamReadErr, ok := <-streamErrors:
+							if !ok {
+								streamErrors = nil
+								continue
+							}
+							require.NoError(t, streamReadErr)
+						case <-ctx.Done():
+							require.FailNow(t, "timed out waiting for SSE channels to close")
+						}
+					}
+					requestBody := <-requestBodies
+					require.NotNil(t, requestBody)
+					require.JSONEq(t, string(scenario.Request), string(requestBody))
+					require.Len(t, received, len(scenario.Events))
+					for index, data := range received {
+						require.JSONEq(t, string(scenario.Events[index]), string(data), "frame %d", index)
+						parityAssertDecodedEvent(t, scenario.Events[index], data)
+					}
+				})
+			}
+		}
+	}
+}
+
+func parityDecoratedSSE(t *testing.T, stream []byte) []byte {
+	t.Helper()
+	normalized := strings.ReplaceAll(string(stream), "\r\n", "\n")
+	frames := strings.Split(strings.TrimSpace(normalized), "\n\n")
+	var output strings.Builder
+	for index, frame := range frames {
+		var payload strings.Builder
+		for _, line := range strings.Split(frame, "\n") {
+			if strings.HasPrefix(line, "data:") {
+				if payload.Len() > 0 {
+					payload.WriteByte('\n')
+				}
+				payload.WriteString(strings.TrimPrefix(strings.TrimPrefix(line, "data:"), " "))
+			}
+		}
+		var indented bytes.Buffer
+		require.NoError(t, json.Indent(&indented, []byte(payload.String()), "", "  "))
+		fmt.Fprintf(&output, ": parity comment\r\nevent: parity\r\nid: %d\r\n", index)
+		for _, line := range strings.Split(indented.String(), "\n") {
+			fmt.Fprintf(&output, "data: %s\r\n", line)
+		}
+		output.WriteString("\r\n")
+	}
+	return []byte(output.String())
+}
+
+func parityAssertDecodedEvent(t *testing.T, expected, actual []byte) {
+	t.Helper()
+	var header struct {
+		Type string `json:"type"`
+	}
+	require.NoError(t, json.Unmarshal(actual, &header))
+	decoded, err := events.EventFromJSON(actual)
+	require.NoError(t, err)
+	decodedJSON, err := decoded.ToJSON()
+	require.NoError(t, err)
+	require.JSONEq(t, string(expected), string(decodedJSON))
+	decoded, err = events.NewEventDecoder(nil).DecodeEvent(header.Type, actual)
+	require.NoError(t, err)
+	decodedJSON, err = decoded.ToJSON()
+	require.NoError(t, err)
+	require.JSONEq(t, string(expected), string(decodedJSON))
+	decoded, err = jsoncodec.NewJSONDecoder(&encodingpkg.DecodingOptions{Strict: true, ValidateEvents: true}).Decode(context.Background(), actual)
+	require.NoError(t, err)
+	decodedJSON, err = decoded.ToJSON()
+	require.NoError(t, err)
+	require.JSONEq(t, string(expected), string(decodedJSON))
 }
 
 func TestStream(t *testing.T) {

@@ -41,3 +41,5 @@ python_oracle verify
 typescript_oracle verify
 cd "$repo_root/sdks/community/go"
 AG_UI_PARITY_PHASE=verify go test -count=1 ./internal/parity -run '^TestGeneratedArtifacts$'
+
+bash "$repo_root/scripts/go-sdk-sse-parity.sh"

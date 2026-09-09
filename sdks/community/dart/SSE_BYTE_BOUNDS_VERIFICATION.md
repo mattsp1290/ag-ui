@@ -58,3 +58,11 @@ Chrome framing/lifecycle tests and both public-byte/VM-logging probes. Published
 commit resolution and fresh-consumer evidence must be recorded against the real
 full SHA after push in the SDK owner's response; this document does not invent
 a release or a public pin. Consumer adoption remains a separate owner action.
+
+## CI checkout correction
+
+The first remote Dart job exposed an inherited shallow-checkout failure: six
+parity inventory/compatibility tests could not read pinned baseline
+`aaa75b54d572be8cd1d51c72e951273c5b893ed0`. The Dart job now fetches history
+(`fetch-depth: 0`); the pinned comparisons remain intact. This changes only
+CI checkout, not the parser or test expectations.

@@ -79,21 +79,28 @@ class AgUiClient {
     SimpleRunAgentInput input, {
     CancelToken? cancelToken,
   }) {
-    // Validate inputs
-    Validators.validateUrl(config.baseUrl, 'baseUrl');
-    Validators.requireNonEmpty(endpoint, 'endpoint');
+    return _runAgentInternal(
+      _resolveEndpoint(endpoint),
+      input,
+      cancelToken: cancelToken,
+    );
+  }
 
-    // Tighten the scheme test: `startsWith('http')` would accept httpfoo://
-    // and also skips the Validators.validateUrl defense-in-depth applied to
-    // config.baseUrl above. Run the same check for caller-supplied full URLs.
-    final isAbsolute =
-        endpoint.startsWith('http://') || endpoint.startsWith('https://');
-    if (isAbsolute) {
-      Validators.validateUrl(endpoint, 'endpoint');
-    }
-    final fullEndpoint = isAbsolute ? endpoint : '${config.baseUrl}/$endpoint';
-
-    return _runAgentInternal(fullEndpoint, input, cancelToken: cancelToken);
+  /// Run an agent with a canonical [RunAgentInput].
+  ///
+  /// This path preserves arbitrary JSON shapes for `state` and
+  /// `forwardedProps`, uses the caller's required identifiers, and emits the
+  /// required `forwardedProps` wire key even when its value is null.
+  Stream<BaseEvent> runAgentInput(
+    String endpoint,
+    RunAgentInput input, {
+    CancelToken? cancelToken,
+  }) {
+    return _runCanonicalAgentInternal(
+      _resolveEndpoint(endpoint),
+      input,
+      cancelToken: cancelToken,
+    );
   }
 
   /// Run the agentic chat agent.
@@ -165,18 +172,43 @@ class AgUiClient {
     CancelToken? cancelToken,
   }) async* {
     final runId = input.runId ?? _generateRunId();
+    _validateRunAgentInput(input);
+    yield* _runEncodedAgent(
+      endpoint,
+      runId,
+      () => _encoder.encodeRunAgentInput(input),
+      cancelToken: cancelToken,
+    );
+  }
+
+  Stream<BaseEvent> _runCanonicalAgentInternal(
+    String endpoint,
+    RunAgentInput input, {
+    CancelToken? cancelToken,
+  }) async* {
+    _validateCanonicalRunAgentInput(input);
+    yield* _runEncodedAgent(
+      endpoint,
+      input.runId,
+      () => _encoder.encodeCanonicalRunAgentInput(input),
+      cancelToken: cancelToken,
+    );
+  }
+
+  /// Shared HTTP/SSE lifecycle for already selected input encoders.
+  Stream<BaseEvent> _runEncodedAgent(
+    String endpoint,
+    String runId,
+    Map<String, dynamic> Function() encodeInput, {
+    CancelToken? cancelToken,
+  }) async* {
     cancelToken ??= CancelToken();
 
-    // Validate BEFORE registering in _requestTokens so a caller-supplied
-    // bad runId (empty, over-length, control chars) never enters the map.
-    _validateRunAgentInput(input);
-
     // Reject a caller-supplied runId that collides with an in-flight run.
-    // `putIfAbsent` collapses the check-then-insert into a single map
-    // operation, eliminating the cross-tick race window that would exist
-    // between a `containsKey` check and the subsequent `[]=` assignment.
-    final existing = _requestTokens.putIfAbsent(runId, () => cancelToken!);
-    if (!identical(existing, cancelToken)) {
+    // This code runs synchronously until the first await, so checking and
+    // registering cannot interleave with another stream subscription. Reject
+    // every existing ID, including callers that reuse the same token object.
+    if (_requestTokens.containsKey(runId)) {
       throw ValidationError(
         'Duplicate runId "$runId": another run with the same id is in flight',
         field: 'runId',
@@ -184,6 +216,7 @@ class AgUiClient {
         value: runId,
       );
     }
+    _requestTokens[runId] = cancelToken;
 
     try {
       // Send POST request with RunAgentInput
@@ -194,7 +227,7 @@ class AgUiClient {
       final uri = Uri.parse(endpoint);
       final request = http.Request('POST', uri)
         ..headers.addAll(headers)
-        ..body = json.encode(_encoder.encodeRunAgentInput(input));
+        ..body = json.encode(encodeInput());
 
       // Send with timeout and cancellation support
       final streamedResponse = await _sendWithCancellation(
@@ -523,59 +556,83 @@ class AgUiClient {
     // subtype is explicitly covered. A partial `is UserMessage` check implied
     // validation coverage that didn't exist — this makes the boundary clear.
     if (input.messages != null) {
-      final seenMessageIds = <String>{};
-      for (final message in input.messages!) {
-        // `Message.id` is declared nullable (to accommodate inbound
-        // MESSAGES_SNAPSHOT payloads where the server may omit the field),
-        // but outbound messages MUST carry a non-empty id: the server uses
-        // it as the stable identity key for conversation history.
-        // `requireNonEmpty` rejects both null and empty-string.
-        Validators.requireNonEmpty(message.id, 'message.id');
-        if (!seenMessageIds.add(message.id!)) {
-          throw ValidationError(
-            'Duplicate message.id "${message.id}"',
-            field: 'message.id',
-            constraint: 'unique-id',
-            value: message.id,
-          );
-        }
-        switch (message) {
-          case UserMessage():
-            Validators.validateUserMessageContent(message.messageContent);
-          case AssistantMessage(:final content, :final toolCalls):
-            // content is String? on AssistantMessage (all other subtypes have
-            // non-nullable content) — guard avoids passing null to
-            // validateMessageContent on valid assistant messages that omit it.
-            if (content != null) Validators.validateMessageContent(content);
-            if (toolCalls != null) {
-              final seenToolCallIds = <String>{};
-              for (final tc in toolCalls) {
-                if (!seenToolCallIds.add(tc.id)) {
-                  throw ValidationError(
-                    'Duplicate toolCall.id "${tc.id}" within AssistantMessage',
-                    field: 'toolCall.id',
-                    constraint: 'unique-within-message',
-                    value: tc.id,
-                  );
-                }
+      _validateMessages(input.messages!);
+    }
+  }
+
+  void _validateCanonicalRunAgentInput(RunAgentInput input) {
+    Validators.validateThreadId(input.threadId);
+    Validators.validateRunId(input.runId);
+    if (input.parentRunId != null) {
+      Validators.requireNonEmpty(input.parentRunId!, 'parentRunId');
+    }
+    _validateMessages(input.messages);
+  }
+
+  void _validateMessages(Iterable<Message> messages) {
+    final seenMessageIds = <String>{};
+    for (final message in messages) {
+      // `Message.id` is declared nullable (to accommodate inbound
+      // MESSAGES_SNAPSHOT payloads where the server may omit the field),
+      // but outbound messages MUST carry a non-empty id: the server uses
+      // it as the stable identity key for conversation history.
+      // `requireNonEmpty` rejects both null and empty-string.
+      Validators.requireNonEmpty(message.id, 'message.id');
+      if (!seenMessageIds.add(message.id!)) {
+        throw ValidationError(
+          'Duplicate message.id "${message.id}"',
+          field: 'message.id',
+          constraint: 'unique-id',
+          value: message.id,
+        );
+      }
+      switch (message) {
+        case UserMessage():
+          Validators.validateUserMessageContent(message.messageContent);
+        case AssistantMessage(:final content, :final toolCalls):
+          // content is String? on AssistantMessage (all other subtypes have
+          // non-nullable content) — guard avoids passing null to
+          // validateMessageContent on valid assistant messages that omit it.
+          if (content != null) Validators.validateMessageContent(content);
+          if (toolCalls != null) {
+            final seenToolCallIds = <String>{};
+            for (final tc in toolCalls) {
+              if (!seenToolCallIds.add(tc.id)) {
+                throw ValidationError(
+                  'Duplicate toolCall.id "${tc.id}" within AssistantMessage',
+                  field: 'toolCall.id',
+                  constraint: 'unique-within-message',
+                  value: tc.id,
+                );
               }
             }
-          case DeveloperMessage(:final content):
-            Validators.validateMessageContent(content);
-          case SystemMessage(:final content):
-            Validators.validateMessageContent(content);
-          case ToolMessage(:final content):
-            Validators.validateMessageContent(content);
-          case ReasoningMessage(:final content):
-            // content is String? on ReasoningMessage (optional reasoning text)
-            if (content != null) Validators.validateMessageContent(content);
-          case ActivityMessage():
-            // ActivityMessage carries structured activityContent (Map), not
-            // a string content field — nothing to validate here.
-            break;
-        }
+          }
+        case DeveloperMessage(:final content):
+          Validators.validateMessageContent(content);
+        case SystemMessage(:final content):
+          Validators.validateMessageContent(content);
+        case ToolMessage(:final content):
+          Validators.validateMessageContent(content);
+        case ReasoningMessage(:final content):
+          // content is String? on ReasoningMessage (optional reasoning text)
+          if (content != null) Validators.validateMessageContent(content);
+        case ActivityMessage():
+          // ActivityMessage carries structured activityContent (Map), not
+          // a string content field — nothing to validate here.
+          break;
       }
     }
+  }
+
+  String _resolveEndpoint(String endpoint) {
+    Validators.validateUrl(config.baseUrl, 'baseUrl');
+    Validators.requireNonEmpty(endpoint, 'endpoint');
+    final isAbsolute =
+        endpoint.startsWith('http://') || endpoint.startsWith('https://');
+    if (isAbsolute) {
+      Validators.validateUrl(endpoint, 'endpoint');
+    }
+    return isAbsolute ? endpoint : '${config.baseUrl}/$endpoint';
   }
 
   /// Lazily initialized secure RNG, shared across all `_generateRunId`
@@ -681,6 +738,7 @@ class SimpleRunAgentInput {
   final Map<String, dynamic>? config;
   final Map<String, dynamic>? metadata;
   final dynamic forwardedProps;
+  final List<ResumeEntry>? resume;
 
   const SimpleRunAgentInput({
     this.threadId,
@@ -693,6 +751,7 @@ class SimpleRunAgentInput {
     this.config,
     this.metadata,
     this.forwardedProps,
+    this.resume,
   });
 
   Map<String, dynamic> toJson() {
@@ -701,7 +760,7 @@ class SimpleRunAgentInput {
     // and the Python pydantic model. Always emit them — falling back to empty
     // containers when null — so strict servers (pydantic BaseModel with
     // required fields) do not reject the payload with 422. Optional fields
-    // (`threadId`, `runId`, `parentRunId`, `config`, `metadata`) are only
+    // (`threadId`, `runId`, `parentRunId`, `config`, `metadata`, `resume`) are only
     // emitted when set; the server treats their absence as "not provided".
     assert(
       state == null || state is Map<String, dynamic>,
@@ -718,12 +777,17 @@ class SimpleRunAgentInput {
       if (runId != null) 'runId': runId,
       if (parentRunId != null) 'parentRunId': parentRunId,
       'state': state ?? const <String, dynamic>{},
-      'messages': messages?.map((m) => m.toJson()).toList() ?? const <Map<String, dynamic>>[],
-      'tools': tools?.map((t) => t.toJson()).toList() ?? const <Map<String, dynamic>>[],
-      'context': context?.map((c) => c.toJson()).toList() ?? const <Map<String, dynamic>>[],
+      'messages': messages?.map((m) => m.toJson()).toList() ??
+          const <Map<String, dynamic>>[],
+      'tools': tools?.map((t) => t.toJson()).toList() ??
+          const <Map<String, dynamic>>[],
+      'context': context?.map((c) => c.toJson()).toList() ??
+          const <Map<String, dynamic>>[],
       'forwardedProps': forwardedProps ?? const <String, dynamic>{},
       if (config != null) 'config': config,
       if (metadata != null) 'metadata': metadata,
+      if (resume != null)
+        'resume': resume!.map((entry) => entry.toJson()).toList(),
     };
   }
 }

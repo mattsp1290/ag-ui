@@ -259,6 +259,7 @@ Map<String, dynamic> _canonicalEvidence() {
       'message' => 'message',
       'content' => 'content',
       'type' => 'type',
+      'outcome' => 'outcome',
       _ => throw StateError('No evidence adapter for $kind ($rowId)'),
     };
     evidence['canonical.$rowId'] = <String, dynamic>{
@@ -288,12 +289,18 @@ Map<String, dynamic> _decodeEvidence(
       return Message.fromJson(input).toJson();
     case 'content':
       return InputContent.fromJson(input).toJson();
+    case 'outcome':
+      return RunFinishedOutcome.fromJson(input).toJson();
     case 'type':
       switch (model) {
         case 'Context':
           return Context.fromJson(input).toJson();
         case 'FunctionCall':
           return FunctionCall.fromJson(input).toJson();
+        case 'Interrupt':
+          return Interrupt.fromJson(input).toJson();
+        case 'ResumeEntry':
+          return ResumeEntry.fromJson(input).toJson();
         case 'RunAgentInput':
           return RunAgentInput.fromJson(input).toJson();
         case 'Tool':
@@ -319,8 +326,15 @@ String _modelRelativePath(Map<String, dynamic> evidence) {
       return path.replaceFirst('/context/0', '');
     case 'FunctionCall':
       return path.replaceFirst('/toolCalls/0/function', '');
+    case 'Interrupt':
+      return path.replaceFirst('/outcome/interrupts/0', '');
+    case 'ResumeEntry':
+      return path.replaceFirst('/resume/0', '');
     case 'RunAgentInput':
       return path.replaceFirst('/input', '');
+    case 'RunFinishedInterruptOutcome':
+    case 'RunFinishedSuccessOutcome':
+      return path.replaceFirst('/outcome', '');
     case 'Tool':
       return path.replaceFirst('/tools/items/0', '');
     case 'ToolCall':
@@ -344,8 +358,18 @@ Map<String, dynamic> _adapterInput(
         _atJsonPointer(rootInput, '/toolCalls/0/function'),
         model,
       );
+    case 'Interrupt':
+      return _asMap(
+        _atJsonPointer(rootInput, '/outcome/interrupts/0'),
+        model,
+      );
+    case 'ResumeEntry':
+      return _asMap(_atJsonPointer(rootInput, '/resume/0'), model);
     case 'RunAgentInput':
       return _asMap(_atJsonPointer(rootInput, '/input'), model);
+    case 'RunFinishedInterruptOutcome':
+    case 'RunFinishedSuccessOutcome':
+      return _asMap(_atJsonPointer(rootInput, '/outcome'), model);
     case 'Tool':
       return _asMap(_atJsonPointer(rootInput, '/tools/items/0'), model);
     case 'ToolCall':

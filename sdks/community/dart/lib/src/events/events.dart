@@ -14,6 +14,7 @@ import '../types/context.dart';
 import '../types/copy_utils.dart';
 import '../types/metadata.dart';
 import '../types/message.dart';
+import '../types/run_outcome.dart';
 import '../types/wire_safety.dart';
 import 'event_type.dart';
 
@@ -71,6 +72,28 @@ String? _readSubagentRunId(Map<String, dynamic> json) =>
       'subagentRunId',
       'subagent_run_id',
     );
+
+RunFinishedOutcome? _readRunFinishedOutcome(Map<String, dynamic> json) {
+  if (!json.containsKey('outcome') || json['outcome'] == null) {
+    return null;
+  }
+  try {
+    final outcome = JsonDecoder.requireField<Map<String, dynamic>>(
+      json,
+      'outcome',
+    );
+    return RunFinishedOutcome.fromJson(outcome);
+  } on AGUIValidationError catch (error) {
+    final nestedField = error.field;
+    throw wrapNestedValidationError(
+      enclosingJson: json,
+      error: error,
+      field: nestedField == null || nestedField == 'outcome'
+          ? 'outcome'
+          : 'outcome.$nestedField',
+    );
+  }
+}
 
 // Hoisted `@Deprecated` messages: each is repeated on the class
 // declaration AND the constructor of the corresponding event type, so a

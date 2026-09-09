@@ -17,6 +17,71 @@ bool containsEncryptedValue(Object? value) {
   return false;
 }
 
+AGUIValidationError sanitizeValidationError({
+  required Map<String, dynamic> enclosingJson,
+  required AGUIValidationError error,
+  String? field,
+}) {
+  if (!containsEncryptedValue(enclosingJson)) {
+    if (field == null || field == error.field) {
+      return error;
+    }
+    return AGUIValidationError(
+      message: error.message,
+      field: field,
+      value: error.value,
+      json: error.json,
+      cause: error.json == null ? error : null,
+    );
+  }
+  final safeValue = error.value is String &&
+          !_containsExactString(enclosingJson, error.value as String)
+      ? error.value
+      : error.value?.runtimeType.toString();
+  return AGUIValidationError(
+    message: _redactPayloadStrings(error.message, enclosingJson),
+    field: field ?? error.field,
+    value: safeValue,
+  );
+}
+
+bool _containsExactString(Object? payload, String candidate) {
+  if (payload is String) {
+    return payload == candidate;
+  }
+  if (payload is Map) {
+    return payload.values
+        .any((value) => _containsExactString(value, candidate));
+  }
+  if (payload is List) {
+    return payload.any((value) => _containsExactString(value, candidate));
+  }
+  return false;
+}
+
+String _redactPayloadStrings(String message, Object? payload) {
+  final strings = <String>{};
+
+  void collect(Object? value) {
+    if (value is String && value.isNotEmpty) {
+      strings.add(value);
+    } else if (value is Map) {
+      value.values.forEach(collect);
+    } else if (value is List) {
+      value.forEach(collect);
+    }
+  }
+
+  collect(payload);
+  final ordered = strings.toList()
+    ..sort((a, b) => b.length.compareTo(a.length));
+  var sanitized = message;
+  for (final value in ordered) {
+    sanitized = sanitized.replaceAll(value, '<redacted>');
+  }
+  return sanitized;
+}
+
 T? readCipherAwareOptionalField<T>(
   Map<String, dynamic> json,
   String key,
@@ -44,12 +109,10 @@ AGUIValidationError wrapNestedValidationError({
   required AGUIValidationError error,
   required String field,
 }) {
-  final sensitive = containsEncryptedValue(enclosingJson);
-  return AGUIValidationError(
-    message: error.message,
+  return sanitizeValidationError(
+    enclosingJson: enclosingJson,
+    error: error,
     field: field,
-    value: sensitive ? error.value?.runtimeType.toString() : error.value,
-    cause: sensitive ? null : (error.json == null ? error : null),
   );
 }
 

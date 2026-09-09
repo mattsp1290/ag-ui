@@ -317,18 +317,17 @@ void main() {
       final goDeclarations = extractGoDeclarations(goSources);
 
       final dartLibrary =
-          await snapshot.text('sdks/community/dart/lib/ag_ui.dart');
+          File('${packageRoot.path}/lib/ag_ui.dart').readAsStringSync();
       final dartSources = <String, String>{};
-      for (final repositoryPath in sourceFiles.keys.where(
-        (path) =>
-            path.startsWith('sdks/community/dart/lib/') &&
-            path.endsWith('.dart'),
-      )) {
-        final libraryPath = repositoryPath.replaceFirst(
-          'sdks/community/dart/lib/',
+      for (final entity in Directory('${packageRoot.path}/lib')
+          .listSync(recursive: true)
+          .whereType<File>()
+          .where((file) => file.path.endsWith('.dart'))) {
+        final libraryPath = entity.path.replaceFirst(
+          '${packageRoot.path}/lib/',
           '',
         );
-        dartSources[libraryPath] = await snapshot.text(repositoryPath);
+        dartSources[libraryPath] = entity.readAsStringSync();
       }
       final dartDeclarations = extractPublicDartDeclarations(
         dartLibrary,

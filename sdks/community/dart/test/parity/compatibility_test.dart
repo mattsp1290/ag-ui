@@ -48,6 +48,9 @@ String _eventTypeName(EventType type) => switch (type) {
       EventType.reasoningMessageChunk => 'ReasoningMessageChunkEvent',
       EventType.reasoningEnd => 'ReasoningEndEvent',
       EventType.reasoningEncryptedValue => 'ReasoningEncryptedValueEvent',
+      EventType.subagentStarted => 'SubagentStartedEvent',
+      EventType.subagentFinished => 'SubagentFinishedEvent',
+      EventType.subagentError => 'SubagentErrorEvent',
     };
 
 String _baseEventName(BaseEvent event) => switch (event) {
@@ -85,6 +88,9 @@ String _baseEventName(BaseEvent event) => switch (event) {
       ReasoningMessageChunkEvent() => 'ReasoningMessageChunkEvent',
       ReasoningEndEvent() => 'ReasoningEndEvent',
       ReasoningEncryptedValueEvent() => 'ReasoningEncryptedValueEvent',
+      SubagentStartedEvent() => 'SubagentStartedEvent',
+      SubagentFinishedEvent() => 'SubagentFinishedEvent',
+      SubagentErrorEvent() => 'SubagentErrorEvent',
     };
 
 String? _messageId(Message message) => message.id;
@@ -290,7 +296,9 @@ Map<String, dynamic> _decodeEvidence(
     case 'content':
       return InputContent.fromJson(input).toJson();
     case 'outcome':
-      return RunFinishedOutcome.fromJson(input).toJson();
+      return model.startsWith('SubagentFinished')
+          ? SubagentFinishedOutcome.fromJson(input).toJson()
+          : RunFinishedOutcome.fromJson(input).toJson();
     case 'type':
       switch (model) {
         case 'Context':
@@ -334,6 +342,8 @@ String _modelRelativePath(Map<String, dynamic> evidence) {
       return path.replaceFirst('/input', '');
     case 'RunFinishedInterruptOutcome':
     case 'RunFinishedSuccessOutcome':
+    case 'SubagentFinishedSuccessOutcome':
+    case 'SubagentFinishedSuspendedOutcome':
       return path.replaceFirst('/outcome', '');
     case 'Tool':
       return path.replaceFirst('/tools/items/0', '');
@@ -369,6 +379,8 @@ Map<String, dynamic> _adapterInput(
       return _asMap(_atJsonPointer(rootInput, '/input'), model);
     case 'RunFinishedInterruptOutcome':
     case 'RunFinishedSuccessOutcome':
+    case 'SubagentFinishedSuccessOutcome':
+    case 'SubagentFinishedSuspendedOutcome':
       return _asMap(_atJsonPointer(rootInput, '/outcome'), model);
     case 'Tool':
       return _asMap(_atJsonPointer(rootInput, '/tools/items/0'), model);
@@ -403,7 +415,7 @@ void main() {
         _fixture['baseCommit'],
         'aaa75b54d572be8cd1d51c72e951273c5b893ed0',
       );
-      expect((_fixture['eventTypes'] as List).length, 34);
+      expect((_fixture['eventTypes'] as List).length, 37);
       expect((_fixture['messageRoles'] as List).length, 7);
       expect((_fixture['cases'] as List).length, 14);
     });
@@ -780,6 +792,9 @@ void main() {
           entityId: 'm',
           encryptedValue: 'secret',
         ),
+        const SubagentStartedEvent(subagentRunId: 'sub', name: 'worker'),
+        const SubagentFinishedEvent(subagentRunId: 'sub'),
+        const SubagentErrorEvent(subagentRunId: 'sub', message: 'failed'),
       ];
       const expectedBaseEventNames = [
         'TextMessageStartEvent',
@@ -816,9 +831,12 @@ void main() {
         'ReasoningMessageChunkEvent',
         'ReasoningEndEvent',
         'ReasoningEncryptedValueEvent',
+        'SubagentStartedEvent',
+        'SubagentFinishedEvent',
+        'SubagentErrorEvent',
       ];
       expect(events.map(_baseEventName).toList(), expectedBaseEventNames);
-      expect(EventType.values.map(_eventTypeName).length, 34);
+      expect(EventType.values.map(_eventTypeName).length, 37);
     });
   });
 }

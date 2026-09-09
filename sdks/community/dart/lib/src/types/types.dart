@@ -8,3 +8,4 @@ export 'tool.dart';
 export 'context.dart';
 export 'interrupt.dart';
 export 'run_outcome.dart';
+export 'subagent_outcome.dart';

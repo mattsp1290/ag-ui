@@ -65,7 +65,10 @@ enum EventType {
   reasoningMessageEnd('REASONING_MESSAGE_END'),
   reasoningMessageChunk('REASONING_MESSAGE_CHUNK'),
   reasoningEnd('REASONING_END'),
-  reasoningEncryptedValue('REASONING_ENCRYPTED_VALUE');
+  reasoningEncryptedValue('REASONING_ENCRYPTED_VALUE'),
+  subagentStarted('SUBAGENT_STARTED'),
+  subagentFinished('SUBAGENT_FINISHED'),
+  subagentError('SUBAGENT_ERROR');
 
   final String value;
   const EventType(this.value);

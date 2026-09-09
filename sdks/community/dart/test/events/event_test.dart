@@ -498,8 +498,7 @@ void main() {
       expect(
         event.rawEvent,
         isNull,
-        reason:
-            'rawEvent must be scrubbed when ActivityMessage carries '
+        reason: 'rawEvent must be scrubbed when ActivityMessage carries '
             'wire-level encryptedValue',
       );
       final emitted = event.toJson();
@@ -1037,14 +1036,22 @@ void main() {
             'input': {
               'runId': 'r',
               'threadId': 't',
-              'messages': [{'id': 123, 'role': 'user', 'content': 'hi', 'encryptedValue': 'cipher'}],
+              'messages': [
+                {
+                  'id': 123,
+                  'role': 'user',
+                  'content': 'hi',
+                  'encryptedValue': 'cipher'
+                }
+              ],
               'tools': [],
               'context': [],
               'forwardedProps': {},
               'state': {},
             },
           }),
-          throwsA(isA<AGUIValidationError>().having((e) => e.json, 'json', isNull)),
+          throwsA(
+              isA<AGUIValidationError>().having((e) => e.json, 'json', isNull)),
         );
       });
     });
@@ -1156,6 +1163,9 @@ void main() {
             entityId: 'e',
             encryptedValue: 'v',
           ),
+          SubagentStartedEvent(subagentRunId: 'sub', name: 'worker'),
+          SubagentFinishedEvent(subagentRunId: 'sub'),
+          SubagentErrorEvent(subagentRunId: 'sub', message: 'failed'),
         ];
 
         for (final e in samples) {

@@ -508,6 +508,12 @@ class EventDecoder {
         // events to a decryption service that fails on empty entityId,
         // add a length check at the consumer or via a proxy validator.
         break;
+      case SubagentStartedEvent():
+      case SubagentFinishedEvent():
+      case SubagentErrorEvent():
+        // Required fields are type-checked by their factories. Empty strings
+        // remain valid to match the peer z.string()/str schemas.
+        break;
     }
 
     return true;

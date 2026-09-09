@@ -144,8 +144,9 @@ class ClientToolsPageState extends ChangeNotifier with AgUiEventHandling {
   final AgUiService _service;
   final String _threadId = uid('thread');
   final List<Message> _history = [];
-  final Set<(String?, String)> _settledCalls = {};
-  List<({ToolCall call, String? subagentRunId})> _pendingCalls = const [];
+  final Set<(String?, String?, String)> _settledCalls = {};
+  List<({ToolCall call, String? ownerMessageId, String? subagentRunId})>
+  _pendingCalls = const [];
   bool _busy = false;
   bool _aborted = false;
 
@@ -212,7 +213,11 @@ class ClientToolsPageState extends ChangeNotifier with AgUiEventHandling {
         _pendingCalls = const [];
         for (final pending in calls) {
           final call = pending.call;
-          final identity = (pending.subagentRunId, call.id);
+          final identity = (
+            pending.subagentRunId,
+            pending.ownerMessageId,
+            call.id,
+          );
           if (!_settledCalls.add(identity)) continue;
           final result = await _execute(
             call,
@@ -245,7 +250,10 @@ class ClientToolsPageState extends ChangeNotifier with AgUiEventHandling {
     final priorProposals = {
       for (final assistant in _history.whereType<AssistantMessage>())
         for (final call in assistant.toolCalls ?? const <ToolCall>[])
-          (assistant.subagentRunId, assistant.id, call.id),
+          (assistant.subagentRunId, assistant.id, call.id): (
+            call.function.name,
+            call.function.arguments,
+          ),
     };
     beginRun(continuation: continuation);
     _pendingCalls = const [];
@@ -258,18 +266,40 @@ class ClientToolsPageState extends ChangeNotifier with AgUiEventHandling {
     )) {
       if (disposed || _aborted) return false;
       if (event is MessagesSnapshotEvent) {
+        for (final assistant in event.messages.whereType<AssistantMessage>()) {
+          for (final call in assistant.toolCalls ?? const <ToolCall>[]) {
+            final identity = (assistant.subagentRunId, assistant.id, call.id);
+            final priorPayload = priorProposals[identity];
+            final nextPayload = (call.function.name, call.function.arguments);
+            if (priorPayload != null && priorPayload != nextPayload) {
+              throw FormatException(
+                'Assistant/tool proposal identity was reused with a different payload: '
+                '${assistant.id}/${call.id}. Message and tool-call IDs must remain '
+                'stable and unique within a thread.',
+              );
+            }
+          }
+        }
         _mergeHistory(event.messages);
         reconcileSnapshot(event.messages, projectToolCalls: false);
         _pendingCalls = [
           for (final assistant in event.messages.whereType<AssistantMessage>())
             for (final call in assistant.toolCalls ?? const <ToolCall>[])
-              if (!priorProposals.contains((
+              if (!priorProposals.containsKey((
                     assistant.subagentRunId,
                     assistant.id,
                     call.id,
                   )) &&
-                  !_settledCalls.contains((assistant.subagentRunId, call.id)))
-                (call: call, subagentRunId: assistant.subagentRunId),
+                  !_settledCalls.contains((
+                    assistant.subagentRunId,
+                    assistant.id,
+                    call.id,
+                  )))
+                (
+                  call: call,
+                  ownerMessageId: assistant.id,
+                  subagentRunId: assistant.subagentRunId,
+                ),
         ];
       } else {
         handleCommonEvent(event);
@@ -531,12 +561,20 @@ class ClientToolsPageState extends ChangeNotifier with AgUiEventHandling {
     final calls = [
       for (final message in _history.whereType<AssistantMessage>())
         for (final call in message.toolCalls ?? const <ToolCall>[])
-          (call: call, subagentRunId: message.subagentRunId),
+          (
+            call: call,
+            ownerMessageId: message.id,
+            subagentRunId: message.subagentRunId,
+          ),
     ];
     for (final pending in calls) {
-      final identity = (pending.subagentRunId, pending.call.id);
-      if (!results.add(identity)) continue;
-      _settledCalls.add(identity);
+      final resultIdentity = (pending.subagentRunId, pending.call.id);
+      if (!results.add(resultIdentity)) continue;
+      _settledCalls.add((
+        pending.subagentRunId,
+        pending.ownerMessageId,
+        pending.call.id,
+      ));
       _history.add(
         ToolMessage(
           id: uid('tool'),

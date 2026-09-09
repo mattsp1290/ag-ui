@@ -893,4 +893,66 @@ void main() {
         .map((message) => jsonDecode(message.content)['result']);
     expect(results.where((result) => result == 4), hasLength(1));
   });
+
+  test('one exchange executes reused call IDs from distinct owners', () async {
+    final first = _snapshotWithToolCall('shared', '1+1');
+    final second = MessagesSnapshotEvent(
+      messages: [
+        ...first.messages,
+        const AssistantMessage(
+          id: 'next-owner',
+          toolCalls: [
+            ToolCall(
+              id: 'shared',
+              function: FunctionCall(
+                name: 'calculate',
+                arguments: '{"expression":"2+2"}',
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+    final service = FakeAgUiService([
+      [first, _runFinished],
+      [second, _runFinished],
+      [_runFinished],
+    ]);
+    final state = ClientToolsPageState(
+      endpoint: _clientToolsEndpoint(),
+      service: service,
+    );
+    addTearDown(state.dispose);
+
+    await state.sendMessage('both');
+
+    expect(service.calls, 3);
+    final results = service.histories.last
+        .whereType<ToolMessage>()
+        .where((message) => message.toolCallId == 'shared')
+        .map((message) => jsonDecode(message.content)['result']);
+    expect(results, [2, 4]);
+  });
+
+  test('changed payload under reused owner and call IDs is rejected', () async {
+    final service = FakeAgUiService([
+      [_snapshotWithToolCall('shared', '1+1'), _runFinished],
+      [_runFinished],
+      [_snapshotWithToolCall('shared', '2+2'), _runFinished],
+    ]);
+    final state = ClientToolsPageState(
+      endpoint: _clientToolsEndpoint(),
+      service: service,
+    );
+    addTearDown(state.dispose);
+
+    await state.sendMessage('first');
+    await state.sendMessage('second');
+
+    expect(service.calls, 3);
+    expect(
+      state.messages.last.content,
+      contains('Message and tool-call IDs must remain stable and unique'),
+    );
+  });
 }

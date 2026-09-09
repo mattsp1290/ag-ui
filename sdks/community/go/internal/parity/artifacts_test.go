@@ -67,7 +67,17 @@ func TestGoArtifactCLI(t *testing.T) {
 		return document
 	}
 	direct := read("go.direct")
-	read("go.encoder")
+	encoded := read("go.encoder")
+	for _, document := range []artifactDocument{direct, encoded} {
+		for _, record := range document.Cases {
+			switch record.ID {
+			case "content.binary.missing_payload", "content.data_source.missing_mime", "request.resume_bad_status", "message.unknown_role_invalid", "content.unknown_type_invalid":
+				require.False(t, record.Accepted, record.ID)
+				require.False(t, record.Unsupported, "public validation must execute: %s", record.ID)
+				require.NotEmpty(t, record.Error, record.ID)
+			}
+		}
+	}
 	for _, id := range []string{"event.TEXT_MESSAGE_START.full", "event.TOOL_CALL_CHUNK.full", "event.CUSTOM.nested_null"} {
 		var expected json.RawMessage
 		for _, c := range corpus.Cases {

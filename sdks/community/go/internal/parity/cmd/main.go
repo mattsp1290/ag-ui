@@ -296,8 +296,19 @@ func decodeAndEncode(tc testCase, input json.RawMessage, useEncoder, fromPeer bo
 	if tc.Kind == "aggregate" || tc.Kind == "mapper" || tc.Kind == "capabilities" {
 		return nil, true, fmt.Errorf("Go SDK has no public %s API", tc.Kind)
 	}
-	if tc.Check == "validate" && (tc.Kind == "message" || tc.Kind == "content" || tc.Kind == "request") {
-		return nil, true, fmt.Errorf("Go SDK has no public validation API for %s payloads", tc.Kind)
+	if tc.Check == "validate" {
+		var err error
+		switch tc.Kind {
+		case "message":
+			err = types.ValidateMessageJSON(input)
+		case "content":
+			err = types.ValidateInputContentJSON(input)
+		case "request":
+			err = types.ValidateRunAgentInputJSON(input)
+		}
+		if err != nil {
+			return nil, false, err
+		}
 	}
 
 	var value any

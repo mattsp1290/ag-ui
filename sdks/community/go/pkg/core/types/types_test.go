@@ -194,8 +194,9 @@ func TestInputContentUnmarshalBinaryRequiresSource(t *testing.T) {
 	assert.Error(t, err)
 }
 
-// TestInputContentUnmarshalBinaryRequiresMimeType verifies binary InputContent requires a mimeType field.
-func TestInputContentUnmarshalBinaryRequiresMimeType(t *testing.T) {
+// TestInputContentBinaryMIMEPresenceIsOptIn preserves permissive decode while
+// checking required wire keys through the public validator.
+func TestInputContentBinaryMIMEPresenceIsOptIn(t *testing.T) {
 	payload := []byte(`{
 		"type": "binary",
 		"url": "https://example.com/test.png"
@@ -203,7 +204,9 @@ func TestInputContentUnmarshalBinaryRequiresMimeType(t *testing.T) {
 
 	var content InputContent
 	err := json.Unmarshal(payload, &content)
-	assert.Error(t, err)
+	assert.NoError(t, err)
+	assert.Error(t, ValidateInputContentJSON(payload))
+	assert.NoError(t, content.ValidateProtocol())
 }
 
 // TestMessageContentString verifies ContentString extracts text content.
@@ -266,7 +269,7 @@ func TestMessageContentInputContents(t *testing.T) {
 		},
 	}
 	_, ok = msg.ContentInputContents()
-	assert.False(t, ok)
+	assert.True(t, ok)
 
 	msg = Message{
 		Role: RoleUser,

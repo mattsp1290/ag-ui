@@ -5,9 +5,11 @@ import 'package:ag_ui/ag_ui.dart';
 import 'package:test/test.dart';
 
 import 'byte_bounds_cases.dart';
+import 'cancellation_failure_cases.dart';
 
 void main() {
   boundedByteTests();
+  cancellationFailureTests();
   group('SseClient Stream Parsing', () {
     test('parseStream parses properly formatted SSE messages', () async {
       final client = SseClient();

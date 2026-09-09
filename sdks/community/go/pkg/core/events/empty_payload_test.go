@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/ag-ui-protocol/ag-ui/sdks/community/go/pkg/core/events"
+	"github.com/ag-ui-protocol/ag-ui/sdks/community/go/pkg/encoding"
 	jsoncodec "github.com/ag-ui-protocol/ag-ui/sdks/community/go/pkg/encoding/json"
 	"github.com/ag-ui-protocol/ag-ui/sdks/community/go/pkg/encoding/sse"
 	"github.com/stretchr/testify/require"
@@ -78,10 +79,51 @@ func TestActivityWireDefaultsDoNotMutate(t *testing.T) {
 	require.Contains(t, string(data), `"replace":false`)
 	delta := events.NewActivityDeltaEvent("activity", "PLAN", nil)
 	delta.TimestampMs = nil
+	require.NotNil(t, delta.Patch)
 	require.Empty(t, delta.Patch)
+	stateDelta := events.NewStateDeltaEvent(nil)
+	require.NotNil(t, stateDelta.Delta)
+	require.Empty(t, stateDelta.Delta)
 	delta.Patch = nil
 	data, err = json.Marshal(*delta)
 	require.NoError(t, err)
 	require.JSONEq(t, `{"type":"ACTIVITY_DELTA","messageId":"activity","activityType":"PLAN","patch":[]}`, string(data))
 	require.Nil(t, delta.Patch)
+}
+
+func TestPatchDecodingBoundaries(t *testing.T) {
+	for _, tc := range []struct{ kind, fields string }{
+		{"STATE_DELTA", `"delta"`},
+		{"ACTIVITY_DELTA", `"messageId":"activity","activityType":"PLAN","patch"`},
+	} {
+		t.Run(tc.kind, func(t *testing.T) {
+			wire := `{"type":"` + tc.kind + `",` + tc.fields + `:[{"op":"remove","path":"","extension":{"value":null}}]}`
+			for _, opts := range []*encoding.DecodingOptions{nil, {Strict: true, ValidateEvents: true}, {Strict: true, AllowUnknownFields: true, ValidateEvents: true}, {AllowUnknownFields: true, ValidateEvents: true}} {
+				_, err := jsoncodec.NewJSONDecoder(opts).Decode(context.Background(), []byte(wire))
+				require.NoError(t, err)
+			}
+			_, err := events.EventFromJSON([]byte(wire))
+			require.NoError(t, err)
+			_, err = events.NewEventDecoder(nil).DecodeEvent(tc.kind, []byte(wire))
+			require.NoError(t, err)
+			strict := jsoncodec.NewJSONDecoder(&encoding.DecodingOptions{Strict: true, ValidateEvents: true})
+			_, err = strict.Decode(context.Background(), []byte(strings.TrimSuffix(wire, "}")+`,"unknownEventField":1}`))
+			require.Error(t, err)
+			require.Contains(t, err.Error(), "unknown field")
+			invalid := strings.Replace(wire, `"op":"remove"`, `"op":"merge"`, 1)
+			_, err = jsoncodec.NewJSONDecoder(nil).Decode(context.Background(), []byte(invalid))
+			require.Error(t, err)
+			event, err := jsoncodec.NewJSONDecoder(&encoding.DecodingOptions{ValidateEvents: false}).Decode(context.Background(), []byte(invalid))
+			require.NoError(t, err)
+			_, err = jsoncodec.NewJSONEncoder(nil).Encode(context.Background(), event)
+			require.Error(t, err)
+			_, err = jsoncodec.NewJSONEncoder(&encoding.EncodingOptions{ValidateOutput: false}).Encode(context.Background(), event)
+			require.NoError(t, err)
+			// Required wire presence cannot be deferred: the public value fields do not retain it.
+			missing := strings.Replace(wire, `"path":"",`, "", 1)
+			_, err = jsoncodec.NewJSONDecoder(&encoding.DecodingOptions{ValidateEvents: false}).Decode(context.Background(), []byte(missing))
+			require.Error(t, err)
+			require.Contains(t, err.Error(), "path field is required")
+		})
+	}
 }

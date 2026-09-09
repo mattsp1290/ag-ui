@@ -68,10 +68,6 @@ type JSONPatchOperation struct {
 // Go zero values. In particular, an empty JSON Pointer addresses the document
 // root and nil is the explicit JSON null value for value operations.
 func (op JSONPatchOperation) MarshalJSON() ([]byte, error) {
-	if err := validateJSONPatchOperation(op); err != nil {
-		return nil, err
-	}
-
 	payload := map[string]any{
 		"op":   op.Op,
 		"path": op.Path,
@@ -87,16 +83,14 @@ func (op JSONPatchOperation) MarshalJSON() ([]byte, error) {
 
 // UnmarshalJSON validates required member presence before decoding into the
 // public representation, which intentionally has no presence bookkeeping.
+// Missing members always fail here because their absence cannot be retained in
+// the public fields. Operation-name validation remains in event Validate methods.
 func (op *JSONPatchOperation) UnmarshalJSON(data []byte) error {
 	var payload map[string]json.RawMessage
 	if err := json.Unmarshal(data, &payload); err != nil {
 		return err
 	}
-	for name := range payload {
-		if name != "op" && name != "path" && name != "value" && name != "from" {
-			return fmt.Errorf("unknown field %q", name)
-		}
-	}
+	// RFC 6902 operation extensions are ignored; required members are decoded below.
 
 	decodeString := func(name string) (string, error) {
 		raw, ok := payload[name]
@@ -138,9 +132,6 @@ func (op *JSONPatchOperation) UnmarshalJSON(data []byte) error {
 	} else if operation == "move" || operation == "copy" {
 		return fmt.Errorf("from field is required for %s operation", operation)
 	}
-	if err := validateJSONPatchOperation(decoded); err != nil {
-		return err
-	}
 	*op = decoded
 	return nil
 }
@@ -156,6 +147,9 @@ type StateDeltaEvent struct {
 
 // NewStateDeltaEvent creates a new state delta event
 func NewStateDeltaEvent(delta []JSONPatchOperation) *StateDeltaEvent {
+	if delta == nil {
+		delta = []JSONPatchOperation{}
+	}
 	return &StateDeltaEvent{
 		BaseEvent: NewBaseEvent(EventTypeStateDelta),
 		Delta:     delta,
@@ -190,15 +184,11 @@ func validateJSONPatchOperation(op JSONPatchOperation) error {
 
 // MarshalJSON normalizes a nil delta to the protocol's empty patch array.
 func (e StateDeltaEvent) MarshalJSON() ([]byte, error) {
-	type alias StateDeltaEvent
-	delta := e.Delta
-	if delta == nil {
-		delta = []JSONPatchOperation{}
+	type wire StateDeltaEvent
+	if e.Delta == nil {
+		e.Delta = []JSONPatchOperation{}
 	}
-	return json.Marshal(struct {
-		alias
-		Delta []JSONPatchOperation `json:"delta"`
-	}{alias: alias(e), Delta: delta})
+	return json.Marshal(wire(e))
 }
 
 // ToJSON serializes the event to JSON
@@ -238,15 +228,11 @@ func (e *MessagesSnapshotEvent) Validate() error {
 
 // MarshalJSON normalizes nil messages to an empty array without mutating the event.
 func (e MessagesSnapshotEvent) MarshalJSON() ([]byte, error) {
-	type alias MessagesSnapshotEvent
-	messages := e.Messages
-	if messages == nil {
-		messages = []Message{}
+	type wire MessagesSnapshotEvent
+	if e.Messages == nil {
+		e.Messages = []Message{}
 	}
-	return json.Marshal(struct {
-		alias
-		Messages []Message `json:"messages"`
-	}{alias: alias(e), Messages: messages})
+	return json.Marshal(wire(e))
 }
 
 // validateMessage validates a single message

@@ -59,7 +59,6 @@ func TestJSONPatchOperationUnmarshal_RejectsMalformedRequiredMembers(t *testing.
 		err  string
 	}{
 		{"zero operation", `{}`, "op field is required"},
-		{"unknown operation", `{"op":"merge","path":""}`, "op field must be one of"},
 		{"missing path", `{"op":"remove"}`, "path field is required"},
 		{"null path", `{"op":"remove","path":null}`, "path field must be a string"},
 		{"non-string path", `{"op":"remove","path":1}`, "path field must be a string"},
@@ -67,7 +66,6 @@ func TestJSONPatchOperationUnmarshal_RejectsMalformedRequiredMembers(t *testing.
 		{"missing from", `{"op":"move","path":""}`, "from field is required for move operation"},
 		{"null from", `{"op":"copy","path":"","from":null}`, "from field must be a string"},
 		{"non-string from", `{"op":"copy","path":"","from":false}`, "from field must be a string"},
-		{"unknown member", `{"op":"remove","path":"","unexpected":true}`, `unknown field "unexpected"`},
 	}
 
 	for _, tt := range tests {
@@ -80,9 +78,9 @@ func TestJSONPatchOperationUnmarshal_RejectsMalformedRequiredMembers(t *testing.
 	}
 }
 
-func TestJSONPatchOperationMarshal_RejectsInvalidOperation(t *testing.T) {
+func TestJSONPatchOperationValidate_RejectsInvalidOperation(t *testing.T) {
 	for _, op := range []JSONPatchOperation{{}, {Op: "merge", Path: "/x"}} {
-		_, err := json.Marshal(op)
+		err := validateJSONPatchOperation(op)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "op field must be one of")
 	}
@@ -111,6 +109,7 @@ func TestStatePayloadNullAndEmptyArraySemantics(t *testing.T) {
 	t.Run("nil and empty delta encode as arrays", func(t *testing.T) {
 		for _, delta := range [][]JSONPatchOperation{nil, {}} {
 			event := NewStateDeltaEvent(delta)
+			event.Delta = delta // Also exercise nil slices supplied through public fields.
 			require.NoError(t, event.Validate())
 			encoded, err := event.ToJSON()
 			require.NoError(t, err)

@@ -10,7 +10,10 @@ The AG-UI Go SDK client package provides Server-Sent Events (SSE) connectivity f
 ## Package Import
 
 ```go
-import "github.com/ag-ui-protocol/ag-ui/sdks/community/go/pkg/client/sse"
+import (
+    "github.com/ag-ui-protocol/ag-ui/sdks/community/go/pkg/client/sse"
+    "github.com/ag-ui-protocol/ag-ui/sdks/community/go/pkg/core/types"
+)
 ```
 
 ## SSE Client Introduction
@@ -40,15 +43,7 @@ client := sse.NewClient(sse.Config{
 // Start streaming with context and payload
 frames, errors, err := client.Stream(sse.StreamOptions{
     Context: context.Background(),
-    Payload: map[string]interface{}{
-        "threadId": "thread_123",
-        "messages": []interface{}{
-            map[string]string{
-                "role":    "user",
-                "content": "Hello, agent!",
-            },
-        },
-    },
+    Payload: types.RunAgentInput{ThreadID: "thread_123", RunID: "run_123"},
 })
 ```
 
@@ -63,60 +58,49 @@ import (
     "context"
     "fmt"
     "log"
-    
+
     "github.com/ag-ui-protocol/ag-ui/sdks/community/go/pkg/client/sse"
     "github.com/ag-ui-protocol/ag-ui/sdks/community/go/pkg/core/events"
+    "github.com/ag-ui-protocol/ag-ui/sdks/community/go/pkg/core/types"
 )
 
 func main() {
-    // Create SSE client
-    client := sse.NewClient(sse.Config{
-        Endpoint: "https://api.example.com/agent",
-        APIKey:   "your-api-key",
-    })
-    
-    // Start streaming
-    ctx := context.Background()
-    frames, errors, err := client.Stream(sse.StreamOptions{
+    ctx, cancel := context.WithCancel(context.Background())
+    defer cancel()
+    client := sse.NewClient(sse.Config{Endpoint: "http://localhost:8080/agentic"})
+    defer client.Close()
+    frames, streamErrors, err := client.Stream(sse.StreamOptions{
         Context: ctx,
-        Payload: map[string]interface{}{
-            "threadId": "thread_123",
-            "messages": []interface{}{
-                map[string]string{
-                    "role":    "user",
-                    "content": "What is the weather today?",
-                },
-            },
+        Payload: types.RunAgentInput{
+            ThreadID: "thread_123", RunID: "run_123",
+            Messages: []types.Message{{ID: "msg_1", Role: types.RoleUser, Content: "Hello, agent!"}},
         },
     })
-    
     if err != nil {
-        log.Fatal("Failed to start stream:", err)
+        log.Print(err)
+        return
     }
-    
-    // Process events
-    decoder := events.NewEventDecoder()
-    for {
+    for frames != nil || streamErrors != nil {
         select {
-        case frame := <-frames:
-            event, err := decoder.Decode(frame.Data)
-            if err != nil {
-                log.Printf("Decode error: %v", err)
+        case frame, ok := <-frames:
+            if !ok {
+                frames = nil
                 continue
             }
-            
-            // Handle different event types
-            switch e := event.(type) {
-            case *events.TextMessageContentEvent:
-                fmt.Print(e.Delta)
-            case *events.RunFinishedEvent:
-                fmt.Println("\nAgent finished processing")
+            event, err := events.EventFromJSON(frame.Data)
+            if err != nil {
+                log.Printf("decode error: %v", err)
                 return
             }
-            
-        case err := <-errors:
-            log.Printf("Stream error: %v", err)
-            return
+            if text, ok := event.(*events.TextMessageContentEvent); ok {
+                fmt.Print(text.Delta)
+            }
+        case err, ok := <-streamErrors:
+            if !ok {
+                streamErrors = nil
+                continue
+            }
+            log.Printf("stream error: %v", err)
         }
     }
 }

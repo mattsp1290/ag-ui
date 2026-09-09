@@ -1,15 +1,20 @@
 ---
 title: "Types"
-description: "Documentation for the core types used in the Agent User Interaction Protocol Go SDK"
+description:
+  "Documentation for the core types used in the Agent User Interaction Protocol
+  Go SDK"
 ---
 
 # Core Types
 
-The Agent User Interaction Protocol Go SDK is built on a set of core types that represent the fundamental structures used throughout the system. This page documents these types and their properties.
+The Agent User Interaction Protocol Go SDK is built on a set of core types that
+represent the fundamental structures used throughout the system. This page
+documents these types and their properties.
 
 ## Event Interface
 
-The `Event` interface is the core abstraction for all AG-UI events. All events in the system implement this interface.
+The `Event` interface is the core abstraction for all AG-UI events. All events
+in the system implement this interface.
 
 ```go
 import "github.com/ag-ui-protocol/ag-ui/sdks/community/go/pkg/core/events"
@@ -17,32 +22,32 @@ import "github.com/ag-ui-protocol/ag-ui/sdks/community/go/pkg/core/events"
 type Event interface {
     // Type returns the event type
     Type() EventType
-    
+
     // Timestamp returns the event timestamp (Unix milliseconds)
     Timestamp() *int64
-    
+
     // SetTimestamp sets the event timestamp
     SetTimestamp(timestamp int64)
-    
+
     // ThreadID returns the thread ID associated with this event
     ThreadID() string
-    
+
     // RunID returns the run ID associated with this event
     RunID() string
-    
+
     // Validate validates the event structure and content
     Validate() error
-    
+
     // ToJSON serializes the event to JSON for cross-SDK compatibility
     ToJSON() ([]byte, error)
-    
+
     // GetBaseEvent returns the underlying base event
     GetBaseEvent() *BaseEvent
 }
 ```
 
 | Method | Return Type | Description |
-| --- | --- | --- |
+| ---------------- | --------------- | ------------------------------------------------------------------ |
 | `Type()` | `EventType` | Returns the type of the event (e.g., TEXT_MESSAGE_START) |
 | `Timestamp()` | `*int64` | Returns the Unix timestamp in milliseconds when the event occurred |
 | `SetTimestamp()` | - | Sets the event timestamp |
@@ -61,7 +66,7 @@ func handleEvent(event events.Event) error {
     if err := event.Validate(); err != nil {
         return fmt.Errorf("invalid event: %w", err)
     }
-    
+
     // Check event type
     switch event.Type() {
     case events.EventTypeTextMessageStart:
@@ -69,20 +74,21 @@ func handleEvent(event events.Event) error {
     case events.EventTypeToolCallStart:
         fmt.Printf("Tool call in thread %s\n", event.ThreadID())
     }
-    
+
     // Serialize to JSON
     jsonData, err := event.ToJSON()
     if err != nil {
         return err
     }
-    
+
     return nil
 }
 ```
 
 ## BaseEvent Struct
 
-The `BaseEvent` struct provides common fields and functionality that all events inherit through embedding.
+The `BaseEvent` struct provides common fields and functionality that all events
+inherit through embedding.
 
 ```go
 type BaseEvent struct {
@@ -93,7 +99,7 @@ type BaseEvent struct {
 ```
 
 | Field | Type | Description |
-| --- | --- | --- |
+| ------------- | ----------- | ---------------------------------------------------- |
 | `EventType` | `EventType` | The type of event (required) |
 | `TimestampMs` | `*int64` | Unix timestamp in milliseconds (optional) |
 | `RawEvent` | `any` | Raw event data for custom/external events (optional) |
@@ -135,7 +141,7 @@ type TextMessageStartEvent struct {
 ```
 
 | Field | Type | Description |
-| --- | --- | --- |
+| ----------- | --------- | -------------------------------------------- |
 | `MessageID` | `string` | Unique identifier for the message (required) |
 | `Role` | `*string` | Role of the message sender (optional) |
 
@@ -152,7 +158,7 @@ type TextMessageContentEvent struct {
 ```
 
 | Field | Type | Description |
-| --- | --- | --- |
+| ----------- | -------- | ---------------------------------------------------- |
 | `MessageID` | `string` | ID of the message this content belongs to (required) |
 | `Delta` | `string` | The text content chunk (required) |
 
@@ -168,7 +174,7 @@ type TextMessageEndEvent struct {
 ```
 
 | Field | Type | Description |
-| --- | --- | --- |
+| ----------- | -------- | --------------------------------------- |
 | `MessageID` | `string` | ID of the message that ended (required) |
 
 ### Usage Example
@@ -208,15 +214,17 @@ Indicates the start of a tool call.
 ```go
 type ToolCallStartEvent struct {
     *BaseEvent
-    ToolCallID string `json:"toolCallId"`
-    ToolName   string `json:"toolName"`
+    ToolCallID      string  `json:"toolCallId"`
+    ToolCallName    string  `json:"toolCallName"`
+    ParentMessageID *string `json:"parentMessageId,omitempty"`
 }
 ```
 
 | Field | Type | Description |
-| --- | --- | --- |
+| ----------------- | --------- | ---------------------------------------------- |
 | `ToolCallID` | `string` | Unique identifier for the tool call (required) |
-| `ToolName` | `string` | Name of the tool being called (required) |
+| `ToolCallName`    | `string`  | Name of the tool being called (required)       |
+| `ParentMessageID` | `*string` | Optional parent message ID                     |
 
 ### ToolCallArgsEvent
 
@@ -226,14 +234,14 @@ Contains streaming arguments for a tool call.
 type ToolCallArgsEvent struct {
     *BaseEvent
     ToolCallID string `json:"toolCallId"`
-    Args       string `json:"args"`
+    Delta      string `json:"delta"`
 }
 ```
 
 | Field | Type | Description |
-| --- | --- | --- |
+| ------------ | -------- | --------------------------------- |
 | `ToolCallID` | `string` | ID of the tool call (required) |
-| `Args` | `string` | JSON string of arguments chunk (required) |
+| `Delta`      | `string` | JSON argument fragment (required) |
 
 ### ToolCallEndEvent
 
@@ -247,7 +255,7 @@ type ToolCallEndEvent struct {
 ```
 
 | Field | Type | Description |
-| --- | --- | --- |
+| ------------ | -------- | ----------------------------------------- |
 | `ToolCallID` | `string` | ID of the tool call that ended (required) |
 
 ### ToolCallResultEvent
@@ -257,17 +265,19 @@ Contains the result of a tool call execution.
 ```go
 type ToolCallResultEvent struct {
     *BaseEvent
+    MessageID  string  `json:"messageId"`
     ToolCallID string  `json:"toolCallId"`
-    Result     any     `json:"result"`
-    Error      *string `json:"error,omitempty"`
+    Content    string  `json:"content"`
+    Role       *string `json:"role,omitempty"`
 }
 ```
 
 | Field | Type | Description |
-| --- | --- | --- |
+| ------------ | --------- | ----------------------------------- |
 | `ToolCallID` | `string` | ID of the tool call (required) |
-| `Result` | `any` | Result data from the tool execution (required) |
-| `Error` | `*string` | Error message if the tool call failed (optional) |
+| `MessageID`  | `string`  | ID of the result message (required) |
+| `Content`    | `string`  | Tool result content (required)      |
+| `Role`       | `*string` | Optional result-message role        |
 
 ## State Types
 
@@ -280,13 +290,13 @@ Represents the complete state at a point in time.
 ```go
 type StateSnapshotEvent struct {
     *BaseEvent
-    State any `json:"state"`
+    Snapshot any `json:"snapshot"`
 }
 ```
 
 | Field | Type | Description |
-| --- | --- | --- |
-| `State` | `any` | Complete state object (required) |
+| ---------- | ----- | -------------------------------- |
+| `Snapshot` | `any` | Complete state object (required) |
 
 ### StateDeltaEvent
 
@@ -295,15 +305,13 @@ Represents incremental changes to the state.
 ```go
 type StateDeltaEvent struct {
     *BaseEvent
-    Delta     any     `json:"delta"`
-    Operation *string `json:"operation,omitempty"`
+    Delta []JSONPatchOperation `json:"delta"`
 }
 ```
 
 | Field | Type | Description |
-| --- | --- | --- |
-| `Delta` | `any` | State changes to apply (required) |
-| `Operation` | `*string` | Type of operation (merge, replace, etc.) (optional) |
+| ------- | ---------------------- | --------------------------------------------- |
+| `Delta` | `[]JSONPatchOperation` | RFC 6902-style operations to apply (required) |
 
 ### Usage Example
 
@@ -325,9 +333,133 @@ delta := map[string]interface{}{
 deltaEvent := events.NewStateDeltaEvent(delta, events.WithOperation("merge"))
 ```
 
+## Protocol payload types
+
+The `core/types` package defines request and message payloads. The seven role
+constants are `RoleDeveloper`, `RoleSystem`, `RoleAssistant`, `RoleUser`,
+`RoleTool`, `RoleActivity`, and `RoleReasoning`.
+
+`Message` is the shared role-discriminated envelope. Alongside `ID`, `Role`, and
+`Content`, it supports names, tool calls and tool results, activity data,
+metadata, and subagent attribution. `EncryptedContent` remains available for
+legacy encrypted message content; `EncryptedValue` carries the current opaque
+reasoning value. `ToolCall` independently supports `EncryptedValue` as a
+`*string`, so an explicitly supplied empty encrypted value survives JSON.
+
+```go
+cipher := "opaque-provider-value"
+message := types.Message{
+    ID: "message-1",
+    Role: types.RoleAssistant,
+    ToolCalls: []types.ToolCall{{
+        ID: "call-1",
+        Type: types.ToolCallTypeFunction,
+        Function: types.FunctionCall{
+            Name: "lookup",
+            Arguments: `{"query":"AG-UI"}`,
+        },
+        EncryptedValue: &cipher,
+        Metadata: types.Metadata{"traceId": "trace-1"},
+    }},
+    SubagentRunID: "research-1",
+}
+```
+
+`InputContent` supports `text`, legacy `binary`, and typed `image`, `audio`,
+`video`, and `document` fragments. Typed media uses an `InputContentSource` with
+a `data` or `url` discriminator; inline data requires `mimeType`.
+`ValidateProtocol` is opt-in for producer-side validation and is available on
+`Message`, `InputContent`, `InputContentSource`, `Interrupt`, `ResumeEntry`, and
+`RunAgentInput`.
+
+### Run input, interrupts, and resume
+
+`RunAgentInput` contains thread/run IDs, optional `ParentRunID`, state,
+messages, tools, context, forwarded properties, and optional resume entries.
+When marshalled, the required `messages`, `tools`, and `context` collections
+become `[]` when their Go slices are nil. Optional collections preserve intent:
+nil `Resume` is omitted, while a non-nil empty slice is encoded as
+`"resume": []`. The same absent-versus-empty behavior applies to optional
+tool-call and usage arrays where their custom marshalers provide it.
+
+Each `Interrupt` has required `ID` and `Reason`, with optional display text,
+tool-call correlation, response schema, expiry, metadata, and `SubagentRunID`. A
+`ResumeEntry` identifies the interrupt, uses status `resolved` or `cancelled`,
+and can carry separate answer `Payload` and envelope `Metadata`.
+
+```go
+input := types.RunAgentInput{
+    ThreadID: "thread-1",
+    RunID: "run-2",
+    ParentRunID: ptr("run-1"),
+    Messages: nil, // encoded as [] because the field is required
+    Tools: nil,    // encoded as []
+    Context: nil,  // encoded as []
+    Resume: []types.ResumeEntry{{
+        InterruptID: "approval-1",
+        Status: types.ResumeStatusResolved,
+        Payload: map[string]any{"approved": true},
+    }},
+}
+if err := input.ValidateProtocol(); err != nil {
+    return err
+}
+```
+
+In this example, `ptr` is any local helper that returns `*string`.
+
+## Capability declarations
+
+`AgentCapabilities` groups 10 top-level categories plus arbitrary custom data.
+Together with three nested models, the Go API exposes 14 capability types:
+
+| Type                           | Declares                                                                     |
+| ------------------------------ | ---------------------------------------------------------------------------- |
+| `AgentCapabilities`            | Optional category pointers and `Custom` JSON data                            |
+| `IdentityCapabilities`         | Name, type, description, version, provider, documentation URL, metadata      |
+| `TransportCapabilities`        | Streaming, WebSocket, HTTP binary, push notifications, resumability          |
+| `ToolsCapabilities`            | Tool support, advertised `Tool` items, parallel calls, client-provided tools |
+| `OutputCapabilities`           | Structured output and supported MIME types                                   |
+| `StateCapabilities`            | Snapshots, deltas, memory, persistent state                                  |
+| `MultiAgentCapabilities`       | Support, delegation, handoffs, and advertised subagents                      |
+| `SubAgentInfo`                 | A subagent name and optional description                                     |
+| `ReasoningCapabilities`        | Support, streaming, and encrypted reasoning                                  |
+| `MultimodalCapabilities`       | Optional input and output capability groups                                  |
+| `MultimodalInputCapabilities`  | Image, audio, video, PDF, and file input                                     |
+| `MultimodalOutputCapabilities` | Image and audio output                                                       |
+| `ExecutionCapabilities`        | Code execution, sandboxing, max iterations, max execution time               |
+| `HumanInTheLoopCapabilities`   | Approvals, interventions, feedback, interrupts, approve-with-edits           |
+
+Optional capability fields are pointers. (`SubAgentInfo.Name` is required.)
+Omission means “unknown”; explicit `false`, numeric zero, and non-nil empty
+arrays remain present on the wire. Execution limits are exact `int64` values and
+accept integral JSON decimal or exponent spellings; callers that require exact
+TypeScript round trips should stay at or below `2^53-1`.
+
+```go
+enabled, disabled := true, false
+zero := int64(0)
+noTools := []types.Tool{}
+caps := types.AgentCapabilities{
+    Transport: &types.TransportCapabilities{Streaming: &enabled},
+    Tools: &types.ToolsCapabilities{
+        Supported: &disabled,
+        Items: &noTools, // explicit [] rather than an unknown list
+    },
+    Execution: &types.ExecutionCapabilities{MaxIterations: &zero},
+}
+```
+
+The canonical definitions live in
+[`pkg/core/types/types.go`](https://github.com/ag-ui-protocol/ag-ui/blob/main/sdks/community/go/pkg/core/types/types.go),
+[`pkg/core/types/capabilities.go`](https://github.com/ag-ui-protocol/ag-ui/blob/main/sdks/community/go/pkg/core/types/capabilities.go),
+and
+[`pkg/core/types/validation.go`](https://github.com/ag-ui-protocol/ag-ui/blob/main/sdks/community/go/pkg/core/types/validation.go).
+
 ## ID Generation
 
-The SDK provides utility functions for generating unique IDs for various entities.
+The SDK provides utility functions for generating unique IDs for various
+entities.
 
 ### ID Generation Functions
 
@@ -374,7 +506,8 @@ events.SetDefaultIDGenerator(&CustomIDGenerator{})
 
 ## Event Type Composition
 
-Events in the Go SDK compose through struct embedding, allowing for clean type hierarchies:
+Events in the Go SDK compose through struct embedding, allowing for clean type
+hierarchies:
 
 ```go
 // Example showing how events compose
@@ -395,4 +528,6 @@ event.SetTimestamp(time.Now().UnixMilli()) // From BaseEvent
 err := event.Validate()                     // TextMessageStartEvent override
 ```
 
-This composition pattern allows the SDK to maintain a clean separation between common functionality and event-specific behavior while providing a consistent interface through the `Event` type.
+This composition pattern allows the SDK to maintain a clean separation between
+common functionality and event-specific behavior while providing a consistent
+interface through the `Event` type.

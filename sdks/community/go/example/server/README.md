@@ -113,7 +113,7 @@ GOWORK=off go test -race ./...
 GOWORK=off go mod tidy -diff
 ```
 
-Run parent SDK regressions separately with `go test ./...` from `sdks/community/go`. The cross-language gate is owned by Dart, not a Go child runner:
+Run parent SDK regressions separately with `go test ./...` from `sdks/community/go`. The Flutter pairing gate is owned by Dart:
 
 ```bash
 # sdks/community/dart/example, with Docker Engine/CLI available:
@@ -145,3 +145,20 @@ Compared with `mattsp1290/ag-ui-go-server-example` at `ad756b7afd1c9abc4ebf422aa
 | Standalone module files and launcher | Excluded absolute/sibling replacements and source-only `eino-agui`, `eino-providers`, and `eino-tools` dependencies. The only local module replacement remains the parent SDK at `../../`. |
 
 Public SDK APIs and implementations are unchanged by the example migration. Revert related example/CI/documentation commits together if the pair must be rolled back; there is no durable example data migration.
+
+
+## Go/Python/TypeScript parity
+
+The SDK [parity gate](../../README.md#verify-a-checkout) checks real codecs and
+SSE producers from all three language checkouts, independently of the Flutter
+pairing suite above. Run `GOWORK=off bash scripts/go-sdk-parity.sh` at the
+repository root after installing its pinned peer dependencies.
+
+The example client uses the canonical event decoder for reasoning, subagent,
+activity and existing event families. The scripted reasoning route emits role
+`reasoning`, as required by the current wire schema. Existing deterministic
+server scenarios remain part of the nested-module regression suite.
+
+Both Dockerfiles and Flutter's temporary build-context copier include the
+SDK's runtime `internal/jsonnumber` package. Recheck both direct image builds
+and the Flutter contract suite when changing SDK runtime dependencies.

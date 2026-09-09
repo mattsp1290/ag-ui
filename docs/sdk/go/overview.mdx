@@ -24,76 +24,49 @@ import (
     "context"
     "fmt"
     "log"
-    "time"
-    
+
     "github.com/ag-ui-protocol/ag-ui/sdks/community/go/pkg/client/sse"
     "github.com/ag-ui-protocol/ag-ui/sdks/community/go/pkg/core/events"
+    "github.com/ag-ui-protocol/ag-ui/sdks/community/go/pkg/core/types"
 )
 
 func main() {
-    // Create SSE client with configuration
-    client := sse.NewClient(sse.Config{
-        Endpoint:       "https://api.example.com/agent",
-        APIKey:         "your-api-key",
-        ConnectTimeout: 30 * time.Second,
-        ReadTimeout:    5 * time.Minute,
-    })
+    ctx, cancel := context.WithCancel(context.Background())
+    defer cancel()
+    client := sse.NewClient(sse.Config{Endpoint: "http://localhost:8080/agentic"})
     defer client.Close()
-    
-    // Prepare the request payload
-    payload := map[string]interface{}{
-        "threadId": "thread_123",
-        "messages": []map[string]interface{}{
-            {
-                "id":      "msg_1",
-                "role":    "user",
-                "content": "Hello, agent!",
-            },
+    frames, streamErrors, err := client.Stream(sse.StreamOptions{
+        Context: ctx,
+        Payload: types.RunAgentInput{
+            ThreadID: "thread_123", RunID: "run_123",
+            Messages: []types.Message{{ID: "msg_1", Role: types.RoleUser, Content: "Hello, agent!"}},
         },
-    }
-    
-    // Start streaming
-    frames, errors, err := client.Stream(sse.StreamOptions{
-        Context: context.Background(),
-        Payload: payload,
     })
     if err != nil {
-        log.Fatal(err)
+        log.Print(err)
+        return
     }
-    
-    // Create event decoder
-    decoder := events.NewEventDecoder()
-    
-    // Handle incoming events
-    for {
+    for frames != nil || streamErrors != nil {
         select {
-        case frame := <-frames:
-            if frame == nil {
-                return // Stream ended
-            }
-            
-            // Decode the event
-            event, err := decoder.Decode(frame.Data)
-            if err != nil {
-                log.Printf("decode error: %v", err)
+        case frame, ok := <-frames:
+            if !ok {
+                frames = nil
                 continue
             }
-            
-            // Handle different event types
-            switch e := event.(type) {
-            case *events.TextMessageStartEvent:
-                fmt.Printf("Message started: %s\n", e.MessageID)
-            case *events.TextMessageContentEvent:
-                fmt.Printf("Content: %s", e.Delta)
-            case *events.TextMessageEndEvent:
-                fmt.Printf("\nMessage completed\n")
-            case *events.ToolCallStartEvent:
-                fmt.Printf("Tool call: %s\n", e.ToolName)
+            event, err := events.EventFromJSON(frame.Data)
+            if err != nil {
+                log.Printf("decode error: %v", err)
+                return
             }
-            
-        case err := <-errors:
+            if text, ok := event.(*events.TextMessageContentEvent); ok {
+                fmt.Print(text.Delta)
+            }
+        case err, ok := <-streamErrors:
+            if !ok {
+                streamErrors = nil
+                continue
+            }
             log.Printf("stream error: %v", err)
-            return
         }
     }
 }
@@ -111,7 +84,7 @@ import "github.com/ag-ui-protocol/ag-ui/sdks/community/go/pkg/core/events"
 ```
 
 ### Client Package (`client/sse`)
-Handles Server-Sent Events (SSE) connectivity to AG-UI agents. This package provides a robust SSE client with automatic reconnection, timeout handling, and authentication support.
+Handles Server-Sent Events (SSE) connectivity to AG-UI agents. It provides timeout handling and authentication support. Applications own reconnection and resume policy.
 
 ```go
 import "github.com/ag-ui-protocol/ag-ui/sdks/community/go/pkg/client/sse"
@@ -131,6 +104,46 @@ Comprehensive error handling with typed errors, severity levels, and retry logic
 ```go
 import "github.com/ag-ui-protocol/ag-ui/sdks/community/go/pkg/errors"
 ```
+
+## Checkout parity and compatibility
+
+The parity work described here is implemented in this checkout; it does not announce a Go release or change downstream dependency pins. Installation from a published module version may expose an earlier API.
+
+The upstream baseline already included metadata, subagent lifecycle events and token usage. This work completes their decoding and validation, adds missing reasoning/encrypted-value and request fields, capability models and usage helpers, and verifies real Python/TypeScript interchange. The [core reference](/sdk/go/core/overview) describes the API; the executable [parity manifest](https://github.com/ag-ui-protocol/ag-ui/blob/main/sdks/community/go/testdata/parity/manifest.json) records the exact cases, schema inventory and permitted comparison rules.
+
+### Additions and wire corrections
+
+- All 36 event types decode through the canonical Go entry points. Messages support all seven roles; metadata, opaque encrypted strings, nested subagent attribution, parent run IDs, resume entries and terminal usage survive the tested round trips.
+- Required arrays encode as `[]` when their Go slice is nil. Optional non-nil empty slices remain present; absent optionals remain absent. Explicit zero token counts use pointers, such as `events.TokenCount(0)`.
+- Validation follows the wire contract: reasoning messages use role `reasoning`; tool results use role `tool`; activity content is an object. Required patch keys must be present, while an empty root path and explicit null patch value remain valid. Previously accepted malformed wire values may now fail validation; these are separate from the pinned valid compatibility fixtures.
+
+### Exactness and peer differences
+
+Use counts from 0 through 2^53−1 when exact interchange with TypeScript is required. Go's aggregate helper supports nonnegative `int64` counts and rejects overflow; Python can retain larger integers and TypeScript can round large totals. The LangChain mapper ignores invalid counts and returns nil if none remain. It does not invent totals from input/output counts.
+
+The gate has zero expected failures. It checks eight directed core routes using 88 cases, plus complete SSE run scenarios. Its three explicit peer exceptions cover Python/TypeScript aggregation beyond Go's range and TypeScript's invalid-count mapper output. Eight route-specific normalization entries omit only empty provider/model strings in two named helper cases consumed by Go. The assistant role default is normalized only for its named missing-role case. These rules never drop metadata, encrypted strings, IDs, usage counts or array entries; unused normalization rules fail the gate.
+
+SSE scenarios cover nested and interleaved subagents, interrupt/resume, errors, usage and actual TypeScript state/activity application. This is producer interoperability evidence, not complete SSE syntax conformance: the Go client currently expects a space after `data:`, and the tested TypeScript transform does not split CRLF frame boundaries. See the [SSE client guide](/sdk/go/client/sse-client) for lifecycle behavior.
+
+### Compatibility and adoption
+
+Public signature checks and unchanged valid fixtures cover constructors/options, the Event interface, client channels, legacy THINKING and encryptedContent handling, aliases and error wrappers. All four in-repository Go modules are verified separately. This evidence cannot prove compatibility with every external program or arbitrary unkeyed struct literal.
+
+An inherited upstream change added `ToolCall.Metadata`, making `ToolCall` non-comparable and breaking old unkeyed literals. Callers using `==`, `map[ToolCall]` keys or positional literals must migrate; a passing post-merge fixture does not undo that source break. The [historical baseline](https://github.com/ag-ui-protocol/ag-ui/blob/main/sdks/community/go/testdata/parity/baseline.md) records the old-versus-pinned compiler probes. Its original race/vet failures were repaired by the later SSE lifecycle work.
+
+Eino adoption is a separate, non-blocking migration owned by the downstream maintainers. In particular, snapshot scrubbers must handle nested `ToolCall.EncryptedValue` without mutating inputs. This SDK work performs no Eino API migration, release, tag or pin update. To roll back adoption, restore the prior SDK revision and matching consumer changes together; there is no persistent-data migration here.
+
+### Run the gate
+
+Use the root `.node-version` and `package.json` packageManager pins, the Python toolchain declared in `.github/python-toolchain.env`, and each Go module's `go.mod`. From the repository root:
+
+```bash
+pnpm install --frozen-lockfile
+(cd sdks/python && uv sync --locked)
+GOWORK=off bash scripts/go-sdk-parity.sh
+```
+
+The coordinator invokes TypeScript through Nx, disables its cache for oracle execution, builds fresh temporary artifacts and fails if any runtime or route is missing. It ends with `scripts/go-sdk-sse-parity.sh`; that script can also be run separately after installing peer dependencies. The Go [README](https://github.com/ag-ui-protocol/ag-ui/blob/main/sdks/community/go/README.md) lists the independent module checks. CI runs named SDK, client, server, Genkit and cross-language jobs on changes to peer schemas and shared tooling.
 
 ## Next Steps
 

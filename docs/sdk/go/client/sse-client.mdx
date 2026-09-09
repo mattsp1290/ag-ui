@@ -62,7 +62,7 @@ Configure the stream with `StreamOptions`:
 ```go
 type StreamOptions struct {
     Context context.Context       // Context for cancellation
-    Payload interface{}          // Request payload (will be JSON encoded)
+    Payload types.RunAgentInput  // Request payload (will be JSON encoded)
     Headers map[string]string    // Additional HTTP headers
 }
 ```
@@ -72,15 +72,7 @@ type StreamOptions struct {
 ```go
 frames, errors, err := client.Stream(sse.StreamOptions{
     Context: context.Background(),
-    Payload: map[string]interface{}{
-        "threadId": "thread_123",
-        "messages": []map[string]interface{}{
-            {
-                "role":    "user",
-                "content": "Hello, agent!",
-            },
-        },
-    },
+    Payload: types.RunAgentInput{ThreadID: "thread_123", RunID: "run_123"},
 })
 ```
 
@@ -103,19 +95,20 @@ type Frame struct {
 Process frames using the event decoder:
 
 ```go
-import "github.com/ag-ui-protocol/ag-ui/sdks/community/go/pkg/core/events"
+import (
+    "context"
+    "github.com/ag-ui-protocol/ag-ui/sdks/community/go/pkg/core/events"
+    json "github.com/ag-ui-protocol/ag-ui/sdks/community/go/pkg/encoding/json"
+)
 
-decoder := events.NewEventDecoder()
+decoder := json.NewDecoder()
 
-for {
+for frames != nil || errors != nil {
     select {
-    case frame := <-frames:
-        if frame.Data == nil {
-            // Stream ended
-            return
-        }
+    case frame, ok := <-frames:
+        if !ok { frames = nil; continue }
         
-        event, err := decoder.Decode(frame.Data)
+        event, err := decoder.Decode(context.Background(), frame.Data)
         if err != nil {
             log.Printf("decode error: %v", err)
             continue
@@ -130,11 +123,9 @@ for {
             fmt.Printf("Message ended: %s\n", e.MessageID)
         }
         
-    case err := <-errors:
-        if err != nil {
-            log.Printf("stream error: %v", err)
-            return
-        }
+    case err, ok := <-errors:
+        if ok && err != nil { log.Printf("stream error: %v", err) }
+        if !ok { errors = nil; continue }
     }
 }
 ```
@@ -171,6 +162,12 @@ Close the client to clean up resources:
 ```go
 defer client.Close()
 ```
+
+Cancellation is the way to stop an active stream: cancel the context passed to
+`Stream`. The reader observes cancellation, closes the HTTP response body so its
+in-flight read worker can exit, and closes both result channels. Consumers should
+continue receiving from both channels until they are closed so a buffered terminal
+error is not discarded.
 
 ## Authentication
 
@@ -228,12 +225,14 @@ frames, errors, err := client.Stream(sse.StreamOptions{
 The client provides errors through the error channel during streaming:
 
 ```go
-for {
+for frames != nil || errors != nil {
     select {
-    case frame := <-frames:
+    case frame, ok := <-frames:
+        if !ok { frames = nil; continue }
         // Process frame
         
-    case err := <-errors:
+    case err, ok := <-errors:
+        if !ok { errors = nil; continue }
         if err != nil {
             // Handle error based on type
             if strings.Contains(err.Error(), "timeout") {
@@ -250,54 +249,19 @@ for {
 }
 ```
 
-### Reconnection Pattern
+The client does not reconnect automatically. If your application retries, create a new
+stream with an application-defined policy and make sure the request can be safely
+resumed. `Frame` contains the concatenated `data: ` lines for one blank-line-delimited
+frame; event names and other SSE fields are not exposed.
 
-Implement automatic reconnection for resilient streaming:
-
-```go
-func streamWithReconnect(client *sse.Client, opts sse.StreamOptions) {
-    maxRetries := 5
-    retryDelay := time.Second
-    
-    for attempt := 0; attempt < maxRetries; attempt++ {
-        if attempt > 0 {
-            log.Printf("Reconnecting... (attempt %d/%d)", attempt+1, maxRetries)
-            time.Sleep(retryDelay)
-            retryDelay *= 2 // Exponential backoff
-        }
-        
-        frames, errors, err := client.Stream(opts)
-        if err != nil {
-            log.Printf("Connection failed: %v", err)
-            continue
-        }
-        
-        // Process frames
-        for {
-            select {
-            case frame := <-frames:
-                if frame.Data == nil {
-                    // Stream ended, reconnect
-                    break
-                }
-                // Process frame
-                
-            case err := <-errors:
-                if err != nil {
-                    log.Printf("Stream error: %v", err)
-                    break
-                }
-                
-            case <-opts.Context.Done():
-                log.Println("Context cancelled, stopping")
-                return
-            }
-        }
-    }
-    
-    log.Printf("Max retries exceeded, giving up")
-}
-```
+This client is intended for the AG-UI POST SSE routes used by the Go, TypeScript,
+Python, and Dart integrations. Its parser accepts `data: ` lines and blank-line
+separators (including CRLF after trimming), and ignores other SSE fields. It does not
+claim full SSE conformance: for example, an endpoint requiring data lines without the
+space or relying on event names is outside this client's contract. The tested TypeScript transform splits LF frame boundaries and does not split
+CRLF frame boundaries. The parity gate tests actual Go SSEWriter output through
+that transform, and actual Python/TypeScript encoder output through Go, including
+fragmented and multiline/CRLF input into Go.
 
 ## Complete Example
 
@@ -310,99 +274,49 @@ import (
     "context"
     "fmt"
     "log"
-    "time"
-    
+
     "github.com/ag-ui-protocol/ag-ui/sdks/community/go/pkg/client/sse"
     "github.com/ag-ui-protocol/ag-ui/sdks/community/go/pkg/core/events"
+    "github.com/ag-ui-protocol/ag-ui/sdks/community/go/pkg/core/types"
 )
 
 func main() {
-    // Create SSE client
-    client := sse.NewClient(sse.Config{
-        Endpoint: "https://api.example.com/agent",
-        APIKey:   "your-api-key",
-    })
-    defer client.Close()
-    
-    // Create context with timeout
-    ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+    ctx, cancel := context.WithCancel(context.Background())
     defer cancel()
-    
-    // Start streaming
-    frames, errors, err := client.Stream(sse.StreamOptions{
+    client := sse.NewClient(sse.Config{Endpoint: "http://localhost:8080/agentic"})
+    defer client.Close()
+    frames, streamErrors, err := client.Stream(sse.StreamOptions{
         Context: ctx,
-        Payload: map[string]interface{}{
-            "threadId": events.NewThreadID(),
-            "runId":    events.NewRunID(),
-            "messages": []map[string]interface{}{
-                {
-                    "role":    "user",
-                    "content": "What's the weather like?",
-                },
-            },
+        Payload: types.RunAgentInput{
+            ThreadID: "thread_123", RunID: "run_123",
+            Messages: []types.Message{{ID: "msg_1", Role: types.RoleUser, Content: "Hello, agent!"}},
         },
     })
-    
     if err != nil {
-        log.Fatalf("Failed to start stream: %v", err)
+        log.Print(err)
+        return
     }
-    
-    // Create event decoder
-    decoder := events.NewEventDecoder()
-    
-    // Process stream
-    for {
+    for frames != nil || streamErrors != nil {
         select {
-        case frame := <-frames:
-            if frame.Data == nil {
-                fmt.Println("Stream completed")
-                return
-            }
-            
-            event, err := decoder.Decode(frame.Data)
-            if err != nil {
-                log.Printf("Decode error: %v", err)
+        case frame, ok := <-frames:
+            if !ok {
+                frames = nil
                 continue
             }
-            
-            // Handle different event types
-            switch e := event.(type) {
-            case *events.RunStartedEvent:
-                fmt.Printf("Run started: %s\n", e.RunID)
-                
-            case *events.TextMessageStartEvent:
-                fmt.Printf("\nAssistant: ")
-                
-            case *events.TextMessageContentEvent:
-                fmt.Print(e.Delta)
-                
-            case *events.TextMessageEndEvent:
-                fmt.Println()
-                
-            case *events.ToolCallStartEvent:
-                fmt.Printf("Tool call: %s\n", e.FunctionName)
-                
-            case *events.ToolCallResultEvent:
-                fmt.Printf("Tool result: %v\n", e.Result)
-                
-            case *events.RunFinishedEvent:
-                fmt.Printf("Run completed: %s\n", e.RunID)
-                return
-                
-            case *events.RunErrorEvent:
-                fmt.Printf("Run error: %v\n", e.Error)
-                return
-            }
-            
-        case err := <-errors:
+            event, err := events.EventFromJSON(frame.Data)
             if err != nil {
-                log.Printf("Stream error: %v", err)
+                log.Printf("decode error: %v", err)
                 return
             }
-            
-        case <-ctx.Done():
-            fmt.Println("Context timeout")
-            return
+            if text, ok := event.(*events.TextMessageContentEvent); ok {
+                fmt.Print(text.Delta)
+            }
+        case err, ok := <-streamErrors:
+            if !ok {
+                streamErrors = nil
+                continue
+            }
+            log.Printf("stream error: %v", err)
         }
     }
 }

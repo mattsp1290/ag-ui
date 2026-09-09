@@ -130,6 +130,54 @@ func TestCompatibilityStrictAndPermissiveCodecErrors(t *testing.T) {
 	require.Contains(t, err.Error(), "empty data")
 }
 
+func TestCompatibilityCodecErrorWrapping(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	data := []byte(`{"type":"TEXT_MESSAGE_START","messageId":"m"}`)
+	decoder := jsoncodec.NewJSONDecoderWithConcurrencyLimit(nil, 1)
+	_, err := decoder.Decode(ctx, data)
+	require.ErrorIs(t, err, context.Canceled)
+	var decodeErr *encoding.DecodingError
+	require.ErrorAs(t, err, &decodeErr)
+	require.Equal(t, "json", decodeErr.Format)
+
+	encoder := jsoncodec.NewJSONEncoderWithConcurrencyLimit(nil, 1)
+	_, err = encoder.Encode(ctx, events.NewTextMessageStartEvent("m"))
+	require.ErrorIs(t, err, context.Canceled)
+	var encodeErr *encoding.EncodingError
+	require.ErrorAs(t, err, &encodeErr)
+	require.Equal(t, "json", encodeErr.Format)
+
+	// A cancelled call must not consume the codec's concurrency admission.
+	_, err = decoder.Decode(context.Background(), data)
+	require.NoError(t, err)
+	_, err = encoder.Encode(context.Background(), events.NewTextMessageStartEvent("m"))
+	require.NoError(t, err)
+}
+
+func TestCompatibilityInvalidWireValidationChoice(t *testing.T) {
+	// The old example server emitted this invalid role. Keep this correction
+	// separate from the pinned, valid baseline fixtures above.
+	data := []byte(`{"type":"REASONING_MESSAGE_START","messageId":"r","role":"assistant"}`)
+	ctx := context.Background()
+	validating := jsoncodec.NewJSONDecoder(&encoding.DecodingOptions{Strict: true, ValidateEvents: true})
+	_, err := validating.Decode(ctx, data)
+	require.Error(t, err)
+	var decodeErr *encoding.DecodingError
+	require.ErrorAs(t, err, &decodeErr)
+	require.Contains(t, decodeErr.Message, "validation")
+
+	// Disabling semantic validation remains an explicit caller choice; strict
+	// unknown-field handling alone does not turn it back on.
+	unchecked := jsoncodec.NewJSONDecoder(&encoding.DecodingOptions{Strict: true, ValidateEvents: false})
+	event, err := unchecked.Decode(ctx, data)
+	require.NoError(t, err)
+	require.Equal(t, "assistant", event.(*events.ReasoningMessageStartEvent).Role)
+	_, err = unchecked.Decode(ctx, []byte(`{"type":"REASONING_MESSAGE_START","messageId":"r","role":"reasoning","extra":true}`))
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "unknown field")
+}
+
 func TestCompatibilityEventDecoderAndConcreteTypes(t *testing.T) {
 	f := loadCompatibilityFixture(t)
 	decoder := events.NewEventDecoder(nil)

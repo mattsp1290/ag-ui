@@ -2,7 +2,6 @@ package agent
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"time"
 
@@ -54,23 +53,27 @@ func Chat(ctx context.Context, inputMsg string, endpoint string, send func(msg *
 		ForwardedProps: map[string]any{},
 	}
 
-	// Start the SSE stream
-	var err error
+	streamCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
 	frames, errorCh, err := client.Stream(sse.StreamOptions{
-		Context: ctx,
+		Context: streamCtx,
 		Payload: payload,
 	})
 
 	if err != nil {
-		return errors.New("Failed to establish SSE connection")
+		return fmt.Errorf("failed to establish SSE connection: %w", err)
 	}
+	return consumeStream(ctx, frames, errorCh, send)
+}
 
-	// Parse SSE events
-	for {
+func consumeStream(ctx context.Context, frames <-chan sse.Frame, errorCh <-chan error, send func(msg *message.Message)) error {
+	for frames != nil || errorCh != nil {
 		select {
 		case frame, ok := <-frames:
 			if !ok {
-				return nil
+				frames = nil
+				continue
 			}
 
 			rawEvent, err := event.Parse(frame.Data)
@@ -79,20 +82,22 @@ func Chat(ctx context.Context, inputMsg string, endpoint string, send func(msg *
 			}
 			currMsg := message.NewMessage(rawEvent)
 			if currMsg == nil {
-				return fmt.Errorf("failed to parse message %w", err)
+				return fmt.Errorf("failed to render SSE event %s", rawEvent.Type())
 			}
 			send(currMsg)
 
 		case err, ok := <-errorCh:
 			if !ok {
-				break
+				errorCh = nil
+				continue
 			}
 			if err != nil {
-				break
+				return fmt.Errorf("SSE stream failed: %w", err)
 			}
 
 		case <-ctx.Done():
-			break
+			return ctx.Err()
 		}
 	}
+	return ctx.Err()
 }

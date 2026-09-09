@@ -116,7 +116,7 @@ func (e *Emitter) TextEnd(id string) { e.write(events.NewTextMessageEndEvent(id)
 func (e *Emitter) ReasoningStart(id string) { e.write(events.NewReasoningStartEvent(id)) }
 
 func (e *Emitter) ReasoningMessageStart(id string) {
-	e.write(events.NewReasoningMessageStartEvent(id, "assistant"))
+	e.write(events.NewReasoningMessageStartEvent(id, "reasoning"))
 }
 
 func (e *Emitter) ReasoningContent(id, delta string) {

@@ -19,6 +19,9 @@ func (m *Message) Strings() []string {
 }
 
 func NewMessage(event events.Event) *Message {
+	if event == nil {
+		return nil
+	}
 	return getMessageFromEvent(event)
 }
 
@@ -238,6 +241,42 @@ func getMessageFromEvent(event events.Event) *Message {
 		return &Message{
 			contents: []string{content},
 		}
+	case events.EventTypeReasoningStart:
+		return textMessage("Reasoning started")
+	case events.EventTypeReasoningEnd:
+		return textMessage("Reasoning ended")
+	case events.EventTypeReasoningMessageStart:
+		return textMessage("Reasoning message started")
+	case events.EventTypeReasoningMessageContent:
+		if msg, ok := event.(*events.ReasoningMessageContentEvent); ok {
+			return textMessage(msg.Delta)
+		}
+	case events.EventTypeReasoningMessageChunk:
+		if msg, ok := event.(*events.ReasoningMessageChunkEvent); ok && msg.Delta != nil {
+			return textMessage(*msg.Delta)
+		}
+	case events.EventTypeReasoningMessageEnd:
+		return textMessage("Reasoning message ended")
+	case events.EventTypeReasoningEncryptedValue:
+		return textMessage("Encrypted reasoning received")
+	case events.EventTypeSubagentStarted:
+		if evt, ok := event.(*events.SubagentStartedEvent); ok {
+			return textMessage(fmt.Sprintf("Subagent started: %s", evt.Name))
+		}
+	case events.EventTypeSubagentFinished:
+		return textMessage("Subagent finished")
+	case events.EventTypeSubagentError:
+		if evt, ok := event.(*events.SubagentErrorEvent); ok {
+			return textMessage(fmt.Sprintf("Subagent error: %s", evt.Message))
+		}
+	case events.EventTypeActivitySnapshot:
+		if evt, ok := event.(*events.ActivitySnapshotEvent); ok {
+			return jsonMessage(evt.Content)
+		}
+	case events.EventTypeActivityDelta:
+		if evt, ok := event.(*events.ActivityDeltaEvent); ok {
+			return jsonMessage(evt.Patch)
+		}
 
 	case events.EventTypeCustom:
 		evt, ok := event.(*events.CustomEvent)
@@ -268,9 +307,19 @@ func getMessageFromEvent(event events.Event) *Message {
 			contents: []string{string(jsonData)},
 		}
 
-	default:
-		// For any other event types, return nil
-		fmt.Printf("Unhandled event type: %s\n", eventType)
-		return nil
 	}
+
+	return textMessage(fmt.Sprintf("Event: %s", eventType))
+}
+
+func textMessage(content string) *Message {
+	return &Message{contents: []string{content}}
+}
+
+func jsonMessage(value any) *Message {
+	data, err := json.Marshal(value)
+	if err != nil {
+		return textMessage("Event data could not be displayed")
+	}
+	return textMessage(string(data))
 }

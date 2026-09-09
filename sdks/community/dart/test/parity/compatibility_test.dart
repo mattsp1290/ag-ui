@@ -508,6 +508,51 @@ void main() {
         'rawEvent': {'encryptedValue': 'secret'},
       });
       expect(started.rawEvent, isNull);
+
+      final nestedToolCipher = {
+        'id': 'm',
+        'role': 'assistant',
+        'content': 'visible',
+        'toolCalls': [
+          {
+            'id': 'call',
+            'type': 'function',
+            'function': {'name': 'search', 'arguments': '{}'},
+            'encryptedValue': 'nested-secret',
+          },
+        ],
+      };
+      final nestedSnapshot = MessagesSnapshotEvent.fromJson({
+        'type': 'MESSAGES_SNAPSHOT',
+        'messages': [nestedToolCipher],
+        'rawEvent': {'proxy': 'snapshot'},
+      });
+      expect(nestedSnapshot.rawEvent, isNull);
+      expect(nestedSnapshot.toJson().containsKey('rawEvent'), isFalse);
+      expect(
+        nestedSnapshot.copyWith(rawEvent: {'proxy': 'reattached'}).rawEvent,
+        isNull,
+      );
+
+      final nestedStarted = RunStartedEvent.fromJson({
+        'type': 'RUN_STARTED',
+        'threadId': 't',
+        'runId': 'r',
+        'input': {
+          'threadId': 't',
+          'runId': 'r',
+          'messages': [nestedToolCipher],
+          'tools': <Map<String, dynamic>>[],
+          'context': <Map<String, dynamic>>[],
+        },
+        'rawEvent': {'proxy': 'run'},
+      });
+      expect(nestedStarted.rawEvent, isNull);
+      expect(nestedStarted.toJson().containsKey('rawEvent'), isFalse);
+      expect(
+        nestedStarted.copyWith(rawEvent: {'proxy': 'reattached'}).rawEvent,
+        isNull,
+      );
     });
 
     test('Tool.metadata null is absent and explicitly clearable', () {

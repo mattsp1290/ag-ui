@@ -6,7 +6,20 @@
 library;
 
 import 'base.dart';
+import 'copy_utils.dart';
+import 'metadata.dart';
 import 'tool.dart';
+import 'wire_safety.dart';
+
+Metadata? _readMessageMetadata(Map<String, dynamic> json) =>
+    readCipherAwareOptionalField<Map<String, dynamic>>(json, 'metadata');
+
+String? _readMessageSubagentRunId(Map<String, dynamic> json) =>
+    readCipherAwareOptionalEitherField<String>(
+      json,
+      'subagentRunId',
+      'subagent_run_id',
+    );
 
 // `kUnsetSentinel` (from `base.dart`) is the shared sentinel for all
 // `copyWith` methods in this file. The pattern lets callers distinguish
@@ -116,12 +129,20 @@ sealed class Message extends AGUIModel with TypeDiscriminator {
   /// spelling.
   final String? encryptedValue;
 
+  /// Optional open metadata attached to this message.
+  final Metadata? metadata;
+
+  /// Optional subagent attribution for this message.
+  final String? subagentRunId;
+
   const Message({
     this.id,
     required this.role,
     this.content,
     this.name,
     this.encryptedValue,
+    this.metadata,
+    this.subagentRunId,
   });
 
   @override
@@ -176,11 +197,17 @@ sealed class Message extends AGUIModel with TypeDiscriminator {
 
   @override
   Map<String, dynamic> toJson() => {
+        ..._baseMessageJson(),
+        if (content != null) 'content': content,
+      };
+
+  Map<String, dynamic> _baseMessageJson() => {
         if (id != null) 'id': id,
         'role': role.value,
-        if (content != null) 'content': content,
         if (name != null) 'name': name,
         if (encryptedValue != null) 'encryptedValue': encryptedValue,
+        if (metadata != null) 'metadata': metadata,
+        if (subagentRunId != null) 'subagentRunId': subagentRunId,
       };
 }
 
@@ -196,6 +223,8 @@ final class DeveloperMessage extends Message {
     required this.content,
     super.name,
     super.encryptedValue,
+    super.metadata,
+    super.subagentRunId,
   }) : super(role: MessageRole.developer);
 
   factory DeveloperMessage.fromJson(Map<String, dynamic> json) {
@@ -208,6 +237,8 @@ final class DeveloperMessage extends Message {
         'encryptedValue',
         'encrypted_value',
       ),
+      metadata: _readMessageMetadata(json),
+      subagentRunId: _readMessageSubagentRunId(json),
     );
   }
 
@@ -217,11 +248,8 @@ final class DeveloperMessage extends Message {
   // explicit and independent of the parent implementation.
   @override
   Map<String, dynamic> toJson() => {
-        if (id != null) 'id': id,
-        'role': role.value,
+        ..._baseMessageJson(),
         'content': content,
-        if (name != null) 'name': name,
-        if (encryptedValue != null) 'encryptedValue': encryptedValue,
       };
 
   // `name` and `encryptedValue` are nullable on the parent — use the
@@ -232,6 +260,8 @@ final class DeveloperMessage extends Message {
     String? content,
     Object? name = kUnsetSentinel,
     Object? encryptedValue = kUnsetSentinel,
+    Object? metadata = kUnsetSentinel,
+    Object? subagentRunId = kUnsetSentinel,
   }) {
     return DeveloperMessage(
       id: id ?? this.id,
@@ -240,6 +270,11 @@ final class DeveloperMessage extends Message {
       encryptedValue: identical(encryptedValue, kUnsetSentinel)
           ? this.encryptedValue
           : encryptedValue as String?,
+      metadata: resolveNullableCopy<Metadata>(metadata, this.metadata),
+      subagentRunId: resolveNullableCopy<String>(
+        subagentRunId,
+        this.subagentRunId,
+      ),
     );
   }
 }
@@ -256,6 +291,8 @@ final class SystemMessage extends Message {
     required this.content,
     super.name,
     super.encryptedValue,
+    super.metadata,
+    super.subagentRunId,
   }) : super(role: MessageRole.system);
 
   factory SystemMessage.fromJson(Map<String, dynamic> json) {
@@ -268,16 +305,15 @@ final class SystemMessage extends Message {
         'encryptedValue',
         'encrypted_value',
       ),
+      metadata: _readMessageMetadata(json),
+      subagentRunId: _readMessageSubagentRunId(json),
     );
   }
 
   @override
   Map<String, dynamic> toJson() => {
-        if (id != null) 'id': id,
-        'role': role.value,
+        ..._baseMessageJson(),
         'content': content,
-        if (name != null) 'name': name,
-        if (encryptedValue != null) 'encryptedValue': encryptedValue,
       };
 
   // `name` and `encryptedValue` are nullable on the parent — sentinel
@@ -288,6 +324,8 @@ final class SystemMessage extends Message {
     String? content,
     Object? name = kUnsetSentinel,
     Object? encryptedValue = kUnsetSentinel,
+    Object? metadata = kUnsetSentinel,
+    Object? subagentRunId = kUnsetSentinel,
   }) {
     return SystemMessage(
       id: id ?? this.id,
@@ -296,6 +334,11 @@ final class SystemMessage extends Message {
       encryptedValue: identical(encryptedValue, kUnsetSentinel)
           ? this.encryptedValue
           : encryptedValue as String?,
+      metadata: resolveNullableCopy<Metadata>(metadata, this.metadata),
+      subagentRunId: resolveNullableCopy<String>(
+        subagentRunId,
+        this.subagentRunId,
+      ),
     );
   }
 }
@@ -313,6 +356,8 @@ final class AssistantMessage extends Message {
     super.name,
     this.toolCalls,
     super.encryptedValue,
+    super.metadata,
+    super.subagentRunId,
   }) : super(role: MessageRole.assistant);
 
   factory AssistantMessage.fromJson(Map<String, dynamic> json) {
@@ -354,11 +399,12 @@ final class AssistantMessage extends Message {
                     // payload with sensitive `arguments`. Preserve `cause:`
                     // when the inner error already scrubbed its own `json:`
                     // (cipher-aware path) so the stack trace survives.
-                    throw AGUIValidationError(
-                      message: e.message,
-                      field: e.field != null ? 'toolCalls[$i].${e.field}' : 'toolCalls[$i]',
-                      value: e.value,
-                      cause: e.json == null ? e : null,
+                    throw wrapNestedValidationError(
+                      enclosingJson: json,
+                      error: e,
+                      field: e.field != null
+                          ? 'toolCalls[$i].${e.field}'
+                          : 'toolCalls[$i]',
                     );
                   }
                   throw AGUIValidationError(
@@ -375,6 +421,8 @@ final class AssistantMessage extends Message {
         'encryptedValue',
         'encrypted_value',
       ),
+      metadata: _readMessageMetadata(json),
+      subagentRunId: _readMessageSubagentRunId(json),
     );
   }
 
@@ -402,6 +450,8 @@ final class AssistantMessage extends Message {
     Object? name = kUnsetSentinel,
     Object? toolCalls = kUnsetSentinel,
     Object? encryptedValue = kUnsetSentinel,
+    Object? metadata = kUnsetSentinel,
+    Object? subagentRunId = kUnsetSentinel,
   }) {
     return AssistantMessage(
       id: id ?? this.id,
@@ -415,6 +465,11 @@ final class AssistantMessage extends Message {
       encryptedValue: identical(encryptedValue, kUnsetSentinel)
           ? this.encryptedValue
           : encryptedValue as String?,
+      metadata: resolveNullableCopy<Metadata>(metadata, this.metadata),
+      subagentRunId: resolveNullableCopy<String>(
+        subagentRunId,
+        this.subagentRunId,
+      ),
     );
   }
 }
@@ -438,6 +493,8 @@ class UserMessage extends Message {
     required String content,
     super.name,
     super.encryptedValue,
+    super.metadata,
+    super.subagentRunId,
   })  : messageContent = TextContent(content),
         super(role: MessageRole.user);
 
@@ -447,6 +504,8 @@ class UserMessage extends Message {
     required List<InputContent> parts,
     super.name,
     super.encryptedValue,
+    super.metadata,
+    super.subagentRunId,
   })  : messageContent = MultimodalContent(parts),
         super(role: MessageRole.user);
 
@@ -456,6 +515,8 @@ class UserMessage extends Message {
     required this.messageContent,
     super.name,
     super.encryptedValue,
+    super.metadata,
+    super.subagentRunId,
   }) : super(role: MessageRole.user);
 
   factory UserMessage.fromJson(Map<String, dynamic> json) {
@@ -468,6 +529,8 @@ class UserMessage extends Message {
         'encryptedValue',
         'encrypted_value',
       ),
+      metadata: _readMessageMetadata(json),
+      subagentRunId: _readMessageSubagentRunId(json),
     );
   }
 
@@ -482,11 +545,8 @@ class UserMessage extends Message {
 
   @override
   Map<String, dynamic> toJson() => {
-        if (id != null) 'id': id,
-        'role': role.value,
+        ..._baseMessageJson(),
         'content': messageContent.toJson(),
-        if (name != null) 'name': name,
-        if (encryptedValue != null) 'encryptedValue': encryptedValue,
       };
 
   // `name` and `encryptedValue` are nullable on the parent — sentinel
@@ -497,6 +557,8 @@ class UserMessage extends Message {
     UserMessageContent? messageContent,
     Object? name = kUnsetSentinel,
     Object? encryptedValue = kUnsetSentinel,
+    Object? metadata = kUnsetSentinel,
+    Object? subagentRunId = kUnsetSentinel,
   }) {
     return UserMessage.fromContent(
       id: id ?? this.id,
@@ -505,6 +567,11 @@ class UserMessage extends Message {
       encryptedValue: identical(encryptedValue, kUnsetSentinel)
           ? this.encryptedValue
           : encryptedValue as String?,
+      metadata: resolveNullableCopy<Metadata>(metadata, this.metadata),
+      subagentRunId: resolveNullableCopy<String>(
+        subagentRunId,
+        this.subagentRunId,
+      ),
     );
   }
 }
@@ -528,6 +595,8 @@ final class ToolMessage extends Message {
     required this.toolCallId,
     this.error,
     super.encryptedValue,
+    super.metadata,
+    super.subagentRunId,
   }) : super(role: MessageRole.tool);
 
   factory ToolMessage.fromJson(Map<String, dynamic> json) {
@@ -545,20 +614,16 @@ final class ToolMessage extends Message {
         'encryptedValue',
         'encrypted_value',
       ),
+      metadata: _readMessageMetadata(json),
+      subagentRunId: _readMessageSubagentRunId(json),
     );
   }
 
-  // Explicit field-by-field emission rather than ...super.toJson() spread:
-  // ToolMessage's constructor does not accept `name`, so the inherited
-  // Message.name field is always null here and the explicit form is safe.
-  // If Message.toJson() ever gains a new common field, this override must be
-  // updated in parallel to avoid silently dropping it.
+  // Add tool-result fields to the common message envelope.
   @override
   Map<String, dynamic> toJson() => {
-        if (id != null) 'id': id,
-        'role': role.value,
+        ..._baseMessageJson(),
         'content': content,
-        if (encryptedValue != null) 'encryptedValue': encryptedValue,
         'toolCallId': toolCallId,
         if (error != null) 'error': error,
       };
@@ -574,6 +639,8 @@ final class ToolMessage extends Message {
     String? toolCallId,
     Object? error = kUnsetSentinel,
     Object? encryptedValue = kUnsetSentinel,
+    Object? metadata = kUnsetSentinel,
+    Object? subagentRunId = kUnsetSentinel,
   }) {
     return ToolMessage(
       id: id ?? this.id,
@@ -583,6 +650,11 @@ final class ToolMessage extends Message {
       encryptedValue: identical(encryptedValue, kUnsetSentinel)
           ? this.encryptedValue
           : encryptedValue as String?,
+      metadata: resolveNullableCopy<Metadata>(metadata, this.metadata),
+      subagentRunId: resolveNullableCopy<String>(
+        subagentRunId,
+        this.subagentRunId,
+      ),
     );
   }
 }
@@ -617,6 +689,8 @@ final class ActivityMessage extends Message {
     required super.id,
     required this.activityType,
     required this.activityContent,
+    super.metadata,
+    super.subagentRunId,
   }) : super(role: MessageRole.activity);
 
   // ActivityMessage never carries cipher data — override the inherited getter
@@ -640,19 +714,18 @@ final class ActivityMessage extends Message {
         'activityType',
         'activity_type',
       ),
-      activityContent:
-          JsonDecoder.requireField<Map<String, dynamic>>(json, 'content'),
+      activityContent: JsonDecoder.requireField<Map<String, dynamic>>(
+        json,
+        'content',
+      ),
+      metadata: _readMessageMetadata(json),
+      subagentRunId: _readMessageSubagentRunId(json),
     );
   }
 
   @override
   Map<String, dynamic> toJson() => {
-        // Explicitly skip super.toJson() — the inherited Message.content field
-        // must not appear in the wire output (activityContent is the `content`
-        // key here). Using ...super.toJson() would rely on map-spread
-        // overwrite order to mask any future super.content emission.
-        if (id != null) 'id': id,
-        'role': role.value,
+        ..._baseMessageJson(),
         'activityType': activityType,
         'content': activityContent,
       };
@@ -665,11 +738,18 @@ final class ActivityMessage extends Message {
     Object? id = kUnsetSentinel,
     String? activityType,
     Map<String, dynamic>? activityContent,
+    Object? metadata = kUnsetSentinel,
+    Object? subagentRunId = kUnsetSentinel,
   }) {
     return ActivityMessage(
       id: identical(id, kUnsetSentinel) ? this.id : id as String?,
       activityType: activityType ?? this.activityType,
       activityContent: activityContent ?? this.activityContent,
+      metadata: resolveNullableCopy<Metadata>(metadata, this.metadata),
+      subagentRunId: resolveNullableCopy<String>(
+        subagentRunId,
+        this.subagentRunId,
+      ),
     );
   }
 }
@@ -693,6 +773,8 @@ class ReasoningMessage extends Message {
     this.content,
     this.thinking,
     super.encryptedValue,
+    super.metadata,
+    super.subagentRunId,
   }) : super(role: MessageRole.reasoning);
 
   factory ReasoningMessage.fromJson(Map<String, dynamic> json) {
@@ -705,6 +787,8 @@ class ReasoningMessage extends Message {
         'encryptedValue',
         'encrypted_value',
       ),
+      metadata: _readMessageMetadata(json),
+      subagentRunId: _readMessageSubagentRunId(json),
     );
   }
 
@@ -721,6 +805,8 @@ class ReasoningMessage extends Message {
     String? content,
     String? thinking,
     Object? encryptedValue = kUnsetSentinel,
+    Object? metadata = kUnsetSentinel,
+    Object? subagentRunId = kUnsetSentinel,
   }) {
     return ReasoningMessage(
       id: id ?? this.id,
@@ -729,6 +815,11 @@ class ReasoningMessage extends Message {
       encryptedValue: identical(encryptedValue, kUnsetSentinel)
           ? this.encryptedValue
           : encryptedValue as String?,
+      metadata: resolveNullableCopy<Metadata>(metadata, this.metadata),
+      subagentRunId: resolveNullableCopy<String>(
+        subagentRunId,
+        this.subagentRunId,
+      ),
     );
   }
 }
@@ -841,7 +932,8 @@ class UrlSource extends InputContentSource {
   @override
   UrlSource copyWith({String? value, Object? mimeType = _absent}) => UrlSource(
         value: value ?? this.value,
-        mimeType: identical(mimeType, _absent) ? this.mimeType : mimeType as String?,
+        mimeType:
+            identical(mimeType, _absent) ? this.mimeType : mimeType as String?,
       );
 }
 
@@ -870,7 +962,8 @@ Map<String, dynamic> _mediaToJson(
   String type,
   InputContentSource source,
   Object? metadata,
-) => {
+) =>
+    {
       'type': type,
       'source': source.toJson(),
       if (metadata != null) 'metadata': metadata,
@@ -1092,7 +1185,10 @@ class BinaryInputContent extends InputContent {
     this.url,
     this.data,
     this.filename,
-  })  : assert(mimeType != '', 'BinaryInputContent requires a non-empty mimeType'),
+  })  : assert(
+          mimeType != '',
+          'BinaryInputContent requires a non-empty mimeType',
+        ),
         assert(
           id != null || url != null || data != null,
           'BinaryInputContent requires at least one of id, url, or data',
@@ -1154,7 +1250,8 @@ class BinaryInputContent extends InputContent {
         id: identical(id, _absent) ? this.id : id as String?,
         url: identical(url, _absent) ? this.url : url as String?,
         data: identical(data, _absent) ? this.data : data as String?,
-        filename: identical(filename, _absent) ? this.filename : filename as String?,
+        filename:
+            identical(filename, _absent) ? this.filename : filename as String?,
       );
 }
 

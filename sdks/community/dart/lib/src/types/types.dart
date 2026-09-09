@@ -2,6 +2,7 @@
 library;
 
 export 'base.dart';
+export 'metadata.dart';
 export 'message.dart';
 export 'tool.dart';
 export 'context.dart';

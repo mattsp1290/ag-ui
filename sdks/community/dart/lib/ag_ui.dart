@@ -40,6 +40,7 @@ library ag_ui;
 
 // Core types
 export 'src/types/types.dart';
+export 'src/types/metadata.dart';
 
 // Event types
 export 'src/events/events.dart';

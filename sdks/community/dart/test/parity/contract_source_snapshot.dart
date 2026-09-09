@@ -1,195 +1,131 @@
 import 'dart:convert';
 import 'dart:io';
 
-/// Reads repository files exactly as stored at an immutable Git revision.
-Future<List<int>> readPinnedBytes(
-  Directory repositoryRoot,
-  String revision,
-  String path,
-) async {
-  final result = await Process.run(
-    'git',
-    ['show', '$revision:$path'],
-    workingDirectory: repositoryRoot.path,
-    stdoutEncoding: null,
-    stderrEncoding: utf8,
-  );
-  if (result.exitCode != 0) {
-    throw StateError(
-      'Unable to read $path at $revision: ${(result.stderr as String).trim()}',
+import 'package:crypto/crypto.dart';
+
+/// Cached access to repository files at one immutable Git revision.
+///
+/// [load] reads every uncached path through one `git cat-file --batch`
+/// process. Callers can then share the cached bytes, decoded text, JSON, and
+/// SHA-256 digest without spawning a Git process for every assertion.
+final class PinnedGitSnapshot {
+  PinnedGitSnapshot(this.repositoryRoot, this.revision);
+
+  final Directory repositoryRoot;
+  final String revision;
+
+  final Map<String, List<int>> _bytesByPath = <String, List<int>>{};
+  Future<void>? _revisionCheck;
+
+  Set<String> get loadedPaths => Set.unmodifiable(_bytesByPath.keys);
+
+  Future<void> requireRevision() => _revisionCheck ??= _checkRevision();
+
+  Future<void> _checkRevision() async {
+    final result = await Process.run(
+      'git',
+      ['cat-file', '-e', '$revision^{commit}'],
+      workingDirectory: repositoryRoot.path,
+      stderrEncoding: utf8,
     );
+    if (result.exitCode != 0) {
+      throw StateError('Missing pinned Git revision $revision.');
+    }
   }
-  return (result.stdout as List<int>).toList(growable: false);
+
+  Future<void> load(Iterable<String> paths) async {
+    await requireRevision();
+    final requested = paths.toSet().where((path) {
+      if (path.contains('\n') || path.contains('\r')) {
+        throw ArgumentError.value(
+          path,
+          'paths',
+          'Git paths cannot contain newlines',
+        );
+      }
+      return !_bytesByPath.containsKey(path);
+    }).toList()
+      ..sort();
+    if (requested.isEmpty) {
+      return;
+    }
+
+    final process = await Process.start(
+      'git',
+      ['cat-file', '--batch'],
+      workingDirectory: repositoryRoot.path,
+    );
+    final outputFuture = process.stdout.fold<List<int>>(
+      <int>[],
+      (output, chunk) => output..addAll(chunk),
+    );
+    final errorFuture = process.stderr.transform(utf8.decoder).join();
+    for (final path in requested) {
+      process.stdin.writeln('$revision:$path');
+    }
+    await process.stdin.close();
+
+    final output = await outputFuture;
+    final error = await errorFuture;
+    final exitCode = await process.exitCode;
+    if (exitCode != 0) {
+      throw StateError('Unable to read pinned Git snapshot: ${error.trim()}');
+    }
+    _decodeBatch(output, requested);
+  }
+
+  void _decodeBatch(List<int> output, List<String> requested) {
+    var offset = 0;
+    for (final path in requested) {
+      final newline = output.indexOf(0x0a, offset);
+      if (newline < 0) {
+        throw StateError('Truncated git cat-file header for $path.');
+      }
+      final header = ascii.decode(output.sublist(offset, newline));
+      if (header.endsWith(' missing')) {
+        throw StateError(
+          'Unable to read $path at $revision: object is missing.',
+        );
+      }
+      final parts = header.split(' ');
+      if (parts.length != 3 || parts[1] != 'blob') {
+        throw StateError('Unexpected git cat-file header for $path: $header');
+      }
+      final size = int.tryParse(parts[2]);
+      if (size == null) {
+        throw StateError('Invalid git cat-file size for $path: $header');
+      }
+      final start = newline + 1;
+      final end = start + size;
+      if (end >= output.length || output[end] != 0x0a) {
+        throw StateError('Truncated git cat-file body for $path.');
+      }
+      _bytesByPath[path] = List<int>.unmodifiable(output.sublist(start, end));
+      offset = end + 1;
+    }
+    if (offset != output.length) {
+      throw StateError('Unexpected trailing data from git cat-file --batch.');
+    }
+  }
+
+  Future<List<int>> bytes(String path) async {
+    await load([path]);
+    return _bytesByPath[path]!;
+  }
+
+  Future<String> text(String path) async => utf8.decode(await bytes(path));
+
+  Future<Map<String, dynamic>> jsonMap(String path) async {
+    final decoded = jsonDecode(await text(path));
+    if (decoded case final Map<Object?, Object?> map) {
+      return map.cast<String, dynamic>();
+    }
+    throw StateError('$path at $revision is not a JSON object.');
+  }
+
+  Future<String> sha256Hex(String path) async =>
+      sha256.convert(await bytes(path)).toString();
 }
-
-Future<String> readPinnedText(
-  Directory repositoryRoot,
-  String revision,
-  String path,
-) async =>
-    utf8.decode(await readPinnedBytes(repositoryRoot, revision, path));
-
-Future<void> requireRevision(
-  Directory repositoryRoot,
-  String revision,
-) async {
-  final result = await Process.run(
-    'git',
-    ['cat-file', '-e', '$revision^{commit}'],
-    workingDirectory: repositoryRoot.path,
-    stderrEncoding: utf8,
-  );
-  if (result.exitCode != 0) {
-    throw StateError('Missing pinned Git revision $revision.');
-  }
-}
-
-String sha256Hex(List<int> input) {
-  const roundConstants = <int>[
-    0x428a2f98,
-    0x71374491,
-    0xb5c0fbcf,
-    0xe9b5dba5,
-    0x3956c25b,
-    0x59f111f1,
-    0x923f82a4,
-    0xab1c5ed5,
-    0xd807aa98,
-    0x12835b01,
-    0x243185be,
-    0x550c7dc3,
-    0x72be5d74,
-    0x80deb1fe,
-    0x9bdc06a7,
-    0xc19bf174,
-    0xe49b69c1,
-    0xefbe4786,
-    0x0fc19dc6,
-    0x240ca1cc,
-    0x2de92c6f,
-    0x4a7484aa,
-    0x5cb0a9dc,
-    0x76f988da,
-    0x983e5152,
-    0xa831c66d,
-    0xb00327c8,
-    0xbf597fc7,
-    0xc6e00bf3,
-    0xd5a79147,
-    0x06ca6351,
-    0x14292967,
-    0x27b70a85,
-    0x2e1b2138,
-    0x4d2c6dfc,
-    0x53380d13,
-    0x650a7354,
-    0x766a0abb,
-    0x81c2c92e,
-    0x92722c85,
-    0xa2bfe8a1,
-    0xa81a664b,
-    0xc24b8b70,
-    0xc76c51a3,
-    0xd192e819,
-    0xd6990624,
-    0xf40e3585,
-    0x106aa070,
-    0x19a4c116,
-    0x1e376c08,
-    0x2748774c,
-    0x34b0bcb5,
-    0x391c0cb3,
-    0x4ed8aa4a,
-    0x5b9cca4f,
-    0x682e6ff3,
-    0x748f82ee,
-    0x78a5636f,
-    0x84c87814,
-    0x8cc70208,
-    0x90befffa,
-    0xa4506ceb,
-    0xbef9a3f7,
-    0xc67178f2,
-  ];
-  final bytes = List<int>.from(input);
-  final bitLength = input.length * 8;
-  bytes.add(0x80);
-  while (bytes.length % 64 != 56) {
-    bytes.add(0);
-  }
-  for (var shift = 56; shift >= 0; shift -= 8) {
-    bytes.add((bitLength >> shift) & 0xff);
-  }
-
-  final hash = <int>[
-    0x6a09e667,
-    0xbb67ae85,
-    0x3c6ef372,
-    0xa54ff53a,
-    0x510e527f,
-    0x9b05688c,
-    0x1f83d9ab,
-    0x5be0cd19,
-  ];
-  final schedule = List<int>.filled(64, 0);
-
-  for (var offset = 0; offset < bytes.length; offset += 64) {
-    for (var index = 0; index < 16; index++) {
-      final start = offset + index * 4;
-      schedule[index] = (bytes[start] << 24) |
-          (bytes[start + 1] << 16) |
-          (bytes[start + 2] << 8) |
-          bytes[start + 3];
-    }
-    for (var index = 16; index < 64; index++) {
-      final s0 = _rotateRight(schedule[index - 15], 7) ^
-          _rotateRight(schedule[index - 15], 18) ^
-          (schedule[index - 15] >> 3);
-      final s1 = _rotateRight(schedule[index - 2], 17) ^
-          _rotateRight(schedule[index - 2], 19) ^
-          (schedule[index - 2] >> 10);
-      schedule[index] =
-          (schedule[index - 16] + s0 + schedule[index - 7] + s1) & 0xffffffff;
-    }
-
-    var a = hash[0];
-    var b = hash[1];
-    var c = hash[2];
-    var d = hash[3];
-    var e = hash[4];
-    var f = hash[5];
-    var g = hash[6];
-    var h = hash[7];
-    for (var index = 0; index < 64; index++) {
-      final sum1 =
-          _rotateRight(e, 6) ^ _rotateRight(e, 11) ^ _rotateRight(e, 25);
-      final choice = (e & f) ^ ((~e) & g);
-      final temp1 =
-          (h + sum1 + choice + roundConstants[index] + schedule[index]) &
-              0xffffffff;
-      final sum0 =
-          _rotateRight(a, 2) ^ _rotateRight(a, 13) ^ _rotateRight(a, 22);
-      final majority = (a & b) ^ (a & c) ^ (b & c);
-      final temp2 = (sum0 + majority) & 0xffffffff;
-      h = g;
-      g = f;
-      f = e;
-      e = (d + temp1) & 0xffffffff;
-      d = c;
-      c = b;
-      b = a;
-      a = (temp1 + temp2) & 0xffffffff;
-    }
-    final working = [a, b, c, d, e, f, g, h];
-    for (var index = 0; index < hash.length; index++) {
-      hash[index] = (hash[index] + working[index]) & 0xffffffff;
-    }
-  }
-  return hash.map((word) => word.toRadixString(16).padLeft(8, '0')).join();
-}
-
-int _rotateRight(int value, int distance) =>
-    ((value >> distance) | (value << (32 - distance))) & 0xffffffff;
 
 Map<String, Set<String>> extractPythonModelFields(
   Iterable<String> sources,
@@ -375,6 +311,77 @@ Set<String> extractTypeScriptExports(Iterable<String> sources) {
   };
 }
 
+/// Resolves the symbols exported by a TypeScript package entry point.
+///
+/// Both `export *` and named `export { ... } from` declarations are followed,
+/// so a declaration in an internal module does not count as public unless the
+/// package entry point exposes it.
+Set<String> extractTypeScriptPublicExports(
+  String entryPath,
+  Map<String, String> sources,
+) {
+  final memo = <String, Set<String>>{};
+  final visiting = <String>{};
+
+  Set<String> resolve(String path) {
+    if (memo[path] case final exports?) {
+      return exports;
+    }
+    if (!visiting.add(path)) {
+      throw StateError('Cyclic TypeScript export graph at $path.');
+    }
+    final source = sources[path];
+    if (source == null) {
+      throw StateError('Missing TypeScript export source $path.');
+    }
+    final exports = extractTypeScriptExports([source]);
+    final starPattern = RegExp(
+      r'''^export\s+\*\s+from\s+["']([^"']+)["']\s*;''',
+      multiLine: true,
+    );
+    for (final match in starPattern.allMatches(source)) {
+      exports.addAll(resolve(_resolveTypeScriptPath(path, match.group(1)!)));
+    }
+    final namedPattern = RegExp(
+      r'''export(?:\s+type)?\s*\{(.*?)\}\s*from\s*["']([^"']+)["']\s*;''',
+      dotAll: true,
+    );
+    for (final match in namedPattern.allMatches(source)) {
+      final targetPath = _resolveTypeScriptPath(path, match.group(2)!);
+      final targetExports = resolve(targetPath);
+      final block = match.group(1)!.replaceAll(RegExp(r'//[^\n]*'), '');
+      for (var name in block.split(',')) {
+        name = name.trim().replaceFirst(RegExp(r'^type\s+'), '');
+        if (name.isEmpty) {
+          continue;
+        }
+        final parts = name.split(RegExp(r'\s+as\s+'));
+        final original = parts.first;
+        final exported = parts.last;
+        if (!targetExports.contains(original)) {
+          throw StateError(
+            '$path re-exports missing $original from $targetPath.',
+          );
+        }
+        exports.add(exported);
+      }
+    }
+    visiting.remove(path);
+    memo[path] = Set.unmodifiable(exports);
+    return memo[path]!;
+  }
+
+  return resolve(entryPath);
+}
+
+String _resolveTypeScriptPath(String fromPath, String reference) {
+  var path = Uri.parse(fromPath).resolve(reference).path;
+  if (!path.endsWith('.ts')) {
+    path = '$path.ts';
+  }
+  return path;
+}
+
 Set<String> extractGoDeclarations(Iterable<String> sources) {
   final pattern = RegExp(
     r'^(?:type|func|const|var)\s+([A-Z]\w*)',
@@ -388,41 +395,83 @@ Set<String> extractGoDeclarations(Iterable<String> sources) {
 
 Set<String> extractPublicDartDeclarations(
   String librarySource,
-  Map<String, String> exportedSources,
-) {
-  final exportPattern = RegExp(
-    r"^export '([^']+)'(?:\s+(?:show|hide)\s+[^;]+)?\s*;",
-    multiLine: true,
-  );
-  final declarationPattern = RegExp(
-    r'^(?:(?:abstract|base|final|interface|sealed)\s+)?(?:class|enum|mixin|typedef)\s+([A-Za-z_]\w*)',
-    multiLine: true,
-  );
-  final names = <String>{};
-  final pending = <MapEntry<String, String>>[
-    MapEntry('ag_ui.dart', librarySource),
-  ];
-  final visited = <String>{};
-  while (pending.isNotEmpty) {
-    final current = pending.removeLast();
-    if (!visited.add(current.key)) {
-      continue;
+  Map<String, String> exportedSources, {
+  Set<String>? rootExports,
+}) {
+  final sources = <String, String>{
+    'ag_ui.dart': librarySource,
+    ...exportedSources,
+  };
+  final memo = <String, Set<String>>{};
+  final visiting = <String>{};
+
+  Set<String> resolve(String path) {
+    if (memo[path] case final declarations?) {
+      return declarations;
     }
-    final source = current.value;
-    names.addAll(
-      declarationPattern
-          .allMatches(source)
-          .map((declaration) => declaration.group(1)!),
+    if (!visiting.add(path)) {
+      throw StateError('Cyclic Dart export graph at $path.');
+    }
+    final source = sources[path];
+    if (source == null) {
+      throw StateError('Missing Dart export source $path.');
+    }
+    final declarations = _extractDartDeclarations(source);
+    final exportPattern = RegExp(
+      r"^export '([^']+)'(?:\s+(show|hide)\s+([^;]+))?\s*;",
+      multiLine: true,
     );
     for (final match in exportPattern.allMatches(source)) {
-      final exportedPath = Uri.parse(current.key).resolve(match.group(1)!).path;
-      final exportedSource = exportedSources[exportedPath];
-      if (exportedSource != null) {
-        pending.add(MapEntry(exportedPath, exportedSource));
+      final exportedPath = Uri.parse(path).resolve(match.group(1)!).path;
+      if (path == 'ag_ui.dart' &&
+          rootExports != null &&
+          !rootExports.contains(exportedPath)) {
+        continue;
       }
+      final exported = {...resolve(exportedPath)};
+      final combinator = match.group(2);
+      final names = match
+          .group(3)
+          ?.split(',')
+          .map((name) => name.trim())
+          .where((name) => name.isNotEmpty)
+          .toSet();
+      if (combinator == 'show') {
+        exported.retainAll(names!);
+      } else if (combinator == 'hide') {
+        exported.removeAll(names!);
+      }
+      declarations.addAll(exported);
     }
+    visiting.remove(path);
+    memo[path] = Set.unmodifiable(declarations);
+    return memo[path]!;
   }
-  return names;
+
+  return resolve('ag_ui.dart');
+}
+
+Set<String> _extractDartDeclarations(String source) {
+  final typePattern = RegExp(
+    r'^(?:(?:abstract|base|final|interface|sealed)\s+)?(?:class|enum|mixin|typedef|extension)\s+([A-Za-z_]\w*)',
+    multiLine: true,
+  );
+  final functionPattern = RegExp(
+    r'^(?:[A-Za-z_]\w*(?:<[^;=]+?>)?[?]?\s+)+([a-zA-Z]\w*)\s*\(',
+    multiLine: true,
+  );
+  final variablePattern = RegExp(
+    r'^(?:const|final)\s+(?:[A-Za-z_]\w*(?:<[^;=]+?>)?[?]?\s+)?([a-zA-Z]\w*)\s*(?:=|;)',
+    multiLine: true,
+  );
+  return {
+    for (final match in typePattern.allMatches(source))
+      if (!match.group(1)!.startsWith('_')) match.group(1)!,
+    for (final match in functionPattern.allMatches(source))
+      if (!match.group(1)!.startsWith('_')) match.group(1)!,
+    for (final match in variablePattern.allMatches(source))
+      if (!match.group(1)!.startsWith('_')) match.group(1)!,
+  };
 }
 
 String _readTypeScriptExpression(String source, int start) {

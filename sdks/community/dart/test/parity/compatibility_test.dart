@@ -4,6 +4,8 @@ import 'dart:io';
 import 'package:ag_ui/ag_ui.dart';
 import 'package:test/test.dart';
 
+import 'contract_source_snapshot.dart';
+
 // These legacy variants are intentionally exercised by the compatibility
 // probe; their deprecation diagnostics are expected here.
 // ignore_for_file: deprecated_member_use_from_same_package
@@ -118,60 +120,13 @@ final _fixture = _readJsonMap(
 final _parityManifest = _readJsonMap(
   File('${_dartPackageRoot.path}/test/fixtures/parity_manifest.json'),
 );
-final _goFixtures = _readJsonMap(
-  File(
-    '${_repositoryRoot.path}/sdks/community/go/testdata/parity/fixtures.json',
-  ),
-);
-final _goCompatibility = _readJsonMap(
-  File(
-    '${_repositoryRoot.path}/sdks/community/go/testdata/parity/compatibility.json',
-  ),
-);
+late Map<String, dynamic> _goFixtures;
 
 Map<String, dynamic> _asMap(Object? value, String description) {
   if (value is Map<Object?, Object?>) {
     return value.cast<String, dynamic>();
   }
   throw StateError('$description must be a JSON object');
-}
-
-void _expectJsonCompatibility(
-  Object? actual,
-  Object? expected,
-  String reason,
-) {
-  if (actual is Map<Object?, Object?>) {
-    if (expected is! Map<Object?, Object?>) {
-      fail('$reason expected a JSON object');
-    }
-    final expectedMap = expected;
-    for (final entry in actual.entries) {
-      expect(
-        expectedMap,
-        contains(entry.key),
-        reason: '$reason includes ${entry.key}',
-      );
-      _expectJsonCompatibility(
-        entry.value,
-        expectedMap[entry.key],
-        '$reason.${entry.key}',
-      );
-    }
-    return;
-  }
-  if (actual is List<Object?>) {
-    if (expected is! List<Object?>) {
-      fail('$reason expected a JSON array');
-    }
-    final expectedList = expected;
-    expect(actual, hasLength(expectedList.length), reason: reason);
-    for (var i = 0; i < actual.length; i++) {
-      _expectJsonCompatibility(actual[i], expectedList[i], '$reason[$i]');
-    }
-    return;
-  }
-  expect(actual, expected, reason: reason);
 }
 
 Object? _atJsonPointer(Object? root, String pointer) {
@@ -204,13 +159,58 @@ Object? _atJsonPointer(Object? root, String pointer) {
   return current;
 }
 
+Object? _withoutJsonPointer(Object? root, String pointer) {
+  final segments = pointer
+      .split('/')
+      .skip(1)
+      .map((segment) => segment.replaceAll('~1', '/').replaceAll('~0', '~'))
+      .toList();
+  if (segments.isEmpty) {
+    return root;
+  }
+  final segment = segments.first;
+  final remainder = '/${segments.skip(1).join('/')}';
+  if (root is Map<Object?, Object?>) {
+    final copy = <Object?, Object?>{...root};
+    if (segments.length == 1) {
+      copy.remove(segment);
+    } else if (copy.containsKey(segment)) {
+      copy[segment] = _withoutJsonPointer(copy[segment], remainder);
+    }
+    return copy;
+  }
+  if (root is List<Object?>) {
+    final index = int.tryParse(segment);
+    if (index == null || index < 0 || index >= root.length) {
+      return root;
+    }
+    final copy = [...root];
+    copy[index] = segments.length == 1
+        ? null
+        : _withoutJsonPointer(copy[index], remainder);
+    return copy;
+  }
+  return root;
+}
+
+Object? _projectExpected(String rowId, Object? expected) {
+  final policy =
+      (_parityManifest['evidence_policy'] as Map).cast<String, dynamic>();
+  final projections =
+      (policy['typed_field_projections'] as Map?)?.cast<String, dynamic>();
+  final paths = (projections?[rowId] as List?)?.cast<String>() ?? const [];
+  var projected = expected;
+  for (final path in paths) {
+    projected = _withoutJsonPointer(projected, path);
+  }
+  return projected;
+}
+
 Map<String, dynamic> _caseById(String caseId) {
-  for (final corpus in [_goFixtures, _goCompatibility]) {
-    for (final rawCase in (corpus['cases'] as List)) {
-      final candidate = _asMap(rawCase, 'Parity case');
-      if (candidate['id'] == caseId) {
-        return candidate;
-      }
+  for (final rawCase in (_goFixtures['cases'] as List)) {
+    final candidate = _asMap(rawCase, 'Parity case');
+    if (candidate['id'] == caseId) {
+      return candidate;
     }
   }
   throw StateError('Canonical parity case not found: $caseId');
@@ -230,6 +230,49 @@ Iterable<Map<String, dynamic>> _implementedRows() sync* {
       }
     }
   }
+}
+
+Map<String, dynamic> _canonicalEvidence() {
+  final rows = _implementedRows().toList();
+  final rowsById = {
+    for (final row in rows) row['id'] as String: row,
+  };
+  final aliases = (_parityManifest['canonical_evidence_aliases'] as Map)
+      .cast<String, dynamic>();
+  final evidence = <String, dynamic>{};
+
+  for (final row in rows) {
+    final rowId = row['id'] as String;
+    var source = row;
+    final visited = <String>{rowId};
+    while (source['canonical_case'] == null) {
+      final target = aliases[source['id']];
+      if (target is! String || !visited.add(target)) {
+        throw StateError('Invalid canonical evidence alias graph at $rowId');
+      }
+      source = rowsById[target]!;
+    }
+    final canonicalCase = _asMap(source['canonical_case'], rowId);
+    final kind = source['kind'] as String;
+    final adapter = switch (kind) {
+      'event' => 'event',
+      'message' => 'message',
+      'content' => 'content',
+      'type' => 'type',
+      _ => throw StateError('No evidence adapter for $kind ($rowId)'),
+    };
+    evidence['canonical.$rowId'] = <String, dynamic>{
+      'testName': 'canonical parity rows survive decode -> encode',
+      'fields': [rowId],
+      'adapter': adapter,
+      'model': source['model'],
+      'field': source['name'],
+      'caseId': canonicalCase['case_id'],
+      'document': canonicalCase['document'],
+      'path': canonicalCase['path'],
+    };
+  }
+  return evidence;
 }
 
 Map<String, dynamic> _decodeEvidence(
@@ -319,6 +362,16 @@ Map<String, dynamic> _adapterInput(
 }
 
 void main() {
+  setUpAll(() async {
+    final pins = (_parityManifest['pins'] as Map).cast<String, dynamic>();
+    final peerContract =
+        (_parityManifest['peer_contract'] as Map).cast<String, dynamic>();
+    final implementationBase = pins['implementation_base'] as String;
+    final casesSource = peerContract['cases_source'] as String;
+    final snapshot = PinnedGitSnapshot(_repositoryRoot, implementationBase);
+    _goFixtures = await snapshot.jsonMap(casesSource);
+  });
+
   group('compatibility baseline', () {
     test('fixture records the pinned base and all current variants', () {
       expect(_fixture['version'], 1);
@@ -536,11 +589,13 @@ void main() {
     });
 
     test('canonical evidence executes every implemented manifest field', () {
-      final registry = (_fixture['evidence'] as Map).cast<String, dynamic>();
-      final aliases =
-          (_fixture['evidenceAliases'] as Map).cast<String, dynamic>();
+      final registry = _canonicalEvidence();
       final implementedIds =
           _implementedRows().map((row) => row['id'] as String).toSet();
+      final evidencePolicy =
+          (_parityManifest['evidence_policy'] as Map).cast<String, dynamic>();
+      final omissionRows = (evidencePolicy['intentional_omissions'] as Map)
+          .cast<String, dynamic>();
       final expectedKeys = implementedIds.map((id) => 'canonical.$id').toSet();
 
       expect(registry.keys.toSet(), expectedKeys);
@@ -555,12 +610,7 @@ void main() {
         expect(entry.key, 'canonical.$rowId');
         covered.add(rowId);
 
-        final aliasTarget = aliases[rowId] as String?;
-        final sourceId = aliasTarget ?? rowId;
-        final source = _asMap(
-          registry['canonical.$sourceId'],
-          'evidence for $rowId',
-        );
+        final source = record;
         final caseId = source['caseId'] as String?;
         expect(caseId, isNotNull, reason: rowId);
         final parityCase = _caseById(caseId!);
@@ -577,18 +627,17 @@ void main() {
           source['path'] as String,
         );
 
-        if (rowId == 'ReasoningEncryptedValueEvent.rawEvent' ||
-            rowId == 'ActivitySnapshotEvent.replace') {
+        if (omissionRows.containsKey(rowId)) {
           expect(
             () => _atJsonPointer(encoded, encodedPath),
             throwsA(isA<StateError>()),
             reason: rowId,
           );
         } else {
-          _expectJsonCompatibility(
+          expect(
             _atJsonPointer(encoded, encodedPath),
-            expectedValue,
-            rowId,
+            _projectExpected(rowId, expectedValue),
+            reason: rowId,
           );
         }
       }

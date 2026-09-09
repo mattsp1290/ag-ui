@@ -86,6 +86,7 @@ void main() {
   late Directory packageRoot;
   late Directory repositoryRoot;
   late Map<String, dynamic> manifest;
+  late PinnedGitSnapshot snapshot;
 
   setUpAll(() {
     packageRoot = _packageRoot();
@@ -93,6 +94,10 @@ void main() {
     final source =
         File('${packageRoot.path}/test/fixtures/parity_manifest.json');
     manifest = _asMap(jsonDecode(source.readAsStringSync()));
+    snapshot = PinnedGitSnapshot(
+      repositoryRoot,
+      _asMap(manifest['pins'])['implementation_base'] as String,
+    );
   });
 
   group('Dart parity inventory', () {
@@ -114,21 +119,22 @@ void main() {
         upstreamInspection,
         '0fa1bebd9772de79347f0caf79744535e94ec37c',
       );
-      await requireRevision(repositoryRoot, implementationBase);
+      await snapshot.requireRevision();
 
       final sources = _asMap(manifest['source_files']);
       expect(sources.length, 88);
+      final peerContract = _asMap(manifest['peer_contract']);
+      final peerSources = [
+        for (final prefix in ['cases', 'compatibility', 'manifest', 'sse'])
+          peerContract['${prefix}_source'] as String,
+      ];
+      await snapshot.load([...sources.keys, ...peerSources]);
       final digestPattern = RegExp(r'^[0-9a-f]{64}$');
       for (final entry in sources.entries) {
         expect(entry.value, isA<String>());
         expect(entry.value, matches(digestPattern), reason: entry.key);
-        final pinnedBytes = await readPinnedBytes(
-          repositoryRoot,
-          implementationBase,
-          entry.key,
-        );
         expect(
-          sha256Hex(pinnedBytes),
+          await snapshot.sha256Hex(entry.key),
           entry.value,
           reason: 'Digest mismatch for ${entry.key} at $implementationBase',
         );
@@ -151,17 +157,11 @@ void main() {
         ]),
       );
 
-      final peerContract = _asMap(manifest['peer_contract']);
       for (final prefix in ['cases', 'compatibility', 'manifest', 'sse']) {
         final source = peerContract['${prefix}_source'] as String;
         final expectedDigest = peerContract['${prefix}_sha256'] as String;
-        final pinnedBytes = await readPinnedBytes(
-          repositoryRoot,
-          implementationBase,
-          source,
-        );
         expect(
-          sha256Hex(pinnedBytes),
+          await snapshot.sha256Hex(source),
           expectedDigest,
           reason: 'Digest mismatch for pinned peer corpus $source',
         );
@@ -169,11 +169,7 @@ void main() {
 
       final fixtures = _asMap(
         jsonDecode(
-          await readPinnedText(
-            repositoryRoot,
-            implementationBase,
-            peerContract['cases_source'] as String,
-          ),
+          await snapshot.text(peerContract['cases_source'] as String),
         ),
       );
       final cases = _asList(fixtures['cases']).map(_asMap).toList();
@@ -187,11 +183,7 @@ void main() {
 
       final goManifest = _asMap(
         jsonDecode(
-          await readPinnedText(
-            repositoryRoot,
-            implementationBase,
-            peerContract['manifest_source'] as String,
-          ),
+          await snapshot.text(peerContract['manifest_source'] as String),
         ),
       );
       expect(
@@ -202,8 +194,15 @@ void main() {
     });
 
     test('derives every peer model field from immutable source', () async {
-      final pins = _asMap(manifest['pins']);
-      final implementationBase = pins['implementation_base'] as String;
+      final extractionPolicy = _asMap(manifest['source_extraction_policy']);
+      expect(
+        extractionPolicy['field_scope'],
+        contains('does not reconstruct requiredness'),
+      );
+      expect(
+        _asMap(manifest['shape_policy'])['descriptor_verification'],
+        'recorded-review-snapshot',
+      );
       final peerShapes = _asMap(manifest['peer_shapes']);
       final python = _asMap(peerShapes['python']);
       final typescript = _asMap(peerShapes['typescript']);
@@ -215,9 +214,7 @@ void main() {
       ];
       final pythonSources = <String>[];
       for (final path in pythonPaths) {
-        pythonSources.add(
-          await readPinnedText(repositoryRoot, implementationBase, path),
-        );
+        pythonSources.add(await snapshot.text(path));
       }
       final extractedPython = extractPythonModelFields(pythonSources);
       expect(_shapeFieldSets(python), extractedPython);
@@ -230,9 +227,7 @@ void main() {
       ];
       final typescriptSources = <String>[];
       for (final path in typescriptPaths) {
-        typescriptSources.add(
-          await readPinnedText(repositoryRoot, implementationBase, path),
-        );
+        typescriptSources.add(await snapshot.text(path));
       }
       final extractedTypeScript =
           extractTypeScriptSchemaFields(typescriptSources);
@@ -289,31 +284,26 @@ void main() {
 
     test('derives shared exports and implemented Dart symbols from source',
         () async {
-      final pins = _asMap(manifest['pins']);
-      final implementationBase = pins['implementation_base'] as String;
       final exports = _asList(manifest['shared_exports']).map(_asMap).toList();
 
-      final pythonInit = await readPinnedText(
-        repositoryRoot,
-        implementationBase,
-        'sdks/python/ag_ui/core/__init__.py',
-      );
+      final pythonInit =
+          await snapshot.text('sdks/python/ag_ui/core/__init__.py');
       final pythonExports = extractPythonPublicExports(pythonInit);
 
       final typescriptPaths = <String>[
+        'sdks/typescript/packages/core/src/index.ts',
         'sdks/typescript/packages/core/src/types.ts',
         'sdks/typescript/packages/core/src/events.ts',
         'sdks/typescript/packages/core/src/capabilities.ts',
         'sdks/typescript/packages/core/src/metadata.ts',
         'sdks/typescript/packages/core/src/token-usage.ts',
       ];
-      final typescriptSources = <String>[];
+      final typescriptSources = <String, String>{};
       for (final path in typescriptPaths) {
-        typescriptSources.add(
-          await readPinnedText(repositoryRoot, implementationBase, path),
-        );
+        typescriptSources[path.split('/').last] = await snapshot.text(path);
       }
-      final typescriptExports = extractTypeScriptExports(typescriptSources);
+      final typescriptExports =
+          extractTypeScriptPublicExports('index.ts', typescriptSources);
 
       final sourceFiles = _asMap(manifest['source_files']);
       final goSources = <String>[];
@@ -322,17 +312,12 @@ void main() {
             path.startsWith('sdks/community/go/pkg/core/') &&
             path.endsWith('.go'),
       )) {
-        goSources.add(
-          await readPinnedText(repositoryRoot, implementationBase, path),
-        );
+        goSources.add(await snapshot.text(path));
       }
       final goDeclarations = extractGoDeclarations(goSources);
 
-      final dartLibrary = await readPinnedText(
-        repositoryRoot,
-        implementationBase,
-        'sdks/community/dart/lib/ag_ui.dart',
-      );
+      final dartLibrary =
+          await snapshot.text('sdks/community/dart/lib/ag_ui.dart');
       final dartSources = <String, String>{};
       for (final repositoryPath in sourceFiles.keys.where(
         (path) =>
@@ -343,14 +328,16 @@ void main() {
           'sdks/community/dart/lib/',
           '',
         );
-        dartSources[libraryPath] = await readPinnedText(
-          repositoryRoot,
-          implementationBase,
-          repositoryPath,
-        );
+        dartSources[libraryPath] = await snapshot.text(repositoryPath);
       }
-      final dartDeclarations =
-          extractPublicDartDeclarations(dartLibrary, dartSources);
+      final dartDeclarations = extractPublicDartDeclarations(
+        dartLibrary,
+        dartSources,
+        rootExports: {
+          'src/types/types.dart',
+          'src/events/events.dart',
+        },
+      );
 
       for (final entry in exports) {
         final symbol = entry['symbol'] as String;
@@ -377,10 +364,17 @@ void main() {
 
       final coveredPythonModels =
           exports.map((entry) => entry['python']).whereType<String>().toSet();
-      final coveredTypeScriptSchemas = exports
+      final mappedTypeScriptExports = exports
           .map((entry) => entry['typescript'])
           .whereType<String>()
-          .toSet();
+          .toList();
+      final coveredTypeScriptSchemas = mappedTypeScriptExports.toSet();
+      expect(coveredPythonModels, pythonExports);
+      expect(
+        coveredTypeScriptSchemas.length,
+        mappedTypeScriptExports.length,
+        reason: 'Each logical shared export needs a unique TypeScript symbol',
+      );
       expect(
         _asMap(_asMap(manifest['peer_shapes'])['python']).keys,
         everyElement(isIn(coveredPythonModels)),
@@ -434,25 +428,11 @@ void main() {
     });
 
     test(
-      'binds every field to exact canonical and executable evidence',
+      'binds every field to exact canonical evidence',
       () async {
         final policy = _asMap(manifest['evidence_policy']);
         expect(policy['schema_version'], 1);
-        expect(
-          policy['registry_source'],
-          'test/fixtures/compatibility.json:evidence',
-        );
         expect(policy['registry_key_pattern'], 'canonical.<row.id>');
-        expect(policy['registry_alias_key'], 'evidenceAliases');
-
-        final compatibility = _asMap(
-          jsonDecode(
-            File('${packageRoot.path}/test/fixtures/compatibility.json')
-                .readAsStringSync(),
-          ),
-        );
-        final registry = _asMap(compatibility['evidence']);
-        final evidenceAliases = _asMap(compatibility['evidenceAliases']);
         final rows = _fieldRows(manifest).toList();
         final rowsById = {
           for (final row in rows) row['id'] as String: row,
@@ -462,26 +442,25 @@ void main() {
             .map((row) => row['id'] as String)
             .toSet();
         expect(implementedIds.length, 263);
+        final evidenceKeys =
+            implementedIds.map((id) => 'canonical.$id').toSet();
+        expect(evidenceKeys.length, implementedIds.length);
+
+        final canonicalAliases = _asMap(manifest['canonical_evidence_aliases']);
         expect(
-          registry.keys.toSet(),
-          implementedIds.map((id) => 'canonical.$id').toSet(),
+          canonicalAliases.keys,
+          everyElement(isIn(rowsById.keys)),
         );
         expect(
-          evidenceAliases.keys,
-          everyElement(isIn(implementedIds)),
+          canonicalAliases.values,
+          everyElement(isIn(rowsById.keys)),
         );
 
         final peerContract = _asMap(manifest['peer_contract']);
-        final implementationBase =
-            _asMap(manifest['pins'])['implementation_base'] as String;
         final corpus = <String, Map<String, dynamic>>{};
         final corpusDocument = _asMap(
           jsonDecode(
-            await readPinnedText(
-              repositoryRoot,
-              implementationBase,
-              peerContract['cases_source'] as String,
-            ),
+            await snapshot.text(peerContract['cases_source'] as String),
           ),
         );
         for (final value in _asList(corpusDocument['cases'])) {
@@ -491,47 +470,6 @@ void main() {
           corpus[caseId] = parityCase;
         }
 
-        for (final entry in registry.entries) {
-          final rowId = entry.key.replaceFirst('canonical.', '');
-          final row = rowsById[rowId]!;
-          final record = _asMap(entry.value);
-          expect(
-            record['testName'],
-            'canonical parity rows survive decode -> encode',
-            reason: rowId,
-          );
-          expect(_asList(record['fields']), [rowId], reason: rowId);
-          expect(record['model'], rowId.split('.').first, reason: rowId);
-          expect(record['field'], row['name'], reason: rowId);
-          expect(
-            record['adapter'],
-            anyOf('event', 'message', 'content', 'type'),
-            reason: rowId,
-          );
-
-          final aliasTarget = evidenceAliases[rowId] as String?;
-          if (aliasTarget != null) {
-            expect(implementedIds, contains(aliasTarget), reason: rowId);
-          }
-          final sourceId = aliasTarget ?? rowId;
-          final source = _asMap(registry['canonical.$sourceId']);
-          final caseId = source['caseId'];
-          final documentName = source['document'];
-          final path = source['path'];
-          expect(caseId, isA<String>(), reason: rowId);
-          expect(documentName, anyOf('input', 'expected'), reason: rowId);
-          expect(path, matches(RegExp('^/')), reason: rowId);
-          final parityCase = corpus[caseId];
-          expect(parityCase, isNotNull, reason: '$rowId: $caseId');
-          final document = parityCase![documentName];
-          expect(
-            _containsJsonPointer(document, path as String),
-            isTrue,
-            reason: '$rowId: $caseId $documentName$path',
-          );
-        }
-
-        final canonicalAliases = _asMap(manifest['canonical_evidence_aliases']);
         for (final row in rows) {
           final rowId = row['id'] as String;
           var sourceRow = row;

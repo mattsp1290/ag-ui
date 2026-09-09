@@ -5,66 +5,155 @@ on:
     branches: [main]
     paths:
       - "sdks/community/go/**"
+      - "integrations/community/genkit/go/**"
+      - "sdks/python/**"
+      - "sdks/typescript/packages/core/**"
+      - "sdks/typescript/packages/client/**"
+      - "sdks/typescript/packages/encoder/**"
+      - "sdks/typescript/packages/proto/**"
+      - "sdks/typescript/vitest.base.ts"
+      - "sdks/typescript/tsconfig.json"
+      - "scripts/go-sdk-parity.sh"
+      - "scripts/go-sdk-sse-parity.sh"
+      - "package.json"
+      - "pnpm-lock.yaml"
+      - "pnpm-workspace.yaml"
+      - "nx.json"
+      - "tsconfig*.json"
+      - ".node-version"
+      - ".npmrc"
+      - ".pnpmfile.cjs"
+      - "patches/**"
+      - ".github/python-toolchain.env"
+      - ".github/actions/**"
       - ".github/workflows/unit-go-sdk.yml"
   pull_request:
     paths:
       - "sdks/community/go/**"
+      - "integrations/community/genkit/go/**"
+      - "sdks/python/**"
+      - "sdks/typescript/packages/core/**"
+      - "sdks/typescript/packages/client/**"
+      - "sdks/typescript/packages/encoder/**"
+      - "sdks/typescript/packages/proto/**"
+      - "sdks/typescript/vitest.base.ts"
+      - "sdks/typescript/tsconfig.json"
+      - "scripts/go-sdk-parity.sh"
+      - "scripts/go-sdk-sse-parity.sh"
+      - "package.json"
+      - "pnpm-lock.yaml"
+      - "pnpm-workspace.yaml"
+      - "nx.json"
+      - "tsconfig*.json"
+      - ".node-version"
+      - ".npmrc"
+      - ".pnpmfile.cjs"
+      - "patches/**"
+      - ".github/python-toolchain.env"
+      - ".github/actions/**"
       - ".github/workflows/unit-go-sdk.yml"
 
 permissions:
   contents: read
 
-jobs:
-  go:
-    runs-on: ubuntu-latest
+# Checked against .github/python-toolchain.env by the release-workflow pin guard.
+env:
+  UV_VERSION: "0.12.1"
+  PYTHON_VERSION: "3.12"
+  GOWORK: "off"
 
+jobs:
+  go-sdk:
+    name: Go SDK build, test, race, and vet
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: sdks/community/go
     steps:
       - name: Checkout code
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-
-      - name: Detect fork PR
-        id: fork-check
-        run: |
-          if [[ "${{ github.event_name }}" == "pull_request" && \
-                "${GITHUB_EVENT_PULL_REQUEST_HEAD_REPO_FULL_NAME}" != "${{ github.repository }}" ]]; then
-            echo "prefix=fork-" >> "$GITHUB_OUTPUT"
-          else
-            echo "prefix=" >> "$GITHUB_OUTPUT"
-          fi
-        env:
-          GITHUB_EVENT_PULL_REQUEST_HEAD_REPO_FULL_NAME: ${{ github.event.pull_request.head.repo.full_name }}
-
       - name: Set up Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e  # v7.0.0
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: "1.24.4"
+          go-version-file: sdks/community/go/go.mod
+          cache-dependency-path: sdks/community/go/go.sum
+      - name: Print Go version
+        run: go version
+      - name: Verify Go SDK
+        run: |
+          go mod download
+          go build ./...
+          go test ./...
+          go test -race ./...
+          go vet ./...
 
-      - name: Setup Go module cache
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+  go-example-client:
+    name: Go example client
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: sdks/community/go/example/client
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          path: |
-            ~/go/pkg/mod
-            ~/.cache/go-build
-          key: ${{ steps.fork-check.outputs.prefix }}${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
-          restore-keys: |
-            ${{ steps.fork-check.outputs.prefix }}${{ runner.os }}-go-
+          persist-credentials: false
+      - name: Set up nested module Go toolchain
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: sdks/community/go/example/client/go.mod
+          cache-dependency-path: |
+            sdks/community/go/go.sum
+            sdks/community/go/example/client/go.sum
+      - name: Print Go version
+        run: go version
+      - name: Verify nested client module
+        run: |
+          go mod download
+          go build ./...
+          go test ./...
+          go test -race ./...
+          go vet ./...
+          go mod tidy -diff
 
-      - name: Download dependencies
-        working-directory: sdks/community/go
-        run: go mod download
-
-      - name: Run tests
-        working-directory: sdks/community/go
-        run: go test ./... -v
+  go-genkit:
+    name: Go Genkit integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: integrations/community/genkit/go/genkit
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Genkit Go toolchain
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: integrations/community/genkit/go/genkit/go.mod
+          cache-dependency-path: |
+            sdks/community/go/go.sum
+            integrations/community/genkit/go/genkit/go.sum
+      - name: Print Go version
+        run: go version
+      - name: Verify Genkit module
+        run: |
+          go mod download
+          go build ./...
+          go test ./...
+          go test -race ./...
+          go vet ./...
+          go mod tidy -diff
 
   go-example-server:
     name: Go example server
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    env:
-      GOWORK: "off"
     defaults:
       run:
         working-directory: sdks/community/go/example/server
@@ -87,3 +176,57 @@ jobs:
           go test ./...
           go test -race ./...
           go mod tidy -diff
+
+  cross-language-parity:
+    name: Go cross-language parity
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout code
+        id: checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: sdks/community/go/go.mod
+          cache-dependency-path: sdks/community/go/go.sum
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .node-version
+      - name: Install pnpm
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        # Reads the pinned pnpm version from package.json's packageManager field.
+      - name: Install uv and Python
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          version: ${{ env.UV_VERSION }}
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Print tool versions
+        run: |
+          go version
+          node --version
+          pnpm --version
+          uv --version
+          python --version
+      - name: Install JavaScript dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Install Python SDK dependencies
+        working-directory: sdks/python
+        run: uv sync --locked
+      - name: Run cross-language parity gate
+        run: bash scripts/go-sdk-parity.sh
+      - name: Assert pnpm lockfile unchanged
+        if: ${{ !cancelled() && steps.checkout.outcome == 'success' }}
+        run: |
+          changed=$(git status --porcelain -- pnpm-lock.yaml)
+          if [[ -n "$changed" ]]; then
+            echo "::error::The parity job modified pnpm-lock.yaml"
+            printf '%s\n' "$changed"
+            exit 1
+          fi
+      - name: Assert Python lockfiles unchanged
+        if: ${{ !cancelled() && steps.checkout.outcome == 'success' }}
+        uses: ./.github/actions/assert-lockfiles-unchanged

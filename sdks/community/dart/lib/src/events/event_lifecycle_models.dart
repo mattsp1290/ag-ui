@@ -62,10 +62,9 @@ final class RunStartedEvent extends BaseEvent {
     // Auto-scrub rawEvent when any input message carries cipher data, mirroring
     // the MessagesSnapshotEvent.fromJson invariant.
     //
-    // ActivityMessage.fromJson silently strips wire-level encryptedValue from
-    // the structured field, so the structured-field predicate alone would miss
-    // a cipher on an ActivityMessage. We check the raw wire messages list
-    // directly for role == 'activity' entries that still carry a cipher key.
+    // Inspect the raw input recursively so ActivityMessage wire fields and
+    // nested ToolCall cipher values are covered before their containing models
+    // normalize the payload.
     //
     // Scope note: this predicate only sweeps input.messages (the structured
     // RunAgentInput). If a malformed payload omits `input` entirely but carries
@@ -74,10 +73,8 @@ final class RunStartedEvent extends BaseEvent {
     // absent `input` key) and asymmetric with MessagesSnapshotEvent by design:
     // RunStartedEvent only encrypts the input.messages path.
     //
-    // SCRUB CONTRACT: this check assumes encryptedValue / encrypted_value is
-    // the only cipher-named key on any Message subtype. If a future subtype
-    // adds a different sensitive payload key, this hasCipher predicate MUST be
-    // extended in parallel.
+    // SCRUB CONTRACT: encryptedValue / encrypted_value are the protocol's
+    // cipher-bearing keys at every nesting depth.
     final hasCipher = inputJson != null && containsEncryptedValue(inputJson);
     return RunStartedEvent(
       metadata: _readMetadata(json),

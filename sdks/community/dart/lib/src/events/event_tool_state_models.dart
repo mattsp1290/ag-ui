@@ -554,14 +554,8 @@ final class MessagesSnapshotEvent extends BaseEvent {
     super.metadata,
     super.rawEvent,
   }) : super(eventType: EventType.messagesSnapshot) {
-    // Direct-construction caveat: this guard only inspects the structured
-    // Message.encryptedValue field. A caller that already has a wire-form
-    // rawEvent map whose payload contains an encryptedValue key on an
-    // activity-role entry can still violate the cipher-scrub invariant —
-    // ActivityMessage.encryptedValue is always null by construction, so it
-    // cannot be detected here. Pass rawEvent: null or pre-scrub the map before
-    // invoking this constructor for activity-role cipher data. fromJson enforces
-    // both code paths; this constructor enforces only the structured-field one.
+    // Inspect each structured message recursively so nested ToolCall cipher
+    // values receive the same protection as message-level cipher values.
     if (rawEvent != null &&
         containsEncryptedValue(messages.map((m) => m.toJson()).toList())) {
       throw AGUIValidationError(
@@ -610,16 +604,11 @@ final class MessagesSnapshotEvent extends BaseEvent {
     // Proxies that need the verbatim wire form should keep their own copy of
     // the raw JSON before calling fromJson.
     //
-    // ActivityMessage.fromJson silently strips wire-level encryptedValue from
-    // the structured field (the constructor does not accept it), so the
-    // structured-field predicate alone would miss a cipher on an
-    // ActivityMessage. We check rawMessages directly for role == 'activity'
-    // entries that still carry a cipher key on the wire.
+    // Inspect rawMessages recursively so ActivityMessage wire fields and nested
+    // ToolCall cipher values are covered before model normalization.
     //
-    // SCRUB CONTRACT: this check assumes encryptedValue / encrypted_value is
-    // the only cipher-named key on any Message subtype. If a future subtype
-    // adds a different sensitive payload key, this hasCipher predicate MUST be
-    // extended in parallel.
+    // SCRUB CONTRACT: encryptedValue / encrypted_value are the protocol's
+    // cipher-bearing keys at every nesting depth.
     final hasCipher = containsEncryptedValue(rawMessages);
     return MessagesSnapshotEvent(
       metadata: _readMetadata(json),
@@ -659,8 +648,8 @@ final class MessagesSnapshotEvent extends BaseEvent {
     // Re-apply the fromJson cipher-scrub invariant: if any message in the
     // (possibly updated) list carries cipher data, force rawEvent to null so
     // the wire map cannot be reattached and expose encrypted content.
-    // ActivityMessage always returns null for encryptedValue by construction;
-    // see SCRUB CONTRACT comment in fromJson.
+    // Serialization exposes every retained nested cipher field to the same
+    // recursive predicate used by fromJson.
     final hasCipher =
         containsEncryptedValue(newMessages.map((m) => m.toJson()).toList());
     // Log in all builds (including release) when a caller passes a non-null

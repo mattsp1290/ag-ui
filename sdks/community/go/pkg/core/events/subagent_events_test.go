@@ -38,13 +38,13 @@ func TestSubagentStartedEventRoundTrip(t *testing.T) {
 	assert.Equal(t, event.ParentToolCallID, decoded.(*SubagentStartedEvent).ParentToolCallID)
 }
 
-// TestSubagentStartedEventValidation verifies the two required fields.
+// TestSubagentStartedEventValidation verifies required schema strings may be empty.
 func TestSubagentStartedEventValidation(t *testing.T) {
 	event := NewSubagentStartedEvent("", "researcher")
-	assertErrorContains(t, event.Validate(), "subagentRunId field is required")
+	require.NoError(t, event.Validate())
 
 	event = NewSubagentStartedEvent("sub-1", "")
-	assertErrorContains(t, event.Validate(), "name field is required")
+	require.NoError(t, event.Validate())
 }
 
 // TestSubagentStartedEventOptionalFieldsOmitted verifies absent is the only spelling
@@ -129,8 +129,8 @@ func TestSubagentErrorEvent(t *testing.T) {
 	require.NotNil(t, errored.Code)
 	assert.Equal(t, "E_TOOL", *errored.Code)
 
-	assertErrorContains(t, NewSubagentErrorEvent("sub-1", "").Validate(), "message field is required")
-	assertErrorContains(t, NewSubagentErrorEvent("", "boom").Validate(), "subagentRunId field is required")
+	require.NoError(t, NewSubagentErrorEvent("sub-1", "").Validate())
+	require.NoError(t, NewSubagentErrorEvent("", "boom").Validate())
 }
 
 // TestSubagentRunIDAttribution verifies an ordinary event can be attributed to a

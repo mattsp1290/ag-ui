@@ -263,6 +263,10 @@ func (m Message) MarshalJSON() ([]byte, error) {
 	if m.SubagentRunID != "" || m.subagentRunIDExplicitEmpty {
 		subagentRunID = &m.SubagentRunID
 	}
+	var toolCalls *[]ToolCall
+	if m.ToolCalls != nil {
+		toolCalls = &m.ToolCalls
+	}
 	var toolCallID, activityType *string
 	if m.Role == RoleTool || m.ToolCallID != "" {
 		toolCallID = &m.ToolCallID
@@ -272,13 +276,14 @@ func (m Message) MarshalJSON() ([]byte, error) {
 	}
 	return json.Marshal(struct {
 		messageAlias
-		ToolCallID     *string `json:"toolCallId,omitempty"`
-		ActivityType   *string `json:"activityType,omitempty"`
-		Error          *string `json:"error,omitempty"`
-		EncryptedValue *string `json:"encryptedValue,omitempty"`
-		SubagentRunID  *string `json:"subagentRunId,omitempty"`
+		ToolCalls      *[]ToolCall `json:"toolCalls,omitempty"`
+		ToolCallID     *string     `json:"toolCallId,omitempty"`
+		ActivityType   *string     `json:"activityType,omitempty"`
+		Error          *string     `json:"error,omitempty"`
+		EncryptedValue *string     `json:"encryptedValue,omitempty"`
+		SubagentRunID  *string     `json:"subagentRunId,omitempty"`
 	}{
-		messageAlias: messageAlias(m), ToolCallID: toolCallID, ActivityType: activityType,
+		messageAlias: messageAlias(m), ToolCalls: toolCalls, ToolCallID: toolCallID, ActivityType: activityType,
 		Error: errorValue, EncryptedValue: encryptedValue, SubagentRunID: subagentRunID,
 	})
 }
@@ -380,6 +385,10 @@ type Interrupt struct {
 
 // UnmarshalJSON implements json.Unmarshaler and supports snake_case compatibility.
 func (i *Interrupt) UnmarshalJSON(data []byte) error {
+	// Required key presence must be checked before Go strings erase it.
+	if err := ValidateInterruptJSON(data); err != nil {
+		return err
+	}
 	var raw map[string]json.RawMessage
 	if err := json.Unmarshal(data, &raw); err != nil {
 		return err

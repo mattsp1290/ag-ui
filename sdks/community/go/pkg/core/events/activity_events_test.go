@@ -42,11 +42,11 @@ func TestActivitySnapshotEventValidationAndJSON(t *testing.T) {
 	assert.Equal(t, "draft", content["status"])
 
 	event.MessageID = ""
-	assert.Error(t, event.Validate())
+	assert.NoError(t, event.Validate())
 
 	event.MessageID = "activity-1"
 	event.ActivityType = ""
-	assert.Error(t, event.Validate())
+	assert.NoError(t, event.Validate())
 
 	event.ActivityType = "PLAN"
 	event.Content = nil
@@ -60,7 +60,7 @@ func TestActivitySnapshotEventValidationAndJSON(t *testing.T) {
 func TestActivitySnapshotEvent_MissingActivityType(t *testing.T) {
 	event := NewActivitySnapshotEvent("activity-1", "", map[string]any{"status": "draft"})
 	err := event.Validate()
-	assert.Error(t, err)
+	assert.NoError(t, err)
 }
 
 func TestActivityDeltaEventValidationAndJSON(t *testing.T) {
@@ -84,7 +84,7 @@ func TestActivityDeltaEventValidationAndJSON(t *testing.T) {
 	assert.Len(t, items, 1)
 
 	event.MessageID = ""
-	assert.Error(t, event.Validate())
+	assert.NoError(t, event.Validate())
 
 	event.MessageID = "activity-1"
 	event.Patch = []JSONPatchOperation{}
@@ -95,7 +95,7 @@ func TestActivityDeltaEventValidationAndJSON(t *testing.T) {
 
 	event.Patch = []JSONPatchOperation{{Op: "replace", Path: "/status", Value: "ok"}}
 	event.ActivityType = ""
-	assert.Error(t, event.Validate())
+	assert.NoError(t, event.Validate())
 
 	event.ActivityType = "PLAN"
 	event.BaseEvent.EventType = ""
@@ -105,5 +105,5 @@ func TestActivityDeltaEventValidationAndJSON(t *testing.T) {
 func TestActivityDeltaEvent_MissingActivityType(t *testing.T) {
 	event := NewActivityDeltaEvent("activity-1", "", []JSONPatchOperation{{Op: "replace", Path: "/status", Value: "done"}})
 	err := event.Validate()
-	assert.Error(t, err)
+	assert.NoError(t, err)
 }

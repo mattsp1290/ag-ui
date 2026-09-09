@@ -51,7 +51,7 @@ func decoderFixtures() []decoderFixture {
 		{events.EventTypeThinkingTextMessageContent, reflect.TypeOf(&events.ThinkingTextMessageContentEvent{}), events.NewThinkingTextMessageContentEvent("thought")},
 		{events.EventTypeThinkingTextMessageEnd, reflect.TypeOf(&events.ThinkingTextMessageEndEvent{}), events.NewThinkingTextMessageEndEvent()},
 		{events.EventTypeReasoningStart, reflect.TypeOf(&events.ReasoningStartEvent{}), events.NewReasoningStartEvent("rm-1")},
-		{events.EventTypeReasoningMessageStart, reflect.TypeOf(&events.ReasoningMessageStartEvent{}), events.NewReasoningMessageStartEvent("rm-1", "assistant")},
+		{events.EventTypeReasoningMessageStart, reflect.TypeOf(&events.ReasoningMessageStartEvent{}), events.NewReasoningMessageStartEvent("rm-1", "reasoning")},
 		{events.EventTypeReasoningMessageContent, reflect.TypeOf(&events.ReasoningMessageContentEvent{}), events.NewReasoningMessageContentEvent("rm-1", "because")},
 		{events.EventTypeReasoningMessageEnd, reflect.TypeOf(&events.ReasoningMessageEndEvent{}), events.NewReasoningMessageEndEvent("rm-1")},
 		{events.EventTypeReasoningMessageChunk, reflect.TypeOf(&events.ReasoningMessageChunkEvent{}), events.NewReasoningMessageChunkEvent(str("rm-1"), str("part"))},
@@ -140,7 +140,7 @@ func TestJSONDecoderOptionsAndBatchContracts(t *testing.T) {
 	_, err = strictAllow.Decode(context.Background(), unknownField)
 	require.NoError(t, err)
 
-	invalid := []byte(`{"type":"TEXT_MESSAGE_START"}`)
+	invalid := []byte(`{"type":"TEXT_MESSAGE_START","role":"invalid"}`)
 	_, err = NewJSONDecoder(&encoding.DecodingOptions{Strict: true, ValidateEvents: true}).Decode(context.Background(), invalid)
 	require.Error(t, err)
 	_, err = NewJSONDecoder(&encoding.DecodingOptions{Strict: false, AllowUnknownFields: true, ValidateEvents: false}).Decode(context.Background(), invalid)

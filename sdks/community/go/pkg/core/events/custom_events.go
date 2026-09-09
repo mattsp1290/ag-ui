@@ -2,7 +2,6 @@ package events
 
 import (
 	"encoding/json"
-	"fmt"
 )
 
 // RawEvent contains raw event data that should be passed through without processing
@@ -91,10 +90,6 @@ func WithValue(value any) CustomEventOption {
 func (e *CustomEvent) Validate() error {
 	if err := e.BaseEvent.Validate(); err != nil {
 		return err
-	}
-
-	if e.Name == "" {
-		return fmt.Errorf("CustomEvent validation failed: name field is required")
 	}
 
 	return nil

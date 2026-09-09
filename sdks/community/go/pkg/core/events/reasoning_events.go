@@ -27,9 +27,6 @@ func (e *ReasoningStartEvent) Validate() error {
 	if err := e.BaseEvent.Validate(); err != nil {
 		return err
 	}
-	if e.MessageID == "" {
-		return fmt.Errorf("ReasoningStartEvent validation failed: messageId field is required")
-	}
 	return nil
 }
 
@@ -59,9 +56,6 @@ func NewReasoningEndEvent(messageID string) *ReasoningEndEvent {
 func (e *ReasoningEndEvent) Validate() error {
 	if err := e.BaseEvent.Validate(); err != nil {
 		return err
-	}
-	if e.MessageID == "" {
-		return fmt.Errorf("ReasoningEndEvent validation failed: messageId field is required")
 	}
 	return nil
 }
@@ -95,11 +89,8 @@ func (e *ReasoningMessageStartEvent) Validate() error {
 	if err := e.BaseEvent.Validate(); err != nil {
 		return err
 	}
-	if e.MessageID == "" {
-		return fmt.Errorf("ReasoningMessageStartEvent validation failed: messageId field is required")
-	}
-	if e.Role == "" {
-		return fmt.Errorf("ReasoningMessageStartEvent validation failed: role field is required")
+	if e.Role != "reasoning" {
+		return fmt.Errorf("ReasoningMessageStartEvent validation failed: role field must be 'reasoning'")
 	}
 	return nil
 }
@@ -133,9 +124,6 @@ func (e *ReasoningMessageContentEvent) Validate() error {
 	if err := e.BaseEvent.Validate(); err != nil {
 		return err
 	}
-	if e.MessageID == "" {
-		return fmt.Errorf("ReasoningMessageContentEvent validation failed: messageId field is required")
-	}
 	return nil
 }
 
@@ -165,9 +153,6 @@ func NewReasoningMessageEndEvent(messageID string) *ReasoningMessageEndEvent {
 func (e *ReasoningMessageEndEvent) Validate() error {
 	if err := e.BaseEvent.Validate(); err != nil {
 		return err
-	}
-	if e.MessageID == "" {
-		return fmt.Errorf("ReasoningMessageEndEvent validation failed: messageId field is required")
 	}
 	return nil
 }
@@ -212,14 +197,6 @@ func (e *ReasoningMessageChunkEvent) WithChunkDelta(delta string) *ReasoningMess
 func (e *ReasoningMessageChunkEvent) Validate() error {
 	if err := e.BaseEvent.Validate(); err != nil {
 		return err
-	}
-
-	if e.MessageID == nil && e.Delta == nil {
-		return fmt.Errorf("ReasoningMessageChunkEvent validation failed: at least one of messageId or delta must be present")
-	}
-
-	if e.MessageID != nil && *e.MessageID == "" {
-		return fmt.Errorf("ReasoningMessageChunkEvent validation failed: messageId field must not be empty when provided")
 	}
 
 	return nil
@@ -269,14 +246,6 @@ func (e *ReasoningEncryptedValueEvent) Validate() error {
 
 	if e.Subtype != ReasoningEncryptedValueSubtypeToolCall && e.Subtype != ReasoningEncryptedValueSubtypeMessage {
 		return fmt.Errorf("ReasoningEncryptedValueEvent validation failed: subtype must be 'tool-call' or 'message'")
-	}
-
-	if e.EntityID == "" {
-		return fmt.Errorf("ReasoningEncryptedValueEvent validation failed: entityId field is required")
-	}
-
-	if e.EncryptedValue == "" {
-		return fmt.Errorf("ReasoningEncryptedValueEvent validation failed: encryptedValue field is required")
 	}
 
 	return nil

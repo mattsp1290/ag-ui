@@ -5,6 +5,15 @@ import (
 	"fmt"
 )
 
+func validateTextMessageRole(role string) error {
+	switch role {
+	case "developer", "system", "assistant", "user":
+		return nil
+	default:
+		return fmt.Errorf("role must be one of: developer, system, assistant, user")
+	}
+}
+
 // TextMessageStartEvent indicates the start of a streaming text message
 type TextMessageStartEvent struct {
 	*BaseEvent
@@ -62,8 +71,10 @@ func (e *TextMessageStartEvent) Validate() error {
 		return err
 	}
 
-	if e.MessageID == "" {
-		return fmt.Errorf("TextMessageStartEvent validation failed: messageId field is required")
+	if e.Role != nil {
+		if err := validateTextMessageRole(*e.Role); err != nil {
+			return fmt.Errorf("TextMessageStartEvent validation failed: %w", err)
+		}
 	}
 
 	return nil
@@ -126,10 +137,6 @@ func (e *TextMessageContentEvent) Validate() error {
 		return err
 	}
 
-	if e.MessageID == "" {
-		return fmt.Errorf("TextMessageContentEvent validation failed: messageId field is required")
-	}
-
 	return nil
 }
 
@@ -185,10 +192,6 @@ func WithAutoMessageIDEnd() TextMessageEndOption {
 func (e *TextMessageEndEvent) Validate() error {
 	if err := e.BaseEvent.Validate(); err != nil {
 		return err
-	}
-
-	if e.MessageID == "" {
-		return fmt.Errorf("TextMessageEndEvent validation failed: messageId field is required")
 	}
 
 	return nil
@@ -251,9 +254,10 @@ func (e *TextMessageChunkEvent) Validate() error {
 		return err
 	}
 
-	// At least one field should be present
-	if e.MessageID == nil && e.Role == nil && e.Delta == nil && e.Name == nil {
-		return fmt.Errorf("TextMessageChunkEvent validation failed: at least one of messageId, role, delta, or name must be present")
+	if e.Role != nil {
+		if err := validateTextMessageRole(*e.Role); err != nil {
+			return fmt.Errorf("TextMessageChunkEvent validation failed: %w", err)
+		}
 	}
 
 	return nil

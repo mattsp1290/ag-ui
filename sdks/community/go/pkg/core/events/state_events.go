@@ -218,7 +218,7 @@ func (e *MessagesSnapshotEvent) Validate() error {
 
 	// Validate each message
 	for i, msg := range e.Messages {
-		if err := validateMessage(msg); err != nil {
+		if err := msg.ValidateProtocol(); err != nil {
 			return fmt.Errorf("invalid message at index %d: %w", i, err)
 		}
 	}
@@ -233,101 +233,6 @@ func (e MessagesSnapshotEvent) MarshalJSON() ([]byte, error) {
 		e.Messages = []Message{}
 	}
 	return json.Marshal(wire(e))
-}
-
-// validateMessage validates a single message
-func validateMessage(msg Message) error {
-	if msg.ID == "" {
-		return fmt.Errorf("message id field is required")
-	}
-
-	if msg.Role == "" {
-		return fmt.Errorf("message role field is required")
-	}
-
-	if msg.ActivityType != "" && msg.Role != coretypes.RoleActivity {
-		return fmt.Errorf("activityType is only valid for activity messages")
-	}
-
-	switch msg.Role {
-	case coretypes.RoleDeveloper, coretypes.RoleSystem:
-		if _, ok := msg.ContentString(); !ok {
-			return fmt.Errorf("content field must be a string for %s messages", msg.Role)
-		}
-	case coretypes.RoleAssistant:
-		if msg.Content != nil {
-			if _, ok := msg.ContentString(); !ok {
-				return fmt.Errorf("content field must be a string for assistant messages")
-			}
-		}
-	case coretypes.RoleReasoning:
-		if _, ok := msg.ContentString(); !ok {
-			return fmt.Errorf("content field must be a string for reasoning messages")
-		}
-	case coretypes.RoleUser:
-		if _, ok := msg.ContentString(); ok {
-			break
-		}
-		if _, ok := msg.ContentInputContents(); ok {
-			break
-		}
-		return fmt.Errorf("content field must be a string or input content array for user messages")
-	case coretypes.RoleTool:
-		if _, ok := msg.ContentString(); !ok {
-			return fmt.Errorf("content field must be a string for tool messages")
-		}
-		if msg.ToolCallID == "" {
-			return fmt.Errorf("toolCallId field is required for tool messages")
-		}
-	case coretypes.RoleActivity:
-		if msg.ActivityType == "" {
-			return fmt.Errorf("activityType field is required for activity messages")
-		}
-		if _, ok := msg.ContentActivity(); !ok {
-			return fmt.Errorf("content field must be a map for activity messages")
-		}
-	default:
-		return fmt.Errorf("unsupported message role: %s", msg.Role)
-	}
-
-	if msg.Role != coretypes.RoleAssistant && len(msg.ToolCalls) > 0 {
-		return fmt.Errorf("toolCalls are only valid for assistant messages")
-	}
-
-	if msg.Role != coretypes.RoleTool {
-		if msg.ToolCallID != "" {
-			return fmt.Errorf("toolCallId is only valid for tool messages")
-		}
-		if msg.Error != "" {
-			return fmt.Errorf("error is only valid for tool messages")
-		}
-	}
-
-	// Validate tool calls if present
-	for i, toolCall := range msg.ToolCalls {
-		if err := validateToolCall(toolCall); err != nil {
-			return fmt.Errorf("invalid tool call at index %d: %w", i, err)
-		}
-	}
-
-	return nil
-}
-
-// validateToolCall validates a single tool call
-func validateToolCall(toolCall ToolCall) error {
-	if toolCall.ID == "" {
-		return fmt.Errorf("tool call id field is required")
-	}
-
-	if toolCall.Type == "" {
-		return fmt.Errorf("tool call type field is required")
-	}
-
-	if toolCall.Function.Name == "" {
-		return fmt.Errorf("function name field is required")
-	}
-
-	return nil
 }
 
 // ToJSON serializes the event to JSON

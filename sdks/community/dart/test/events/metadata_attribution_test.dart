@@ -248,6 +248,27 @@ final _attributedEventBuilders = <String, _EventBuilder>{
       ),
 };
 
+final _metadataOnlyEventBuilders = <String, BaseEvent Function(Metadata?)>{
+  'THINKING_START': (metadata) => ThinkingStartEvent(metadata: metadata),
+  'THINKING_CONTENT': (metadata) =>
+      ThinkingContentEvent(delta: 'thinking', metadata: metadata),
+  'THINKING_END': (metadata) => ThinkingEndEvent(metadata: metadata),
+  'THINKING_TEXT_MESSAGE_START': (metadata) =>
+      ThinkingTextMessageStartEvent(metadata: metadata),
+  'THINKING_TEXT_MESSAGE_CONTENT': (metadata) =>
+      ThinkingTextMessageContentEvent(delta: 'thinking', metadata: metadata),
+  'THINKING_TEXT_MESSAGE_END': (metadata) =>
+      ThinkingTextMessageEndEvent(metadata: metadata),
+  'MESSAGES_SNAPSHOT': (metadata) =>
+      MessagesSnapshotEvent(messages: const [], metadata: metadata),
+  'RUN_STARTED': (metadata) =>
+      RunStartedEvent(threadId: 'thread', runId: 'run', metadata: metadata),
+  'RUN_FINISHED': (metadata) =>
+      RunFinishedEvent(threadId: 'thread', runId: 'run', metadata: metadata),
+  'RUN_ERROR': (metadata) =>
+      RunErrorEvent(message: 'failed', metadata: metadata),
+};
+
 AGUIValidationError _captureValidationError(void Function() action) {
   try {
     action();
@@ -486,6 +507,28 @@ void main() {
       }
     });
 
+    test('metadata-only events cover construction and copy lifecycle', () {
+      for (final entry in _metadataOnlyEventBuilders.entries) {
+        final metadata = <String, dynamic>{'event': entry.key};
+        final constructed = entry.value(metadata);
+        expect(constructed.metadata, same(metadata), reason: entry.key);
+        expect(constructed.toJson()['metadata'], metadata, reason: entry.key);
+
+        final dynamic dynamicEvent = constructed;
+        expect(dynamicEvent.copyWith().metadata, metadata, reason: entry.key);
+        expect(
+          dynamicEvent.copyWith(metadata: {'replacement': entry.key}).metadata,
+          {'replacement': entry.key},
+          reason: entry.key,
+        );
+        expect(
+          dynamicEvent.copyWith(metadata: null).metadata,
+          isNull,
+          reason: entry.key,
+        );
+      }
+    });
+
     test('copyWith preserves, replaces, and clears added fields', () {
       const original = TextMessageStartEvent(
         messageId: 'message',
@@ -635,6 +678,38 @@ void main() {
         const [cipher, attributionSecret],
       );
       _expectNoSecrets(error, const [cipher, attributionSecret]);
+    });
+
+    test('nested tool-call metadata errors do not expose ciphertext', () {
+      const cipher = 'tool-call-cipher-secret';
+      const metadataSecret = 'tool-call-metadata-secret';
+      final error = _captureDecodingError(
+        () => decoder.decodeJson({
+          'type': 'MESSAGES_SNAPSHOT',
+          'messages': <Map<String, dynamic>>[
+            {
+              'id': 'assistant',
+              'role': 'assistant',
+              'toolCalls': <Map<String, dynamic>>[
+                {
+                  'id': 'call',
+                  'type': 'function',
+                  'function': {'name': 'lookup', 'arguments': '{}'},
+                  'encryptedValue': cipher,
+                  'metadata': <String>[metadataSecret],
+                },
+              ],
+            },
+          ],
+        }),
+      );
+
+      expect(error.field, 'messages[0].toolCalls[0].metadata');
+      expect(error.actualValue, isNull);
+      _expectNoSecrets(error.message, const [cipher, metadataSecret]);
+      _expectNoSecrets(error.actualValue, const [cipher, metadataSecret]);
+      _expectNoSecrets(error.cause, const [cipher, metadataSecret]);
+      _expectNoSecrets(error, const [cipher, metadataSecret]);
     });
   });
 }

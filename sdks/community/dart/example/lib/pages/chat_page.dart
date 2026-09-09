@@ -159,6 +159,7 @@ class ChatPageState extends ChangeNotifier with AgUiEventHandling {
   bool _disposed = false;
   ConnectionStatus _connectionStatus = ConnectionStatus.disconnected;
   final List<Message> _history = [];
+  final Map<String?, String> _stateMessageIds = {};
   final String _threadId = uid('thread');
   late final StreamSubscription<ConnectionStatus> _connectionSubscription;
 
@@ -178,6 +179,7 @@ class ChatPageState extends ChangeNotifier with AgUiEventHandling {
     final trimmed = text.trim();
     if (trimmed.isEmpty || _isLoading || _disposed) return;
     beginRun();
+    _stateMessageIds.clear();
     final userId = uid('user');
 
     final userMessage = ChatMessage(
@@ -241,32 +243,11 @@ class ChatPageState extends ChangeNotifier with AgUiEventHandling {
       notifyListeners();
       return;
     }
-    if (event is ToolCallResultEvent) {
-      _updateTool(event.toolCallId, result: event.content, isStreaming: false);
-    } else if (event is ToolCallStartEvent) {
-      _updateTool(
-        event.toolCallId,
-        name: event.toolCallName,
-        isStreaming: true,
-      );
-    } else if (event is ToolCallArgsEvent) {
-      _updateTool(event.toolCallId, argsDelta: event.delta);
-    } else if (event is ToolCallEndEvent) {
-      _updateTool(event.toolCallId, isStreaming: false);
-    } else if (event is MessagesSnapshotEvent) {
+    if (event is MessagesSnapshotEvent) {
       reconcileSnapshot(event.messages);
       for (final message in event.messages) {
         if (message is AssistantMessage || message is ReasoningMessage) {
           _replaceHistory(message);
-        }
-        if (message is! AssistantMessage) continue;
-        for (final toolCall in message.toolCalls ?? <ToolCall>[]) {
-          _updateTool(
-            toolCall.id,
-            name: toolCall.function.name,
-            args: toolCall.function.arguments,
-            isStreaming: false,
-          );
         }
       }
     } else if (event is CustomEvent && event.name == 'image_generated') {
@@ -275,21 +256,31 @@ class ChatPageState extends ChangeNotifier with AgUiEventHandling {
           ? value['url'] as String
           : null;
       if (url != null && decodeImageDataUrl(url) != null) {
+        final subagent = subagents[event.subagentRunId];
         messages.add(
           ChatMessage(
-            id: 'image_${DateTime.now().millisecondsSinceEpoch}',
+            id: uid('image'),
             type: ChatMessageType.image,
             content: url,
             timestamp: DateTime.now(),
+            metadata: event.metadata,
+            subagentRunId: event.subagentRunId,
+            subagentName: subagent?.name,
+            subagentStatus: subagent?.status.label,
           ),
         );
       } else {
+        final subagent = subagents[event.subagentRunId];
         messages.add(
           ChatMessage(
             id: uid('error'),
             type: ChatMessageType.system,
             content: 'The image response was invalid.',
             timestamp: DateTime.now(),
+            metadata: event.metadata,
+            subagentRunId: event.subagentRunId,
+            subagentName: subagent?.name,
+            subagentStatus: subagent?.status.label,
           ),
         );
       }
@@ -319,12 +310,19 @@ class ChatPageState extends ChangeNotifier with AgUiEventHandling {
           } else {
             stateContent += snapshot['content'].toString();
           }
+          final stateId = uid('state');
+          _stateMessageIds[event.subagentRunId] = stateId;
+          final subagent = subagents[event.subagentRunId];
           messages.add(
             ChatMessage(
-              id: 'state_${DateTime.now().millisecondsSinceEpoch}',
+              id: stateId,
               type: ChatMessageType.system,
               content: stateContent,
               timestamp: DateTime.now(),
+              metadata: event.metadata,
+              subagentRunId: event.subagentRunId,
+              subagentName: subagent?.name,
+              subagentStatus: subagent?.status.label,
             ),
           );
         }
@@ -334,18 +332,13 @@ class ChatPageState extends ChangeNotifier with AgUiEventHandling {
       // Handle state delta updates
       final delta = event.delta;
       if (delta.isNotEmpty) {
-        // Find the last state message to update
-        final stateMessages = messages
-            .where(
-              (m) =>
-                  m.type == ChatMessageType.system &&
-                  m.content.startsWith('📊'),
-            )
-            .toList();
+        final stateId = _stateMessageIds[event.subagentRunId];
+        final index = stateId == null
+            ? -1
+            : messages.indexWhere((message) => message.id == stateId);
 
-        if (stateMessages.isNotEmpty) {
-          final lastState = stateMessages.last;
-          final index = messages.indexOf(lastState);
+        if (index >= 0) {
+          final lastState = messages[index];
 
           // Apply JSON patch operations to show what changed
           String updateInfo = '';
@@ -371,9 +364,10 @@ class ChatPageState extends ChangeNotifier with AgUiEventHandling {
             }
           }
 
-          if (updateInfo.isNotEmpty && index != -1) {
+          if (updateInfo.isNotEmpty) {
             messages[index] = lastState.copyWith(
               content: lastState.content + updateInfo,
+              metadata: mergeMetadata(lastState.metadata, event.metadata),
             );
           }
         }
@@ -385,44 +379,12 @@ class ChatPageState extends ChangeNotifier with AgUiEventHandling {
     notifyListeners();
   }
 
-  void _updateTool(
-    String id, {
-    String? name,
-    String? args,
-    String? argsDelta,
-    String? result,
-    bool? isStreaming,
-  }) {
-    final index = messages.indexWhere((message) => message.id == id);
-    final previous = index < 0 ? null : messages[index];
-    final toolName = name ?? previous?.toolName ?? 'Tool';
-    final toolArgs = args ?? '${previous?.toolArgs ?? ''}${argsDelta ?? ''}';
-    final toolResult = result ?? previous?.toolResult;
-    final message = ChatMessage(
-      id: id,
-      type: ChatMessageType.tool,
-      content: [
-        '🔧 Tool: $toolName',
-        if (toolArgs.isNotEmpty) 'Arguments: $toolArgs',
-        if (toolResult != null) 'Result: $toolResult',
-      ].join('\n'),
-      timestamp: previous?.timestamp ?? DateTime.now(),
-      isStreaming: isStreaming ?? previous?.isStreaming ?? false,
-      toolName: toolName,
-      toolArgs: toolArgs,
-      toolResult: toolResult,
-    );
-    if (index < 0) {
-      messages.add(message);
-    } else {
-      messages[index] = message;
-    }
-  }
-
   void _replaceHistory(Message message) {
     final id = message.id;
     if (id == null) return;
-    final index = _history.indexWhere((item) => item.id == id);
+    final index = _history.indexWhere(
+      (item) => item.id == id && item.subagentRunId == message.subagentRunId,
+    );
     if (index < 0) {
       _history.add(message);
     } else {

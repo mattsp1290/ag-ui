@@ -30,6 +30,7 @@ class ChatMessage {
   final String? fileName;
   final Uint8List? imageBytes;
   final Metadata? metadata;
+  final String? protocolId;
   final String? subagentRunId;
   final String? subagentName;
   final String? subagentStatus;
@@ -51,6 +52,7 @@ class ChatMessage {
     this.imageBytes,
     this.cardData,
     this.metadata,
+    this.protocolId,
     this.subagentRunId,
     this.subagentName,
     this.subagentStatus,
@@ -69,6 +71,7 @@ class ChatMessage {
     Uint8List? imageBytes,
     Map<String, dynamic>? cardData,
     Object? metadata = _unsetChatMessageField,
+    Object? protocolId = _unsetChatMessageField,
     Object? subagentRunId = _unsetChatMessageField,
     Object? subagentName = _unsetChatMessageField,
     Object? subagentStatus = _unsetChatMessageField,
@@ -88,6 +91,9 @@ class ChatMessage {
       metadata: identical(metadata, _unsetChatMessageField)
           ? this.metadata
           : metadata as Metadata?,
+      protocolId: identical(protocolId, _unsetChatMessageField)
+          ? this.protocolId
+          : protocolId as String?,
       subagentRunId: identical(subagentRunId, _unsetChatMessageField)
           ? this.subagentRunId
           : subagentRunId as String?,
@@ -107,6 +113,7 @@ class ChatMessage {
       content: message.content ?? '',
       timestamp: DateTime.now(),
       metadata: message.metadata,
+      protocolId: message.id,
       subagentRunId: message.subagentRunId,
     );
   }
@@ -124,6 +131,7 @@ class ChatMessage {
         timestamp: timestamp,
         isStreaming: true,
         metadata: event.metadata,
+        protocolId: event.messageId,
         subagentRunId: event.subagentRunId,
       );
     } else if (event is TextMessageEndEvent) {
@@ -134,6 +142,7 @@ class ChatMessage {
         timestamp: timestamp,
         isStreaming: false,
         metadata: event.metadata,
+        protocolId: event.messageId,
         subagentRunId: event.subagentRunId,
       );
     } else if (event is ToolCallResultEvent) {
@@ -145,6 +154,7 @@ class ChatMessage {
         toolName: 'Tool',
         toolResult: event.content,
         metadata: event.metadata,
+        protocolId: event.toolCallId,
         subagentRunId: event.subagentRunId,
       );
     }

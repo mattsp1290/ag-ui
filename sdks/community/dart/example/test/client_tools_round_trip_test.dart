@@ -145,6 +145,100 @@ void main() {
   });
 
   test(
+    'streamed child history keeps canonical identity on the next turn',
+    () async {
+      final service = FakeAgUiService([
+        [
+          const SubagentStartedEvent(subagentRunId: 'child', name: 'Worker'),
+          const TextMessageChunkEvent(
+            messageId: 'child-answer',
+            subagentRunId: 'child',
+            delta: 'first',
+            metadata: {'source': 'child'},
+          ),
+          const RunFinishedEvent(threadId: 't', runId: 'r1'),
+        ],
+        [const RunFinishedEvent(threadId: 't', runId: 'r2')],
+      ]);
+      final state = ClientToolsPageState(
+        endpoint: _clientToolsEndpoint(),
+        service: service,
+      );
+      addTearDown(state.dispose);
+
+      await state.sendMessage('first');
+      await state.sendMessage('second');
+
+      final child = service.histories[1]
+          .whereType<AssistantMessage>()
+          .singleWhere((message) => message.subagentRunId == 'child');
+      expect(child.id, 'child-answer');
+      expect(child.content, 'first');
+      expect(child.metadata, {'source': 'child'});
+    },
+  );
+
+  test(
+    'colliding child tool IDs execute and render with attribution',
+    () async {
+      const shared = ToolCall(
+        id: 'shared',
+        function: FunctionCall(
+          name: 'calculate',
+          arguments: '{"expression":"1+1"}',
+        ),
+        metadata: {'kind': 'child-tool'},
+      );
+      final service = FakeAgUiService([
+        [
+          const SubagentStartedEvent(subagentRunId: 'a', name: 'Alpha'),
+          const SubagentStartedEvent(subagentRunId: 'b', name: 'Beta'),
+          MessagesSnapshotEvent(
+            messages: [
+              AssistantMessage(
+                id: 'a-message',
+                subagentRunId: 'a',
+                toolCalls: [shared],
+              ),
+              AssistantMessage(
+                id: 'b-message',
+                subagentRunId: 'b',
+                toolCalls: [shared],
+              ),
+            ],
+          ),
+          const RunFinishedEvent(threadId: 't', runId: 'r1'),
+        ],
+        [const RunFinishedEvent(threadId: 't', runId: 'r2')],
+      ]);
+      final state = ClientToolsPageState(
+        endpoint: _clientToolsEndpoint(),
+        service: service,
+      );
+      addTearDown(state.dispose);
+
+      await state.sendMessage('calculate twice');
+
+      final tools = state.messages.where(
+        (message) => message.type == ChatMessageType.tool,
+      );
+      expect(tools, hasLength(2));
+      expect(tools.map((message) => message.subagentRunId).toSet(), {'a', 'b'});
+      expect(
+        tools.every((message) => message.metadata?['kind'] == 'child-tool'),
+        isTrue,
+      );
+      expect(
+        service.histories[1]
+            .whereType<ToolMessage>()
+            .map((message) => message.subagentRunId)
+            .toSet(),
+        {'a', 'b'},
+      );
+    },
+  );
+
+  test(
     'happy round-trip: tool call → result → final answer; busy clears',
     () async {
       final service = FakeAgUiService([

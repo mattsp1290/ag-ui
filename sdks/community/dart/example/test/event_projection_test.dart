@@ -321,6 +321,91 @@ void main() {
     },
   );
 
+  test('child tool stream and snapshot reconcile to one attributed row', () {
+    final projection = _Projection()..beginRun();
+    projection.handleCommonEvent(
+      const SubagentStartedEvent(subagentRunId: 'child', name: 'Worker'),
+    );
+    projection.handleCommonEvent(
+      const SubagentStartedEvent(subagentRunId: 'peer', name: 'Peer'),
+    );
+    projection.handleCommonEvent(
+      const ToolCallStartEvent(
+        toolCallId: 'shared-tool',
+        toolCallName: 'lookup',
+        subagentRunId: 'child',
+        metadata: {'phase': 'stream'},
+      ),
+    );
+    projection.reconcileSnapshot(const [
+      AssistantMessage(
+        id: 'assistant',
+        subagentRunId: 'child',
+        toolCalls: [
+          ToolCall(
+            id: 'shared-tool',
+            function: FunctionCall(name: 'lookup', arguments: '{}'),
+            metadata: {'snapshot': true},
+          ),
+        ],
+      ),
+      AssistantMessage(
+        id: 'assistant',
+        subagentRunId: 'peer',
+        toolCalls: [
+          ToolCall(
+            id: 'shared-tool',
+            function: FunctionCall(name: 'lookup', arguments: '{"peer":true}'),
+            metadata: {'source': 'peer'},
+          ),
+        ],
+      ),
+    ]);
+
+    final tools = projection.messages.where(
+      (message) => message.type == ChatMessageType.tool,
+    );
+    expect(tools, hasLength(2));
+    final tool = tools.singleWhere(
+      (message) => message.subagentRunId == 'child',
+    );
+    expect(tool.subagentRunId, 'child');
+    expect(tool.subagentName, 'Worker');
+    expect(tool.metadata, {'phase': 'stream', 'snapshot': true});
+    expect(
+      tools.singleWhere((message) => message.subagentRunId == 'peer').metadata,
+      {'source': 'peer'},
+    );
+  });
+
+  test('resumed subagent reuses its retained protocol identity', () {
+    final projection = _Projection()..beginRun();
+    projection.handleCommonEvent(
+      const SubagentStartedEvent(subagentRunId: 'child', name: 'Worker'),
+    );
+    projection.handleCommonEvent(
+      const TextMessageContentEvent(
+        messageId: 'answer',
+        subagentRunId: 'child',
+        delta: 'before',
+      ),
+    );
+    projection.beginRun(resumedSubagentIds: const ['child']);
+    projection.handleCommonEvent(
+      const TextMessageContentEvent(
+        messageId: 'answer',
+        subagentRunId: 'child',
+        delta: ' after',
+      ),
+    );
+
+    final childRows = projection.messages.where(
+      (message) => message.subagentRunId == 'child',
+    );
+    expect(childRows, hasLength(1));
+    expect(childRows.single.content, 'before after');
+  });
+
   test('child failure does not terminate root and terminal state is typed', () {
     final projection = _Projection()..beginRun();
     projection.handleCommonEvent(
@@ -386,5 +471,64 @@ void main() {
     );
     expect(projection.subagents['ancestor']!.interruptIds, isNull);
     expect(projection.runIsTerminal, isFalse);
+  });
+
+  test('ChatPageState isolates child state deltas and image errors', () async {
+    final service = _FakeService([
+      Stream<BaseEvent>.fromIterable(const [
+        SubagentStartedEvent(subagentRunId: 'a', name: 'Alpha'),
+        SubagentStartedEvent(subagentRunId: 'b', name: 'Beta'),
+        StateSnapshotEvent(
+          snapshot: {'content': 'alpha'},
+          subagentRunId: 'a',
+          metadata: {'state': 'a'},
+        ),
+        StateSnapshotEvent(
+          snapshot: {'content': 'beta'},
+          subagentRunId: 'b',
+          metadata: {'state': 'b'},
+        ),
+        StateDeltaEvent(
+          delta: [
+            {'op': 'replace', 'path': '/steps/0/status', 'value': 'completed'},
+          ],
+          subagentRunId: 'a',
+          metadata: {'late': true},
+        ),
+        CustomEvent(
+          name: 'image_generated',
+          value: {'url': 'invalid'},
+          subagentRunId: 'b',
+          metadata: {'image': true},
+        ),
+        RunFinishedEvent(threadId: 'thread', runId: 'run'),
+      ]),
+    ]);
+    final state = ChatPageState(endpoint: _endpoint, service: service);
+    addTearDown(() async {
+      state.dispose();
+      await service.statuses.close();
+    });
+
+    state.sendMessage('project');
+    await Future<void>.delayed(Duration.zero);
+    await Future<void>.delayed(Duration.zero);
+
+    final alpha = state.messages.singleWhere(
+      (message) =>
+          message.subagentRunId == 'a' && message.content.startsWith('📊'),
+    );
+    final beta = state.messages.singleWhere(
+      (message) =>
+          message.subagentRunId == 'b' && message.content.startsWith('📊'),
+    );
+    expect(alpha.content, contains('Step 1'));
+    expect(alpha.metadata, {'state': 'a', 'late': true});
+    expect(beta.content, isNot(contains('Step 1')));
+    final imageError = state.messages.singleWhere(
+      (message) => message.content == 'The image response was invalid.',
+    );
+    expect(imageError.subagentRunId, 'b');
+    expect(imageError.metadata, {'image': true});
   });
 }

@@ -3,6 +3,8 @@ package events
 import (
 	"encoding/json"
 	"fmt"
+
+	coretypes "github.com/ag-ui-protocol/ag-ui/sdks/community/go/pkg/core/types"
 )
 
 // ActivitySnapshotEvent contains a snapshot of an activity message.
@@ -41,16 +43,14 @@ func (e *ActivitySnapshotEvent) Validate() error {
 		return err
 	}
 
-	if e.MessageID == "" {
-		return fmt.Errorf("ActivitySnapshotEvent validation failed: messageId field is required")
+	message := coretypes.Message{
+		ID:           e.MessageID,
+		Role:         coretypes.RoleActivity,
+		ActivityType: e.ActivityType,
+		Content:      e.Content,
 	}
-
-	if e.ActivityType == "" {
-		return fmt.Errorf("ActivitySnapshotEvent validation failed: activityType field is required")
-	}
-
-	if e.Content == nil {
-		return fmt.Errorf("ActivitySnapshotEvent validation failed: content field is required")
+	if err := message.ValidateProtocol(); err != nil {
+		return fmt.Errorf("ActivitySnapshotEvent validation failed: invalid content: %w", err)
 	}
 
 	return nil
@@ -89,14 +89,6 @@ func NewActivityDeltaEvent(messageID, activityType string, patch []JSONPatchOper
 func (e *ActivityDeltaEvent) Validate() error {
 	if err := e.BaseEvent.Validate(); err != nil {
 		return err
-	}
-
-	if e.MessageID == "" {
-		return fmt.Errorf("ActivityDeltaEvent validation failed: messageId field is required")
-	}
-
-	if e.ActivityType == "" {
-		return fmt.Errorf("ActivityDeltaEvent validation failed: activityType field is required")
 	}
 
 	for i, op := range e.Patch {

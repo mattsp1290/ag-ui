@@ -52,19 +52,7 @@ func WithAutoToolCallID() ToolCallStartOption {
 
 // Validate validates the tool call start event
 func (e *ToolCallStartEvent) Validate() error {
-	if err := e.BaseEvent.Validate(); err != nil {
-		return err
-	}
-
-	if e.ToolCallID == "" {
-		return fmt.Errorf("ToolCallStartEvent validation failed: toolCallId field is required")
-	}
-
-	if e.ToolCallName == "" {
-		return fmt.Errorf("ToolCallStartEvent validation failed: toolCallName field is required")
-	}
-
-	return nil
+	return e.BaseEvent.Validate()
 }
 
 // ToJSON serializes the event to JSON
@@ -120,15 +108,7 @@ func WithAutoToolCallIDArgs() ToolCallArgsOption {
 
 // Validate validates the tool call args event
 func (e *ToolCallArgsEvent) Validate() error {
-	if err := e.BaseEvent.Validate(); err != nil {
-		return err
-	}
-
-	if e.ToolCallID == "" {
-		return fmt.Errorf("ToolCallArgsEvent validation failed: toolCallId field is required")
-	}
-
-	return nil
+	return e.BaseEvent.Validate()
 }
 
 // ToJSON serializes the event to JSON
@@ -181,15 +161,7 @@ func WithAutoToolCallIDEnd() ToolCallEndOption {
 
 // Validate validates the tool call end event
 func (e *ToolCallEndEvent) Validate() error {
-	if err := e.BaseEvent.Validate(); err != nil {
-		return err
-	}
-
-	if e.ToolCallID == "" {
-		return fmt.Errorf("ToolCallEndEvent validation failed: toolCallId field is required")
-	}
-
-	return nil
+	return e.BaseEvent.Validate()
 }
 
 // ToJSON serializes the event to JSON
@@ -227,12 +199,8 @@ func (e *ToolCallResultEvent) Validate() error {
 		return err
 	}
 
-	if e.MessageID == "" {
-		return fmt.Errorf("ToolCallResultEvent validation failed: messageId field is required")
-	}
-
-	if e.ToolCallID == "" {
-		return fmt.Errorf("ToolCallResultEvent validation failed: toolCallId field is required")
+	if e.Role != nil && *e.Role != "tool" {
+		return fmt.Errorf("ToolCallResultEvent validation failed: role field must be 'tool'")
 	}
 
 	return nil
@@ -288,16 +256,7 @@ func (e *ToolCallChunkEvent) WithToolCallChunkParentMessageID(parentMessageID st
 
 // Validate validates the tool call chunk event
 func (e *ToolCallChunkEvent) Validate() error {
-	if err := e.BaseEvent.Validate(); err != nil {
-		return err
-	}
-
-	// At least one field should be present
-	if e.ToolCallID == nil && e.ToolCallName == nil && e.Delta == nil {
-		return fmt.Errorf("ToolCallChunkEvent validation failed: at least one of toolCallId, toolCallName, or delta must be present")
-	}
-
-	return nil
+	return e.BaseEvent.Validate()
 }
 
 // ToJSON serializes the event to JSON

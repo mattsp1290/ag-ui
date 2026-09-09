@@ -63,19 +63,7 @@ func WithParentToolCall(parentToolCallID, parentMessageID string) SubagentStarte
 
 // Validate validates the subagent started event
 func (e *SubagentStartedEvent) Validate() error {
-	if err := e.BaseEvent.Validate(); err != nil {
-		return err
-	}
-
-	if e.SubagentRunID == "" {
-		return fmt.Errorf("SubagentStartedEvent validation failed: subagentRunId field is required")
-	}
-
-	if e.Name == "" {
-		return fmt.Errorf("SubagentStartedEvent validation failed: name field is required")
-	}
-
-	return nil
+	return e.BaseEvent.Validate()
 }
 
 // ToJSON serializes the event to JSON
@@ -125,9 +113,16 @@ func (o SubagentFinishedOutcome) MarshalJSON() ([]byte, error) {
 
 	if o.Type != SubagentFinishedOutcomeTypeSuspended {
 		o.InterruptIDs = nil
+		return json.Marshal(outcome(o))
 	}
-
-	return json.Marshal(outcome(o))
+	var interruptIDs *[]string
+	if o.InterruptIDs != nil {
+		interruptIDs = &o.InterruptIDs
+	}
+	return json.Marshal(struct {
+		outcome
+		InterruptIDs *[]string `json:"interruptIds,omitempty"`
+	}{outcome: outcome(o), InterruptIDs: interruptIDs})
 }
 
 // SubagentFinishedEvent indicates a subagent has finished
@@ -186,8 +181,12 @@ func (e *SubagentFinishedEvent) Validate() error {
 		return err
 	}
 
-	if e.SubagentRunID == "" {
-		return fmt.Errorf("SubagentFinishedEvent validation failed: subagentRunId field is required")
+	if e.Outcome != nil {
+		switch e.Outcome.Type {
+		case SubagentFinishedOutcomeTypeSuccess, SubagentFinishedOutcomeTypeSuspended:
+		default:
+			return fmt.Errorf("SubagentFinishedEvent validation failed: unsupported outcome type %q", e.Outcome.Type)
+		}
 	}
 
 	return nil
@@ -233,19 +232,7 @@ func WithSubagentErrorCode(code string) SubagentErrorOption {
 
 // Validate validates the subagent error event
 func (e *SubagentErrorEvent) Validate() error {
-	if err := e.BaseEvent.Validate(); err != nil {
-		return err
-	}
-
-	if e.SubagentRunID == "" {
-		return fmt.Errorf("SubagentErrorEvent validation failed: subagentRunId field is required")
-	}
-
-	if e.Message == "" {
-		return fmt.Errorf("SubagentErrorEvent validation failed: message field is required")
-	}
-
-	return nil
+	return e.BaseEvent.Validate()
 }
 
 // ToJSON serializes the event to JSON

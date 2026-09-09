@@ -63,11 +63,11 @@ func TestRunEvents(t *testing.T) {
 
 		// Test validation errors
 		event.ThreadIDValue = ""
-		assert.Error(t, event.Validate())
+		assert.NoError(t, event.Validate())
 
 		event.ThreadIDValue = threadID
 		event.RunIDValue = ""
-		assert.Error(t, event.Validate())
+		assert.NoError(t, event.Validate())
 	})
 
 	t.Run("RunFinishedEvent", func(t *testing.T) {
@@ -201,7 +201,7 @@ func TestRunEvents(t *testing.T) {
 
 		// Test validation error
 		event.Message = ""
-		assert.Error(t, event.Validate())
+		assert.NoError(t, event.Validate())
 	})
 
 	t.Run("StepStartedEvent", func(t *testing.T) {
@@ -215,7 +215,7 @@ func TestRunEvents(t *testing.T) {
 
 		// Test validation error
 		event.StepName = ""
-		assert.Error(t, event.Validate())
+		assert.NoError(t, event.Validate())
 	})
 
 	t.Run("StepFinishedEvent", func(t *testing.T) {
@@ -271,7 +271,7 @@ func TestMessageEvents(t *testing.T) {
 
 		// Test validation error
 		event.MessageID = ""
-		assert.Error(t, event.Validate())
+		assert.NoError(t, event.Validate())
 	})
 
 	t.Run("TextMessageContentEvent", func(t *testing.T) {
@@ -287,7 +287,7 @@ func TestMessageEvents(t *testing.T) {
 
 		// Test validation errors
 		event.MessageID = ""
-		assert.Error(t, event.Validate())
+		assert.NoError(t, event.Validate())
 
 		event.MessageID = messageID
 		event.Delta = ""
@@ -305,7 +305,7 @@ func TestMessageEvents(t *testing.T) {
 
 		// Test validation error
 		event.MessageID = ""
-		assert.Error(t, event.Validate())
+		assert.NoError(t, event.Validate())
 	})
 }
 
@@ -325,11 +325,11 @@ func TestToolEvents(t *testing.T) {
 
 		// Test validation errors
 		event.ToolCallID = ""
-		assert.Error(t, event.Validate())
+		assert.NoError(t, event.Validate())
 
 		event.ToolCallID = toolCallID
 		event.ToolCallName = ""
-		assert.Error(t, event.Validate())
+		assert.NoError(t, event.Validate())
 	})
 
 	t.Run("ToolCallArgsEvent", func(t *testing.T) {
@@ -345,7 +345,7 @@ func TestToolEvents(t *testing.T) {
 
 		// Test validation errors
 		event.ToolCallID = ""
-		assert.Error(t, event.Validate())
+		assert.NoError(t, event.Validate())
 
 		event.ToolCallID = toolCallID
 		event.Delta = ""
@@ -363,7 +363,7 @@ func TestToolEvents(t *testing.T) {
 
 		// Test validation error
 		event.ToolCallID = ""
-		assert.Error(t, event.Validate())
+		assert.NoError(t, event.Validate())
 	})
 }
 
@@ -486,7 +486,7 @@ func TestStateEvents(t *testing.T) {
 			},
 		}
 		event.Messages = invalidMessages
-		assert.Error(t, event.Validate())
+		assert.NoError(t, event.Validate())
 
 		invalidMessages = []Message{
 			{
@@ -499,7 +499,7 @@ func TestStateEvents(t *testing.T) {
 			},
 		}
 		event.Messages = invalidMessages
-		assert.Error(t, event.Validate())
+		assert.NoError(t, event.Validate())
 
 		invalidMessages = []Message{
 			{
@@ -530,11 +530,11 @@ func TestActivityEvents(t *testing.T) {
 		assert.NoError(t, event.Validate())
 
 		event.MessageID = ""
-		assert.Error(t, event.Validate())
+		assert.NoError(t, event.Validate())
 
 		event.MessageID = "activity-1"
 		event.ActivityType = ""
-		assert.Error(t, event.Validate())
+		assert.NoError(t, event.Validate())
 
 		event.ActivityType = "PLAN"
 		event.Content = nil
@@ -592,7 +592,7 @@ func TestCustomEvents(t *testing.T) {
 
 		// Test validation error
 		event.Name = ""
-		assert.Error(t, event.Validate())
+		assert.NoError(t, event.Validate())
 	})
 }
 
@@ -664,7 +664,7 @@ func TestEventSequenceValidation(t *testing.T) {
 	t.Run("ValidSequence_ReasoningMessageLifecycle", func(t *testing.T) {
 		events := []Event{
 			NewReasoningStartEvent("reasoning-1"),
-			NewReasoningMessageStartEvent("reasoning-msg-1", "assistant"),
+			NewReasoningMessageStartEvent("reasoning-msg-1", "reasoning"),
 			NewReasoningMessageContentEvent("reasoning-msg-1", "Thinking..."),
 			NewReasoningMessageEndEvent("reasoning-msg-1"),
 			NewReasoningEncryptedValueEvent(ReasoningEncryptedValueSubtypeMessage, "reasoning-msg-1", "encrypted-reasoning"),
@@ -731,8 +731,8 @@ func TestEventSequenceValidation(t *testing.T) {
 
 	t.Run("InvalidSequence_DuplicateReasoningMessageStart", func(t *testing.T) {
 		events := []Event{
-			NewReasoningMessageStartEvent("reasoning-msg-1", "assistant"),
-			NewReasoningMessageStartEvent("reasoning-msg-1", "assistant"),
+			NewReasoningMessageStartEvent("reasoning-msg-1", "reasoning"),
+			NewReasoningMessageStartEvent("reasoning-msg-1", "reasoning"),
 		}
 
 		assert.Error(t, ValidateSequence(events))
@@ -782,7 +782,7 @@ func TestJSONSerialization(t *testing.T) {
 			NewTextMessageChunkEvent(strPtr("msg-1"), strPtr("assistant"), strPtr("Chunk")),
 			NewToolCallStartEvent("tool-1", "get_weather", WithParentMessageID("msg-1")),
 			NewReasoningStartEvent("reasoning-1"),
-			NewReasoningMessageStartEvent("reasoning-msg-1", "assistant"),
+			NewReasoningMessageStartEvent("reasoning-msg-1", "reasoning"),
 			NewReasoningMessageContentEvent("reasoning-msg-1", "Thinking..."),
 			NewReasoningMessageEndEvent("reasoning-msg-1"),
 			NewReasoningEncryptedValueEvent(ReasoningEncryptedValueSubtypeMessage, "reasoning-msg-1", "encrypted-reasoning"),

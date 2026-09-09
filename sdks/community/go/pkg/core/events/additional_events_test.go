@@ -241,13 +241,13 @@ func TestToolCallResultEvent(t *testing.T) {
 		event := NewToolCallResultEvent("msg-456", "tool-123", "Result")
 		assert.NoError(t, event.Validate())
 
-		// Invalid - empty message ID
+		// Plain schema strings may be empty.
 		event.MessageID = ""
-		assert.Error(t, event.Validate())
+		assert.NoError(t, event.Validate())
 
 		// Invalid - empty tool call ID
 		event = NewToolCallResultEvent("msg-456", "", "Result")
-		assert.Error(t, event.Validate())
+		assert.NoError(t, event.Validate())
 
 		// Invalid - empty content
 		event = NewToolCallResultEvent("msg-456", "tool-123", "")

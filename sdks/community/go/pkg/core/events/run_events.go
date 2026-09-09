@@ -79,12 +79,10 @@ func (e *RunStartedEvent) Validate() error {
 		return err
 	}
 
-	if e.ThreadIDValue == "" {
-		return fmt.Errorf("RunStartedEvent validation failed: threadId field is required")
-	}
-
-	if e.RunIDValue == "" {
-		return fmt.Errorf("RunStartedEvent validation failed: runId field is required")
+	if e.Input != nil {
+		if err := e.Input.ValidateProtocol(); err != nil {
+			return fmt.Errorf("RunStartedEvent validation failed: invalid input: %w", err)
+		}
 	}
 
 	return nil
@@ -154,6 +152,19 @@ type RunFinishedEvent struct {
 	// A list so runs that invoke multiple models keep them separate for
 	// downstream display; consumers that only need totals sum across entries.
 	Usage []TokenUsage `json:"usage,omitempty"`
+}
+
+// MarshalJSON preserves a deliberately present empty usage array.
+func (e RunFinishedEvent) MarshalJSON() ([]byte, error) {
+	type event RunFinishedEvent
+	var usage *[]TokenUsage
+	if e.Usage != nil {
+		usage = &e.Usage
+	}
+	return json.Marshal(struct {
+		event
+		Usage *[]TokenUsage `json:"usage,omitempty"`
+	}{event: event(e), Usage: usage})
 }
 
 // NewRunFinishedEvent creates a new run finished event
@@ -245,20 +256,21 @@ func (e *RunFinishedEvent) Validate() error {
 		return err
 	}
 
-	if e.ThreadIDValue == "" {
-		return fmt.Errorf("RunFinishedEvent validation failed: threadId field is required")
-	}
-
-	if e.RunIDValue == "" {
-		return fmt.Errorf("RunFinishedEvent validation failed: runId field is required")
-	}
-
-	// The peer SDKs require at least one interrupt on this variant: TypeScript
-	// with `.min(1)`, Python with a non-empty validator. Go's `omitempty` would
-	// otherwise drop an empty list and emit a bare {"type": "interrupt"}, which
-	// both reject as missing a required field.
-	if e.Outcome != nil && e.Outcome.Type == RunFinishedOutcomeTypeInterrupt && len(e.Outcome.Interrupts) == 0 {
-		return fmt.Errorf("RunFinishedEvent validation failed: outcome 'interrupt' requires at least one interrupt")
+	if e.Outcome != nil {
+		switch e.Outcome.Type {
+		case RunFinishedOutcomeTypeSuccess:
+		case RunFinishedOutcomeTypeInterrupt:
+			if len(e.Outcome.Interrupts) == 0 {
+				return fmt.Errorf("RunFinishedEvent validation failed: outcome 'interrupt' requires at least one interrupt")
+			}
+			for i, interrupt := range e.Outcome.Interrupts {
+				if err := interrupt.ValidateProtocol(); err != nil {
+					return fmt.Errorf("RunFinishedEvent validation failed: invalid interrupt at index %d: %w", i, err)
+				}
+			}
+		default:
+			return fmt.Errorf("RunFinishedEvent validation failed: unsupported outcome type %q", e.Outcome.Type)
+		}
 	}
 
 	if err := validateUsage("RunFinished", e.Usage); err != nil {
@@ -292,6 +304,19 @@ type RunErrorEvent struct {
 	// Usage is optional partial token usage for a run that failed after one or
 	// more model calls completed. Same numeric-only shape as RUN_FINISHED.
 	Usage []TokenUsage `json:"usage,omitempty"`
+}
+
+// MarshalJSON preserves a deliberately present empty partial-usage array.
+func (e RunErrorEvent) MarshalJSON() ([]byte, error) {
+	type wire RunErrorEvent
+	var usage *[]TokenUsage
+	if e.Usage != nil {
+		usage = &e.Usage
+	}
+	return json.Marshal(struct {
+		wire
+		Usage *[]TokenUsage `json:"usage,omitempty"`
+	}{wire: wire(e), Usage: usage})
 }
 
 // NewRunErrorEvent creates a new run error event
@@ -345,10 +370,6 @@ func WithAutoRunIDError() RunErrorOption {
 func (e *RunErrorEvent) Validate() error {
 	if err := e.BaseEvent.Validate(); err != nil {
 		return err
-	}
-
-	if e.Message == "" {
-		return fmt.Errorf("RunErrorEvent validation failed: message field is required")
 	}
 
 	if err := validateUsage("RunError", e.Usage); err != nil {
@@ -413,15 +434,7 @@ func WithAutoStepName() StepStartedOption {
 
 // Validate validates the step started event
 func (e *StepStartedEvent) Validate() error {
-	if err := e.BaseEvent.Validate(); err != nil {
-		return err
-	}
-
-	if e.StepName == "" {
-		return fmt.Errorf("StepStartedEvent validation failed: stepName field is required")
-	}
-
-	return nil
+	return e.BaseEvent.Validate()
 }
 
 // ToJSON serializes the event to JSON
@@ -474,15 +487,7 @@ func WithAutoStepNameFinished() StepFinishedOption {
 
 // Validate validates the step finished event
 func (e *StepFinishedEvent) Validate() error {
-	if err := e.BaseEvent.Validate(); err != nil {
-		return err
-	}
-
-	if e.StepName == "" {
-		return fmt.Errorf("StepFinishedEvent validation failed: stepName field is required")
-	}
-
-	return nil
+	return e.BaseEvent.Validate()
 }
 
 // ToJSON serializes the event to JSON

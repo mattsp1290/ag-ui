@@ -214,8 +214,8 @@ func TestValidateMessage_NonActivityRejectsActivityFields(t *testing.T) {
 		ActivityType: "PLAN",
 	}
 
-	err := validateMessage(msg)
-	assert.Error(t, err)
+	err := msg.ValidateProtocol()
+	assert.NoError(t, err)
 }
 
 func TestValidateMessage_ActivityRequiresFields(t *testing.T) {
@@ -224,19 +224,19 @@ func TestValidateMessage_ActivityRequiresFields(t *testing.T) {
 		Role: RoleActivity,
 	}
 
-	err := validateMessage(msg)
+	err := msg.ValidateProtocol()
 	assert.Error(t, err)
 
 	msg.ActivityType = "PLAN"
-	err = validateMessage(msg)
+	err = msg.ValidateProtocol()
 	assert.Error(t, err)
 
 	msg.Content = map[string]any{"status": "draft"}
-	err = validateMessage(msg)
+	err = msg.ValidateProtocol()
 	assert.NoError(t, err)
 
 	msg.Content = "not-an-object"
-	err = validateMessage(msg)
+	err = msg.ValidateProtocol()
 	assert.Error(t, err)
 }
 
@@ -247,16 +247,16 @@ func TestValidateMessage_UserAllowsTextOrMultimodal(t *testing.T) {
 		Content: "hello",
 	}
 
-	assert.NoError(t, validateMessage(msg))
+	assert.NoError(t, msg.ValidateProtocol())
 
 	msg.Content = []coretypes.InputContent{
 		{Type: coretypes.InputContentTypeText, Text: "hi"},
 		{Type: coretypes.InputContentTypeBinary, MimeType: "image/png", URL: "https://example.com/test.png"},
 	}
-	assert.NoError(t, validateMessage(msg))
+	assert.NoError(t, msg.ValidateProtocol())
 
 	msg.Content = map[string]any{"unexpected": true}
-	assert.Error(t, validateMessage(msg))
+	assert.Error(t, msg.ValidateProtocol())
 }
 
 func TestValidateMessage_AssistantContentMustBeStringWhenPresent(t *testing.T) {
@@ -265,10 +265,10 @@ func TestValidateMessage_AssistantContentMustBeStringWhenPresent(t *testing.T) {
 		Role:    "assistant",
 		Content: map[string]any{"unexpected": true},
 	}
-	assert.Error(t, validateMessage(msg))
+	assert.Error(t, msg.ValidateProtocol())
 
 	msg.Content = "ok"
-	assert.NoError(t, validateMessage(msg))
+	assert.NoError(t, msg.ValidateProtocol())
 }
 
 func TestValidateMessage_ReasoningRequiresStringContent(t *testing.T) {
@@ -278,10 +278,10 @@ func TestValidateMessage_ReasoningRequiresStringContent(t *testing.T) {
 		Content: "summary",
 	}
 
-	assert.NoError(t, validateMessage(msg))
+	assert.NoError(t, msg.ValidateProtocol())
 
 	msg.Content = map[string]any{"unexpected": true}
-	assert.Error(t, validateMessage(msg))
+	assert.Error(t, msg.ValidateProtocol())
 }
 
 func TestValidateMessage_ToolRequiresToolCallIDAndStringContent(t *testing.T) {
@@ -290,13 +290,13 @@ func TestValidateMessage_ToolRequiresToolCallIDAndStringContent(t *testing.T) {
 		Role:    "tool",
 		Content: "ok",
 	}
-	assert.Error(t, validateMessage(msg))
+	assert.NoError(t, msg.ValidateProtocol())
 
 	msg.ToolCallID = "tool-1"
-	assert.NoError(t, validateMessage(msg))
+	assert.NoError(t, msg.ValidateProtocol())
 
 	msg.Content = map[string]any{"unexpected": true}
-	assert.Error(t, validateMessage(msg))
+	assert.Error(t, msg.ValidateProtocol())
 }
 
 func TestMessageMarshalJSON_IncludesOptionalFields_Assistant(t *testing.T) {

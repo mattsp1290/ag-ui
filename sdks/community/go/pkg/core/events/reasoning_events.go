@@ -24,13 +24,7 @@ func NewReasoningStartEvent(messageID string) *ReasoningStartEvent {
 
 // Validate validates the reasoning start event.
 func (e *ReasoningStartEvent) Validate() error {
-	if err := e.BaseEvent.Validate(); err != nil {
-		return err
-	}
-	if e.MessageID == "" {
-		return fmt.Errorf("ReasoningStartEvent validation failed: messageId field is required")
-	}
-	return nil
+	return e.BaseEvent.Validate()
 }
 
 // ToJSON serializes the event to JSON.
@@ -57,13 +51,7 @@ func NewReasoningEndEvent(messageID string) *ReasoningEndEvent {
 
 // Validate validates the reasoning end event.
 func (e *ReasoningEndEvent) Validate() error {
-	if err := e.BaseEvent.Validate(); err != nil {
-		return err
-	}
-	if e.MessageID == "" {
-		return fmt.Errorf("ReasoningEndEvent validation failed: messageId field is required")
-	}
-	return nil
+	return e.BaseEvent.Validate()
 }
 
 // ToJSON serializes the event to JSON.
@@ -95,11 +83,8 @@ func (e *ReasoningMessageStartEvent) Validate() error {
 	if err := e.BaseEvent.Validate(); err != nil {
 		return err
 	}
-	if e.MessageID == "" {
-		return fmt.Errorf("ReasoningMessageStartEvent validation failed: messageId field is required")
-	}
-	if e.Role == "" {
-		return fmt.Errorf("ReasoningMessageStartEvent validation failed: role field is required")
+	if e.Role != "reasoning" {
+		return fmt.Errorf("ReasoningMessageStartEvent validation failed: role field must be 'reasoning'")
 	}
 	return nil
 }
@@ -130,13 +115,7 @@ func NewReasoningMessageContentEvent(messageID, delta string) *ReasoningMessageC
 
 // Validate validates the reasoning message content event.
 func (e *ReasoningMessageContentEvent) Validate() error {
-	if err := e.BaseEvent.Validate(); err != nil {
-		return err
-	}
-	if e.MessageID == "" {
-		return fmt.Errorf("ReasoningMessageContentEvent validation failed: messageId field is required")
-	}
-	return nil
+	return e.BaseEvent.Validate()
 }
 
 // ToJSON serializes the event to JSON.
@@ -163,13 +142,7 @@ func NewReasoningMessageEndEvent(messageID string) *ReasoningMessageEndEvent {
 
 // Validate validates the reasoning message end event.
 func (e *ReasoningMessageEndEvent) Validate() error {
-	if err := e.BaseEvent.Validate(); err != nil {
-		return err
-	}
-	if e.MessageID == "" {
-		return fmt.Errorf("ReasoningMessageEndEvent validation failed: messageId field is required")
-	}
-	return nil
+	return e.BaseEvent.Validate()
 }
 
 // ToJSON serializes the event to JSON.
@@ -210,19 +183,7 @@ func (e *ReasoningMessageChunkEvent) WithChunkDelta(delta string) *ReasoningMess
 
 // Validate validates the reasoning message chunk event.
 func (e *ReasoningMessageChunkEvent) Validate() error {
-	if err := e.BaseEvent.Validate(); err != nil {
-		return err
-	}
-
-	if e.MessageID == nil && e.Delta == nil {
-		return fmt.Errorf("ReasoningMessageChunkEvent validation failed: at least one of messageId or delta must be present")
-	}
-
-	if e.MessageID != nil && *e.MessageID == "" {
-		return fmt.Errorf("ReasoningMessageChunkEvent validation failed: messageId field must not be empty when provided")
-	}
-
-	return nil
+	return e.BaseEvent.Validate()
 }
 
 // ToJSON serializes the event to JSON.
@@ -269,14 +230,6 @@ func (e *ReasoningEncryptedValueEvent) Validate() error {
 
 	if e.Subtype != ReasoningEncryptedValueSubtypeToolCall && e.Subtype != ReasoningEncryptedValueSubtypeMessage {
 		return fmt.Errorf("ReasoningEncryptedValueEvent validation failed: subtype must be 'tool-call' or 'message'")
-	}
-
-	if e.EntityID == "" {
-		return fmt.Errorf("ReasoningEncryptedValueEvent validation failed: entityId field is required")
-	}
-
-	if e.EncryptedValue == "" {
-		return fmt.Errorf("ReasoningEncryptedValueEvent validation failed: encryptedValue field is required")
 	}
 
 	return nil

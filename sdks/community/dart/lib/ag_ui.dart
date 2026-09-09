@@ -40,6 +40,7 @@ library ag_ui;
 
 // Core types
 export 'src/types/types.dart';
+export 'src/types/capabilities.dart';
 export 'src/types/metadata.dart';
 export 'src/types/interrupt.dart';
 export 'src/types/run_outcome.dart';

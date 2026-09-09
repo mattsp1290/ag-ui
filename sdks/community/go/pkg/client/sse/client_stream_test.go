@@ -643,15 +643,9 @@ func TestStream(t *testing.T) {
 		})
 		require.NoError(t, err)
 
-		// Consume all frames
-		go func() {
-			for range frames {
-			}
-		}()
-
-		time.Sleep(500 * time.Millisecond)
-		cancel()
-		time.Sleep(100 * time.Millisecond)
+		// Draining the channel also waits for the final log write in readStream.
+		for range frames {
+		}
 
 		logs := logBuffer.String()
 		assert.Contains(t, logs, "Initiating SSE connection")
@@ -867,6 +861,7 @@ func BenchmarkStream(b *testing.B) {
 			Payload: newTestRunAgentInput(),
 		})
 		if err != nil {
+			cancel()
 			b.Fatal(err)
 		}
 
@@ -874,10 +869,10 @@ func BenchmarkStream(b *testing.B) {
 		for range frames {
 			count++
 			if count >= 1000 {
-				cancel()
 				break
 			}
 		}
+		cancel()
 	}
 }
 
@@ -903,9 +898,9 @@ func BenchmarkReadStream(b *testing.B) {
 		for range frames {
 			count++
 			if count >= 1000 {
-				cancel()
 				break
 			}
 		}
+		cancel()
 	}
 }

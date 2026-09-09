@@ -556,3 +556,26 @@ func TestMessageContentActivity(t *testing.T) {
 	_, ok = msg.ContentActivity()
 	assert.False(t, ok)
 }
+
+func TestToolMetadataWirePresence(t *testing.T) {
+	for _, extra := range []string{"", `,"metadata":{}`, `,"metadata":{"nested":[null,false,0]}`} {
+		t.Run(extra, func(t *testing.T) {
+			raw := `{"name":"tool","description":"","parameters":{}` + extra + `}`
+			var tool Tool
+			require.NoError(t, json.Unmarshal([]byte(raw), &tool))
+			for _, value := range []any{tool, &tool, []Tool{tool}} {
+				encoded, err := json.Marshal(value)
+				require.NoError(t, err)
+				want := raw
+				if _, ok := value.([]Tool); ok {
+					want = "[" + raw + "]"
+				}
+				assert.JSONEq(t, want, string(encoded))
+			}
+			caps := AgentCapabilities{Tools: &ToolsCapabilities{Items: &[]Tool{tool}}}
+			encoded, err := json.Marshal(caps)
+			require.NoError(t, err)
+			assert.JSONEq(t, `{"tools":{"items":[`+raw+`]}}`, string(encoded))
+		})
+	}
+}

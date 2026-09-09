@@ -443,7 +443,10 @@ func runParityCase(c parityCase, check string) error {
 	case "usage":
 		var value events.TokenUsage
 		return runValueCase(c, check, &value)
-	case "capabilities", "aggregate", "mapper":
+	case "capabilities":
+		var value types.AgentCapabilities
+		return runValueCase(c, "marshal", &value)
+	case "aggregate", "mapper":
 		return fmt.Errorf("unsupported feature: no public Go %s API", c.Kind)
 	default:
 		return fmt.Errorf("unsupported corpus kind %q", c.Kind)

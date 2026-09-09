@@ -293,7 +293,7 @@ func validResultShape(kind string, raw json.RawMessage) bool {
 }
 
 func decodeAndEncode(tc testCase, input json.RawMessage, useEncoder, fromPeer bool) (json.RawMessage, bool, error) {
-	if tc.Kind == "aggregate" || tc.Kind == "mapper" || tc.Kind == "capabilities" {
+	if tc.Kind == "aggregate" || tc.Kind == "mapper" {
 		return nil, true, fmt.Errorf("Go SDK has no public %s API", tc.Kind)
 	}
 	if tc.Check == "validate" {
@@ -344,6 +344,8 @@ func decodeAndEncode(tc testCase, input json.RawMessage, useEncoder, fromPeer bo
 		}
 		encoded, err := json.Marshal(event)
 		return encoded, false, err
+	case "capabilities":
+		value = &types.AgentCapabilities{}
 	case "message":
 		value = &types.Message{}
 	case "content":

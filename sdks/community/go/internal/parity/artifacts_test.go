@@ -71,14 +71,14 @@ func TestGoArtifactCLI(t *testing.T) {
 	for _, document := range []artifactDocument{direct, encoded} {
 		for _, record := range document.Cases {
 			switch record.ID {
-			case "content.binary.missing_payload", "content.data_source.missing_mime", "request.resume_bad_status", "message.unknown_role_invalid", "content.unknown_type_invalid":
+			case "content.binary.missing_payload", "content.data_source.missing_mime", "request.resume_bad_status", "message.unknown_role_invalid", "content.unknown_type_invalid", "capabilities.execution_fractional_ts_only":
 				require.False(t, record.Accepted, record.ID)
 				require.False(t, record.Unsupported, "public validation must execute: %s", record.ID)
 				require.NotEmpty(t, record.Error, record.ID)
 			}
 		}
 	}
-	for _, id := range []string{"event.TEXT_MESSAGE_START.full", "event.TOOL_CALL_CHUNK.full", "event.CUSTOM.nested_null"} {
+	for _, id := range []string{"event.TEXT_MESSAGE_START.full", "event.TOOL_CALL_CHUNK.full", "event.CUSTOM.nested_null", "capabilities.complete", "capabilities.empty", "capabilities.explicit_false_zero_empty"} {
 		var expected json.RawMessage
 		for _, c := range corpus.Cases {
 			if c.ID == id {

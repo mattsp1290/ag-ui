@@ -358,6 +358,19 @@ type Tool struct {
 	Metadata Metadata `json:"metadata,omitempty"`
 }
 
+// MarshalJSON preserves explicitly empty tool metadata while omitting absent metadata.
+func (t Tool) MarshalJSON() ([]byte, error) {
+	type alias Tool
+	var metadata *Metadata
+	if t.Metadata != nil {
+		metadata = &t.Metadata
+	}
+	return json.Marshal(struct {
+		alias
+		Metadata *Metadata `json:"metadata,omitempty"`
+	}{alias: alias(t), Metadata: metadata})
+}
+
 // Interrupt represents a pause point requiring user input before the agent can continue.
 type Interrupt struct {
 	// ID is the unique identifier for this interrupt.

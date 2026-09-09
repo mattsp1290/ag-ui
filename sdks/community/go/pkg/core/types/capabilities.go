@@ -1,5 +1,13 @@
 package types
 
+import (
+	"encoding/json"
+	"fmt"
+	"math/big"
+	"strconv"
+	"strings"
+)
+
 // Capability declarations describe an agent's advertised behavior. They do
 // not themselves implement transports, persistence, execution, or delegation.
 
@@ -98,6 +106,70 @@ type ExecutionCapabilities struct {
 	Sandboxed        *bool  `json:"sandboxed,omitempty"`
 	MaxIterations    *int64 `json:"maxIterations,omitempty"`
 	MaxExecutionTime *int64 `json:"maxExecutionTime,omitempty"`
+}
+
+// UnmarshalJSON accepts all exact integral JSON number spellings for execution
+// limits, including decimal and exponent notation. Unknown fields retain the
+// package's normal permissive encoding/json behavior.
+func (c *ExecutionCapabilities) UnmarshalJSON(data []byte) error {
+	type executionCapabilitiesAlias ExecutionCapabilities
+	var wire struct {
+		executionCapabilitiesAlias
+		MaxIterations    json.RawMessage `json:"maxIterations"`
+		MaxExecutionTime json.RawMessage `json:"maxExecutionTime"`
+	}
+	wire.executionCapabilitiesAlias = executionCapabilitiesAlias(*c)
+	if err := json.Unmarshal(data, &wire); err != nil {
+		return err
+	}
+	decoded := ExecutionCapabilities(wire.executionCapabilitiesAlias)
+
+	var err error
+	if len(wire.MaxIterations) != 0 {
+		decoded.MaxIterations, err = decodeIntegralLimit(wire.MaxIterations)
+		if err != nil {
+			return fmt.Errorf("maxIterations: %w", err)
+		}
+	}
+	if len(wire.MaxExecutionTime) != 0 {
+		decoded.MaxExecutionTime, err = decodeIntegralLimit(wire.MaxExecutionTime)
+		if err != nil {
+			return fmt.Errorf("maxExecutionTime: %w", err)
+		}
+	}
+	*c = decoded
+	return nil
+}
+
+func decodeIntegralLimit(raw json.RawMessage) (*int64, error) {
+	s := string(raw)
+	if s == "null" {
+		return nil, nil
+	}
+	// Syntax has already been checked by the enclosing JSON decoder. Bound
+	// the exponent before exact arithmetic so its magnitude cannot cause an
+	// allocation larger than the input warrants, even for 1e-999999999.
+	mantissa, exponent := s, "0"
+	if i := strings.IndexAny(s, "eE"); i >= 0 {
+		mantissa, exponent = s[:i], s[i+1:]
+	}
+	if strings.Trim(mantissa, "-0.") == "" {
+		zero := int64(0)
+		return &zero, nil
+	}
+	power, err := strconv.ParseInt(exponent, 10, 64)
+	bound := int64(len(mantissa)) + 20
+	if err != nil || power < -bound || power > bound {
+		return nil, fmt.Errorf("must be an exact int64 integer")
+	}
+	// Exact arithmetic accepts decimal/exponent spellings without rounding
+	// fractions or values adjacent to the int64 limits through float64.
+	exact, ok := new(big.Rat).SetString(s)
+	if !ok || !exact.IsInt() || !exact.Num().IsInt64() {
+		return nil, fmt.Errorf("must be an exact int64 integer")
+	}
+	value := exact.Num().Int64()
+	return &value, nil
 }
 
 // HumanInTheLoopCapabilities describes supported human interactions.

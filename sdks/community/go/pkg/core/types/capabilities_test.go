@@ -127,14 +127,104 @@ func TestAgentCapabilitiesPermissiveDecodeAndArbitraryJSON(t *testing.T) {
 	}
 }
 
-func TestExecutionCapabilitiesRejectFractionalLimits(t *testing.T) {
+func TestExecutionCapabilitiesAcceptExactIntegralNumberSpellings(t *testing.T) {
+	tests := []struct {
+		payload string
+		field   func(ExecutionCapabilities) *int64
+		want    int64
+	}{
+		{`{"maxIterations":1.0}`, func(c ExecutionCapabilities) *int64 { return c.MaxIterations }, 1},
+		{`{"maxIterations":1e3}`, func(c ExecutionCapabilities) *int64 { return c.MaxIterations }, 1000},
+		{`{"maxIterations":1000e-3}`, func(c ExecutionCapabilities) *int64 { return c.MaxIterations }, 1},
+		{`{"maxExecutionTime":0.000e999999999}`, func(c ExecutionCapabilities) *int64 { return c.MaxExecutionTime }, 0},
+		{`{"maxExecutionTime":9223372036854775807.0}`, func(c ExecutionCapabilities) *int64 { return c.MaxExecutionTime }, 9223372036854775807},
+		{`{"maxExecutionTime":-9223372036854775808e0}`, func(c ExecutionCapabilities) *int64 { return c.MaxExecutionTime }, -9223372036854775808},
+	}
+	for _, tt := range tests {
+		var caps ExecutionCapabilities
+		if err := json.Unmarshal([]byte(tt.payload), &caps); err != nil {
+			t.Errorf("json.Unmarshal(%s): %v", tt.payload, err)
+			continue
+		}
+		if got := tt.field(caps); got == nil || *got != tt.want {
+			t.Errorf("json.Unmarshal(%s) = %v, want %d", tt.payload, got, tt.want)
+		}
+	}
+}
+
+func TestExecutionCapabilitiesRejectInvalidLimits(t *testing.T) {
 	for _, payload := range []string{
 		`{"maxIterations":1.5}`,
 		`{"maxExecutionTime":2.25}`,
+		`{"maxIterations":9007199254740991.0000000001}`,
+		`{"maxIterations":9223372036854775808}`,
+		`{"maxExecutionTime":-9223372036854775809.0}`,
+		`{"maxIterations":1e999999999}`,
+		`{"maxExecutionTime":1e-999999999}`,
+		`{"maxIterations":"1"}`,
+		`{"maxExecutionTime":true}`,
 	} {
 		var caps ExecutionCapabilities
 		if err := json.Unmarshal([]byte(payload), &caps); err == nil {
-			t.Fatalf("json.Unmarshal(%s) succeeded, want fractional int64 error", payload)
+			t.Errorf("json.Unmarshal(%s) succeeded, want error", payload)
 		}
+	}
+}
+
+func TestExecutionCapabilitiesCustomDecodeRemainsPermissive(t *testing.T) {
+	var caps ExecutionCapabilities
+	if err := json.Unmarshal([]byte(`{"codeExecution":false,"sandboxed":true,"maxIterations":null,"futureLimit":12}`), &caps); err != nil {
+		t.Fatal(err)
+	}
+	if caps.CodeExecution == nil || *caps.CodeExecution || caps.Sandboxed == nil || !*caps.Sandboxed {
+		t.Fatalf("boolean fields were not decoded: %#v", caps)
+	}
+	if caps.MaxIterations != nil {
+		t.Fatalf("null maxIterations = %v, want nil", caps.MaxIterations)
+	}
+}
+
+func TestExecutionCapabilitiesExponentBoundDependsOnMantissa(t *testing.T) {
+	longInteger := "1" + strings.Repeat("0", 1000)
+	var caps ExecutionCapabilities
+	if err := json.Unmarshal([]byte(`{"maxIterations":`+longInteger+`e-1000}`), &caps); err != nil {
+		t.Fatalf("exact long-mantissa integer: %v", err)
+	}
+	if caps.MaxIterations == nil || *caps.MaxIterations != 1 {
+		t.Fatalf("long-mantissa integer = %v, want 1", caps.MaxIterations)
+	}
+
+	if err := json.Unmarshal([]byte(`{"maxIterations":`+longInteger+`e-999999999}`), &caps); err == nil {
+		t.Fatal("huge negative exponent on nonzero long mantissa succeeded, want fractional error")
+	}
+}
+
+func TestExecutionCapabilitiesDecodeReusesReceiverLikeEncodingJSON(t *testing.T) {
+	trueValue := true
+	iterations, executionTime := int64(4), int64(500)
+	caps := ExecutionCapabilities{
+		CodeExecution:    &trueValue,
+		MaxIterations:    &iterations,
+		MaxExecutionTime: &executionTime,
+	}
+	if err := json.Unmarshal([]byte(`{"codeExecution":false,"maxIterations":null,"future":true}`), &caps); err != nil {
+		t.Fatal(err)
+	}
+	if caps.CodeExecution == nil || *caps.CodeExecution {
+		t.Fatalf("codeExecution = %v, want explicit false", caps.CodeExecution)
+	}
+	if caps.MaxIterations != nil {
+		t.Fatalf("maxIterations = %v, want nil after null", caps.MaxIterations)
+	}
+	if caps.MaxExecutionTime == nil || *caps.MaxExecutionTime != 500 {
+		t.Fatalf("omitted maxExecutionTime = %v, want preserved 500", caps.MaxExecutionTime)
+	}
+
+	before := caps
+	if err := json.Unmarshal([]byte(`{"sandboxed":true,"maxExecutionTime":1.5}`), &caps); err == nil {
+		t.Fatal("invalid limit succeeded")
+	}
+	if !reflect.DeepEqual(caps, before) {
+		t.Fatalf("receiver changed after failed decode\nbefore: %#v\n after: %#v", before, caps)
 	}
 }

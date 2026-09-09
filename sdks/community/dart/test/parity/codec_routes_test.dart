@@ -4,7 +4,7 @@ import 'dart:io';
 import 'package:ag_ui/ag_ui.dart';
 import 'package:test/test.dart';
 
-import 'artifact_test.dart';
+import '../../tool/parity_support.dart';
 
 void main() {
   final fixture = asMap(

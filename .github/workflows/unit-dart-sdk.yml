@@ -6,7 +6,7 @@ on:
     paths:
       - "sdks/community/dart/**"
       - "sdks/community/go/**"
-      - "sdks/python/ag_ui_protocol/**"
+      - "sdks/python/ag_ui/**"
       - "sdks/python/tests/test_go_parity.py"
       - "sdks/typescript/packages/core/src/**"
       - "sdks/typescript/packages/core/package.json"
@@ -30,7 +30,7 @@ on:
     paths:
       - "sdks/community/dart/**"
       - "sdks/community/go/**"
-      - "sdks/python/ag_ui_protocol/**"
+      - "sdks/python/ag_ui/**"
       - "sdks/python/tests/test_go_parity.py"
       - "sdks/typescript/packages/core/src/**"
       - "sdks/typescript/packages/core/package.json"

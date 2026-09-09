@@ -5,6 +5,8 @@ import 'dart:io';
 import 'package:ag_ui/ag_ui.dart';
 import 'package:test/test.dart';
 
+import '../../tool/parity_support.dart';
+
 Future<void> _writeFragmented(HttpResponse response, String payload) async {
   response.headers.contentType = ContentType('text', 'event-stream');
   response.headers.set('cache-control', 'no-cache');
@@ -51,6 +53,15 @@ void main() {
               'data: {"type":"RUN_FINISHED","threadId":"thread","runId":"canonical","outcome":{"type":"success"}}\r\n\r\n',
             );
           case 3:
+            await _writeFragmented(
+              request.response,
+              [
+                'data: {"type":"TEXT_MESSAGE_START","messageId":"partial","role":"assistant"}\n\n',
+                'data: {"type":"TEXT_MESSAGE_CONTENT","messageId":"partial","delta":"visible"}\n\n',
+                'data: {"type":"RUN_ERROR","message":"root failed","code":"root-failed","usage":[{"inputTokens":3}]}\n\n',
+              ].join(),
+            );
+          case 4:
             cancelRequestSeen.complete();
             await releaseCancelResponse.future;
             await _writeFragmented(
@@ -149,6 +160,35 @@ void main() {
         isA<RunFinishedSuccessOutcome>(),
       );
 
+      expect(bodies, hasLength(2));
+      expect(bodies.first, containsPair('state', <String, dynamic>{}));
+      expect(bodies.first, containsPair('forwardedProps', <String, dynamic>{}));
+      final canonical = bodies[1];
+      expect(canonical['state'], {
+        'nested': [null, false, 0],
+      });
+      expect(canonical.containsKey('forwardedProps'), isTrue);
+      expect(canonical['forwardedProps'], isNull);
+      final resume = (canonical['resume'] as List).single as Map;
+      expect(resume['interruptId'], 'approval');
+      expect(resume['status'], 'resolved');
+      expect(resume['metadata'], {'subagentRunId': 'child'});
+
+      final failed = await client
+          .runAgent(
+            'error',
+            const SimpleRunAgentInput(threadId: 'thread', runId: 'error'),
+          )
+          .toList();
+      expect(failed.map((event) => event.runtimeType), [
+        TextMessageStartEvent,
+        TextMessageContentEvent,
+        RunErrorEvent,
+      ]);
+      final rootError = failed.last as RunErrorEvent;
+      expect(rootError.code, 'root-failed');
+      expect(rootError.usage?.single.inputTokens, 3);
+
       final token = CancelToken();
       final cancelled = client
           .runAgent(
@@ -165,20 +205,8 @@ void main() {
       await expectLater(cancelled, throwsA(isA<CancellationError>()));
       releaseCancelResponse.complete();
 
-      expect(bodies, hasLength(3));
-      expect(bodies.first, containsPair('state', <String, dynamic>{}));
-      expect(bodies.first, containsPair('forwardedProps', <String, dynamic>{}));
-      final canonical = bodies[1];
-      expect(canonical['state'], {
-        'nested': [null, false, 0],
-      });
-      expect(canonical.containsKey('forwardedProps'), isTrue);
-      expect(canonical['forwardedProps'], isNull);
-      final resume = (canonical['resume'] as List).single as Map;
-      expect(resume['interruptId'], 'approval');
-      expect(resume['status'], 'resolved');
-      expect(resume['metadata'], {'subagentRunId': 'child'});
-      expect(requestCount, 3);
+      expect(bodies, hasLength(4));
+      expect(requestCount, 4);
       expect(handlerErrors, isEmpty);
     } finally {
       if (!releaseCancelResponse.isCompleted) {
@@ -189,6 +217,52 @@ void main() {
       await server.close(force: true);
     }
   });
+
+  final goSseDirectory = Platform.environment['AG_UI_DART_PARITY_GO_SSE_DIR'];
+  test(
+    'actual Go-produced SSE matches the pinned scenarios',
+    () async {
+      final fixture = asMap(
+        jsonDecode(
+          File(
+            '${repositoryRoot().path}/sdks/community/go/testdata/parity/sse-scenarios.json',
+          ).readAsStringSync(),
+        ),
+        'SSE fixture',
+      );
+      for (final rawScenario in fixture['scenarios'] as List) {
+        final scenario = asMap(rawScenario, 'SSE scenario');
+        final id = scenario['id'] as String;
+        final events = await EventStreamAdapter()
+            .fromRawSseStream(
+              Stream.value(
+                File('$goSseDirectory/go-$id.sse').readAsStringSync(),
+              ),
+            )
+            .toList();
+        final expected = (scenario['events'] as List)
+            .map((raw) => Map<String, dynamic>.from(raw as Map))
+            .toList();
+        for (final event in expected) {
+          if (event['type'] == 'ACTIVITY_SNAPSHOT' &&
+              event['replace'] == true) {
+            event.remove('replace');
+          }
+        }
+        expect(events, hasLength(expected.length), reason: id);
+        for (var index = 0; index < events.length; index++) {
+          expect(
+            deepEqualJson(events[index].toJson(), expected[index]),
+            isTrue,
+            reason: '$id event $index',
+          );
+        }
+      }
+    },
+    skip: goSseDirectory == null
+        ? 'AG_UI_DART_PARITY_GO_SSE_DIR is not configured'
+        : false,
+  );
 
   test('EventStreamAdapter owns independent listeners and terminal delivery',
       () async {

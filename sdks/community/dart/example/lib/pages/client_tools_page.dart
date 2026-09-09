@@ -13,6 +13,13 @@ import '../widgets/card_widget.dart';
 import '../widgets/approval_card_widget.dart';
 import 'agui_event_handling.dart';
 
+typedef _ProposalIdentity = (String?, String?, String);
+typedef _PendingToolCall = ({
+  ToolCall call,
+  String? ownerMessageId,
+  String? subagentRunId,
+});
+
 /// Page for the client-tool round-trip features:
 ///  - `agentic_chat` (FeatureKind.clientTools) — model calls a tool, client executes,
 ///    result returns inline.
@@ -144,9 +151,9 @@ class ClientToolsPageState extends ChangeNotifier with AgUiEventHandling {
   final AgUiService _service;
   final String _threadId = uid('thread');
   final List<Message> _history = [];
-  final Set<(String?, String?, String)> _settledCalls = {};
-  List<({ToolCall call, String? ownerMessageId, String? subagentRunId})>
-  _pendingCalls = const [];
+  final Set<_ProposalIdentity> _settledCalls = {};
+  final Map<_ProposalIdentity, _PendingToolCall> _exchangeProposals = {};
+  List<_PendingToolCall> _pendingCalls = const [];
   bool _busy = false;
   bool _aborted = false;
 
@@ -186,6 +193,7 @@ class ClientToolsPageState extends ChangeNotifier with AgUiEventHandling {
     if (disposed || text.trim().isEmpty || _busy) return;
     _pendingCalls = const [];
     _settledCalls.clear();
+    _exchangeProposals.clear();
     _aborted = false;
     _busy = true;
     final id = uid('user');
@@ -255,6 +263,7 @@ class ClientToolsPageState extends ChangeNotifier with AgUiEventHandling {
             call.function.arguments,
           ),
     };
+    final knownProposals = Map.of(priorProposals);
     beginRun(continuation: continuation);
     _pendingCalls = const [];
     await for (final event in _service.run(
@@ -269,7 +278,7 @@ class ClientToolsPageState extends ChangeNotifier with AgUiEventHandling {
         for (final assistant in event.messages.whereType<AssistantMessage>()) {
           for (final call in assistant.toolCalls ?? const <ToolCall>[]) {
             final identity = (assistant.subagentRunId, assistant.id, call.id);
-            final priorPayload = priorProposals[identity];
+            final priorPayload = knownProposals[identity];
             final nextPayload = (call.function.name, call.function.arguments);
             if (priorPayload != null && priorPayload != nextPayload) {
               throw FormatException(
@@ -278,6 +287,7 @@ class ClientToolsPageState extends ChangeNotifier with AgUiEventHandling {
                 'stable and unique within a thread.',
               );
             }
+            knownProposals[identity] = nextPayload;
           }
         }
         _mergeHistory(event.messages);
@@ -301,6 +311,14 @@ class ClientToolsPageState extends ChangeNotifier with AgUiEventHandling {
                   subagentRunId: assistant.subagentRunId,
                 ),
         ];
+        for (final pending in _pendingCalls) {
+          _exchangeProposals[(
+                pending.subagentRunId,
+                pending.ownerMessageId,
+                pending.call.id,
+              )] =
+              pending;
+        }
       } else {
         handleCommonEvent(event);
       }
@@ -554,27 +572,13 @@ class ClientToolsPageState extends ChangeNotifier with AgUiEventHandling {
   // A failed/incomplete run must not leave dangling proposals in the next
   // request's provider history. Record cancellation as data without executing.
   void _settleAbandonedProposals() {
-    final results = _history
-        .whereType<ToolMessage>()
-        .map((message) => (message.subagentRunId, message.toolCallId))
-        .toSet();
-    final calls = [
-      for (final message in _history.whereType<AssistantMessage>())
-        for (final call in message.toolCalls ?? const <ToolCall>[])
-          (
-            call: call,
-            ownerMessageId: message.id,
-            subagentRunId: message.subagentRunId,
-          ),
-    ];
-    for (final pending in calls) {
-      final resultIdentity = (pending.subagentRunId, pending.call.id);
-      if (!results.add(resultIdentity)) continue;
-      _settledCalls.add((
+    for (final pending in _exchangeProposals.values) {
+      final identity = (
         pending.subagentRunId,
         pending.ownerMessageId,
         pending.call.id,
-      ));
+      );
+      if (!_settledCalls.add(identity)) continue;
       _history.add(
         ToolMessage(
           id: uid('tool'),

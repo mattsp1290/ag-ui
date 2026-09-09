@@ -955,4 +955,77 @@ void main() {
       contains('Message and tool-call IDs must remain stable and unique'),
     );
   });
+
+  test('changed proposal payload across snapshots is rejected', () async {
+    final service = FakeAgUiService([
+      [
+        _snapshotWithToolCall('shared', '1+1'),
+        _snapshotWithToolCall('shared', '2+2'),
+        _runFinished,
+      ],
+    ]);
+    final state = ClientToolsPageState(
+      endpoint: _clientToolsEndpoint(),
+      service: service,
+    );
+    addTearDown(state.dispose);
+
+    await state.sendMessage('mutate');
+
+    expect(service.calls, 1);
+    expect(
+      state.messages.last.content,
+      contains('Message and tool-call IDs must remain stable and unique'),
+    );
+  });
+
+  test('abandoned reused call IDs settle each assistant owner', () async {
+    final proposals = MessagesSnapshotEvent(
+      messages: const [
+        AssistantMessage(
+          id: 'first-owner',
+          toolCalls: [
+            ToolCall(
+              id: 'shared',
+              function: FunctionCall(
+                name: 'calculate',
+                arguments: '{"expression":"1+1"}',
+              ),
+            ),
+          ],
+        ),
+        AssistantMessage(
+          id: 'second-owner',
+          toolCalls: [
+            ToolCall(
+              id: 'shared',
+              function: FunctionCall(
+                name: 'calculate',
+                arguments: '{"expression":"2+2"}',
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+    final service = FakeAgUiService([
+      [proposals, const RunErrorEvent(message: 'stopped')],
+      [_runFinished],
+    ]);
+    final state = ClientToolsPageState(
+      endpoint: _clientToolsEndpoint(),
+      service: service,
+    );
+    addTearDown(state.dispose);
+
+    await state.sendMessage('first');
+    await state.sendMessage('recover');
+
+    final cancellations = service.histories.last.whereType<ToolMessage>().where(
+      (message) =>
+          message.toolCallId == 'shared' &&
+          jsonDecode(message.content)['error']?['code'] == 'exchange_stopped',
+    );
+    expect(cancellations, hasLength(2));
+  });
 }

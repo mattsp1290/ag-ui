@@ -562,7 +562,8 @@ final class MessagesSnapshotEvent extends BaseEvent {
     // cannot be detected here. Pass rawEvent: null or pre-scrub the map before
     // invoking this constructor for activity-role cipher data. fromJson enforces
     // both code paths; this constructor enforces only the structured-field one.
-    if (rawEvent != null && messages.any((m) => m.encryptedValue != null)) {
+    if (rawEvent != null &&
+        containsEncryptedValue(messages.map((m) => m.toJson()).toList())) {
       throw AGUIValidationError(
         message: 'Direct construction with rawEvent + cipher-bearing messages '
             'violates the scrub invariant. Pass rawEvent: null or pre-scrub.',
@@ -619,13 +620,7 @@ final class MessagesSnapshotEvent extends BaseEvent {
     // the only cipher-named key on any Message subtype. If a future subtype
     // adds a different sensitive payload key, this hasCipher predicate MUST be
     // extended in parallel.
-    final hasCipher = messages.any((m) => m.encryptedValue != null) ||
-        rawMessages.any(
-          (m) =>
-              m['role'] == 'activity' &&
-              (m.containsKey('encryptedValue') ||
-                  m.containsKey('encrypted_value')),
-        );
+    final hasCipher = containsEncryptedValue(rawMessages);
     return MessagesSnapshotEvent(
       metadata: _readMetadata(json),
       messages: messages,
@@ -666,7 +661,8 @@ final class MessagesSnapshotEvent extends BaseEvent {
     // the wire map cannot be reattached and expose encrypted content.
     // ActivityMessage always returns null for encryptedValue by construction;
     // see SCRUB CONTRACT comment in fromJson.
-    final hasCipher = newMessages.any((m) => m.encryptedValue != null);
+    final hasCipher =
+        containsEncryptedValue(newMessages.map((m) => m.toJson()).toList());
     // Log in all builds (including release) when a caller passes a non-null
     // rawEvent that will be silently scrubbed. The force-to-null below is
     // the authoritative safety measure; the log helps callers diagnose

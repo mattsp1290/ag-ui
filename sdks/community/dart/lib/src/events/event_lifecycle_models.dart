@@ -28,7 +28,7 @@ final class RunStartedEvent extends BaseEvent {
   }) : super(eventType: EventType.runStarted) {
     if (rawEvent != null &&
         input != null &&
-        input!.messages.any((m) => m.encryptedValue != null)) {
+        containsEncryptedValue(input!.toJson())) {
       throw AGUIValidationError(
         message:
             'Direct construction with rawEvent + cipher-bearing input.messages '
@@ -78,20 +78,7 @@ final class RunStartedEvent extends BaseEvent {
     // the only cipher-named key on any Message subtype. If a future subtype
     // adds a different sensitive payload key, this hasCipher predicate MUST be
     // extended in parallel.
-    final rawInputMessages = inputJson != null
-        ? (inputJson['messages'] is List<dynamic>
-            ? inputJson['messages'] as List<dynamic>
-            : const <dynamic>[])
-        : const <dynamic>[];
-    final hasCipher = input != null &&
-        (input.messages.any((m) => m.encryptedValue != null) ||
-            rawInputMessages.any(
-              (m) =>
-                  m is Map<String, dynamic> &&
-                  m['role'] == 'activity' &&
-                  (m.containsKey('encryptedValue') ||
-                      m.containsKey('encrypted_value')),
-            ));
+    final hasCipher = inputJson != null && containsEncryptedValue(inputJson);
     return RunStartedEvent(
       metadata: _readMetadata(json),
       threadId: JsonDecoder.requireEitherField<String>(
@@ -155,8 +142,8 @@ final class RunStartedEvent extends BaseEvent {
     final newInput =
         identical(input, kUnsetSentinel) ? this.input : input as RunAgentInput?;
     // Re-apply the fromJson cipher-scrub invariant on the resolved input.
-    final hasCipher = newInput != null &&
-        newInput.messages.any((m) => m.encryptedValue != null);
+    final hasCipher =
+        newInput != null && containsEncryptedValue(newInput.toJson());
     // Log in all builds (including release) when a caller passes a non-null
     // rawEvent that will be silently scrubbed. The force-to-null below is
     // the authoritative safety measure; the log helps callers diagnose

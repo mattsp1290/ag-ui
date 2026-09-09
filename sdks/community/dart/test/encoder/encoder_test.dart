@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:ag_ui/src/encoder/encoder.dart';
 import 'package:ag_ui/src/events/events.dart';
 import 'package:ag_ui/src/types/message.dart';
+import 'package:ag_ui/src/types/token_usage.dart';
 import 'package:test/test.dart';
 
 void main() {
@@ -221,6 +222,23 @@ void main() {
     });
 
     group('round-trip encoding', () {
+      test('terminal usage survives SSE encoding', () {
+        final event = RunErrorEvent(
+          message: 'failed',
+          usage: [TokenUsage(inputTokens: 1, outputTokens: 0)],
+        );
+
+        final encoded = encoder.encodeSSE(event);
+        final json = jsonDecode(encoded.substring(6, encoded.length - 2))
+            as Map<String, dynamic>;
+        final decoded = BaseEvent.fromJson(json) as RunErrorEvent;
+
+        expect(decoded.usage?.single.toJson(), {
+          'inputTokens': 1,
+          'outputTokens': 0,
+        });
+      });
+
       test('event can be encoded and decoded back', () {
         final originalEvent = ToolCallResultEvent(
           messageId: 'msg123',

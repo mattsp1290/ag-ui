@@ -44,6 +44,7 @@ export 'src/types/metadata.dart';
 export 'src/types/interrupt.dart';
 export 'src/types/run_outcome.dart';
 export 'src/types/subagent_outcome.dart';
+export 'src/types/token_usage.dart';
 
 // Event types
 export 'src/events/events.dart';

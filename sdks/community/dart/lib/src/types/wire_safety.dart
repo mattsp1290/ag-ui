@@ -17,6 +17,27 @@ bool containsEncryptedValue(Object? value) {
   return false;
 }
 
+void rejectUnsupportedKeys(
+  Map<String, dynamic> json,
+  Set<String> allowed,
+  String description, {
+  String field = 'outcome',
+}) {
+  final extra = json.keys.where((key) => !allowed.contains(key)).toList();
+  if (extra.isEmpty) {
+    return;
+  }
+  throw sanitizeValidationError(
+    enclosingJson: json,
+    error: AGUIValidationError(
+      message: '$description contains unsupported fields: ${extra.join(', ')}',
+      field: field,
+      value: json[extra.first]?.runtimeType.toString(),
+      json: json,
+    ),
+  );
+}
+
 AGUIValidationError sanitizeValidationError({
   required Map<String, dynamic> enclosingJson,
   required AGUIValidationError error,

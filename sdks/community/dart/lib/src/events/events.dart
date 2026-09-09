@@ -15,6 +15,7 @@ import '../types/copy_utils.dart';
 import '../types/metadata.dart';
 import '../types/message.dart';
 import '../types/run_outcome.dart';
+import '../types/subagent_outcome.dart';
 import '../types/wire_safety.dart';
 import 'event_type.dart';
 
@@ -24,6 +25,7 @@ part 'event_message_models.dart';
 part 'event_tool_state_models.dart';
 part 'event_activity_models.dart';
 part 'event_lifecycle_models.dart';
+part 'event_subagent_models.dart';
 part 'event_reasoning_models.dart';
 
 // `kUnsetSentinel` (from `base.dart`) is the shared sentinel for all
@@ -287,6 +289,12 @@ sealed class BaseEvent extends AGUIModel with TypeDiscriminator {
         return ReasoningEndEvent.fromJson(json);
       case EventType.reasoningEncryptedValue:
         return ReasoningEncryptedValueEvent.fromJson(json);
+      case EventType.subagentStarted:
+        return SubagentStartedEvent.fromJson(json);
+      case EventType.subagentFinished:
+        return SubagentFinishedEvent.fromJson(json);
+      case EventType.subagentError:
+        return SubagentErrorEvent.fromJson(json);
       // No `default` clause — exhaustive switch on the [EventType] enum
       // (analyzer-enforced). A new EventType value will produce a compile
       // error here AND in `EventDecoder.validate`, which is the desired

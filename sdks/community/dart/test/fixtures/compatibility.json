@@ -172,6 +172,21 @@
       "wire": "REASONING_ENCRYPTED_VALUE",
       "dart": "ReasoningEncryptedValueEvent",
       "shared": true
+    },
+    {
+      "wire": "SUBAGENT_STARTED",
+      "dart": "SubagentStartedEvent",
+      "shared": true
+    },
+    {
+      "wire": "SUBAGENT_FINISHED",
+      "dart": "SubagentFinishedEvent",
+      "shared": true
+    },
+    {
+      "wire": "SUBAGENT_ERROR",
+      "dart": "SubagentErrorEvent",
+      "shared": true
     }
   ],
   "messageRoles": [

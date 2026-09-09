@@ -43,6 +43,7 @@ export 'src/types/types.dart';
 export 'src/types/metadata.dart';
 export 'src/types/interrupt.dart';
 export 'src/types/run_outcome.dart';
+export 'src/types/subagent_outcome.dart';
 
 // Event types
 export 'src/events/events.dart';

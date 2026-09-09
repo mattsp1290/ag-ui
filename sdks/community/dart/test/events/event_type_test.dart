@@ -165,7 +165,7 @@ void main() {
     });
 
     test('values list contains all event types', () {
-      expect(EventType.values.length, equals(34));
+      expect(EventType.values.length, equals(37));
 
       // Verify specific important event types are included
       expect(EventType.values, contains(EventType.textMessageStart));
@@ -177,6 +177,9 @@ void main() {
       expect(EventType.values, contains(EventType.activityDelta));
       expect(EventType.values, contains(EventType.reasoningStart));
       expect(EventType.values, contains(EventType.reasoningEncryptedValue));
+      expect(EventType.values, contains(EventType.subagentStarted));
+      expect(EventType.values, contains(EventType.subagentFinished));
+      expect(EventType.values, contains(EventType.subagentError));
     });
 
     test('enum values are unique', () {
@@ -225,7 +228,7 @@ void main() {
     test('enum supports index property', () {
       expect(EventType.textMessageStart.index, equals(0));
       expect(
-        EventType.reasoningEncryptedValue.index,
+        EventType.subagentError.index,
         equals(EventType.values.length - 1),
       );
     });

@@ -468,6 +468,57 @@ void main() {
         response.complete(http.StreamedResponse(Stream.empty(), 200));
         await expectLater(first, throwsA(isA<CancellationError>()));
       });
+
+      test('client stream preserves child terminals until root completion',
+          () async {
+        mockHttpClient = MockStreamingClient((request) async {
+          return http.StreamedResponse(
+            Stream.fromIterable([
+              utf8.encode(
+                'data: {"type":"SUBAGENT_STARTED","subagentRunId":"child","name":"worker"}\n\n',
+              ),
+              utf8.encode(
+                'data: {"type":"SUBAGENT_ERROR","subagentRunId":"sibling","message":"failed"}\n\n',
+              ),
+              utf8.encode(
+                'data: {"type":"SUBAGENT_FINISHED","subagentRunId":"child","outcome":{"type":"success"}}\n\n',
+              ),
+              utf8.encode(
+                'data: {"type":"RUN_FINISHED","threadId":"t","runId":"r"}\n\n',
+              ),
+            ]),
+            200,
+            headers: {'content-type': 'text/event-stream'},
+          );
+        });
+        client = AgUiClient(
+          config: AgUiClientConfig(
+            baseUrl: 'http://localhost:8000',
+            maxRetries: 0,
+          ),
+          httpClient: mockHttpClient,
+        );
+
+        final events = await client
+            .runAgentInput(
+              'subagents',
+              const RunAgentInput(
+                threadId: 't',
+                runId: 'r',
+                messages: [],
+                tools: [],
+                context: [],
+              ),
+            )
+            .toList();
+
+        expect(events.map((event) => event.runtimeType), [
+          SubagentStartedEvent,
+          SubagentErrorEvent,
+          SubagentFinishedEvent,
+          RunFinishedEvent,
+        ]);
+      });
     });
 
     group('specific agent endpoints', () {

@@ -5,24 +5,6 @@ import 'base.dart';
 import 'interrupt.dart';
 import 'wire_safety.dart';
 
-void _rejectExtraKeys(
-  Map<String, dynamic> json,
-  Set<String> allowed,
-  String variant,
-) {
-  final extra = json.keys.where((key) => !allowed.contains(key)).toList();
-  if (extra.isNotEmpty) {
-    final hasCipher = containsEncryptedValue(json);
-    throw AGUIValidationError(
-      message:
-          '$variant outcome contains unsupported fields: ${extra.join(', ')}',
-      field: 'outcome',
-      value: json[extra.first]?.runtimeType.toString(),
-      json: hasCipher ? null : json,
-    );
-  }
-}
-
 AGUIValidationError _nestedInterruptError(
   AGUIValidationError error,
   int index,
@@ -70,7 +52,7 @@ final class RunFinishedSuccessOutcome extends RunFinishedOutcome {
 
   factory RunFinishedSuccessOutcome.fromJson(Map<String, dynamic> json) {
     try {
-      _rejectExtraKeys(json, const {'type'}, 'Success');
+      rejectUnsupportedKeys(json, const {'type'}, 'Success outcome');
       final type = JsonDecoder.requireField<String>(json, 'type');
       if (type != 'success') {
         throw AGUIValidationError(
@@ -115,7 +97,11 @@ final class RunFinishedInterruptOutcome extends RunFinishedOutcome {
 
   factory RunFinishedInterruptOutcome.fromJson(Map<String, dynamic> json) {
     try {
-      _rejectExtraKeys(json, const {'type', 'interrupts'}, 'Interrupt');
+      rejectUnsupportedKeys(
+        json,
+        const {'type', 'interrupts'},
+        'Interrupt outcome',
+      );
       final type = JsonDecoder.requireField<String>(json, 'type');
       if (type != 'interrupt') {
         throw AGUIValidationError(

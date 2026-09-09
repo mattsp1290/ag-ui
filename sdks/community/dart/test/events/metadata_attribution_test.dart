@@ -98,6 +98,156 @@ Map<String, dynamic> _payload(String type, {bool attributed = false}) {
   return payload;
 }
 
+typedef _EventBuilder = BaseEvent Function(
+  Metadata? metadata,
+  String? subagentRunId,
+);
+
+final _attributedEventBuilders = <String, _EventBuilder>{
+  'TEXT_MESSAGE_START': (metadata, subagentRunId) => TextMessageStartEvent(
+        messageId: 'message',
+        metadata: metadata,
+        subagentRunId: subagentRunId,
+      ),
+  'TEXT_MESSAGE_CONTENT': (metadata, subagentRunId) => TextMessageContentEvent(
+        messageId: 'message',
+        delta: 'text',
+        metadata: metadata,
+        subagentRunId: subagentRunId,
+      ),
+  'TEXT_MESSAGE_END': (metadata, subagentRunId) => TextMessageEndEvent(
+        messageId: 'message',
+        metadata: metadata,
+        subagentRunId: subagentRunId,
+      ),
+  'TEXT_MESSAGE_CHUNK': (metadata, subagentRunId) => TextMessageChunkEvent(
+        messageId: 'message',
+        delta: 'text',
+        metadata: metadata,
+        subagentRunId: subagentRunId,
+      ),
+  'TOOL_CALL_START': (metadata, subagentRunId) => ToolCallStartEvent(
+        toolCallId: 'call',
+        toolCallName: 'lookup',
+        metadata: metadata,
+        subagentRunId: subagentRunId,
+      ),
+  'TOOL_CALL_ARGS': (metadata, subagentRunId) => ToolCallArgsEvent(
+        toolCallId: 'call',
+        delta: '{}',
+        metadata: metadata,
+        subagentRunId: subagentRunId,
+      ),
+  'TOOL_CALL_END': (metadata, subagentRunId) => ToolCallEndEvent(
+        toolCallId: 'call',
+        metadata: metadata,
+        subagentRunId: subagentRunId,
+      ),
+  'TOOL_CALL_CHUNK': (metadata, subagentRunId) => ToolCallChunkEvent(
+        toolCallId: 'call',
+        toolCallName: 'lookup',
+        delta: '{}',
+        metadata: metadata,
+        subagentRunId: subagentRunId,
+      ),
+  'TOOL_CALL_RESULT': (metadata, subagentRunId) => ToolCallResultEvent(
+        messageId: 'message',
+        toolCallId: 'call',
+        content: 'result',
+        metadata: metadata,
+        subagentRunId: subagentRunId,
+      ),
+  'STATE_SNAPSHOT': (metadata, subagentRunId) => StateSnapshotEvent(
+        snapshot: {'state': true},
+        metadata: metadata,
+        subagentRunId: subagentRunId,
+      ),
+  'STATE_DELTA': (metadata, subagentRunId) => StateDeltaEvent(
+        delta: const [],
+        metadata: metadata,
+        subagentRunId: subagentRunId,
+      ),
+  'ACTIVITY_SNAPSHOT': (metadata, subagentRunId) => ActivitySnapshotEvent(
+        messageId: 'activity',
+        activityType: 'PLAN',
+        content: const <String, dynamic>{},
+        metadata: metadata,
+        subagentRunId: subagentRunId,
+      ),
+  'ACTIVITY_DELTA': (metadata, subagentRunId) => ActivityDeltaEvent(
+        messageId: 'activity',
+        activityType: 'PLAN',
+        patch: const [],
+        metadata: metadata,
+        subagentRunId: subagentRunId,
+      ),
+  'RAW': (metadata, subagentRunId) => RawEvent(
+        event: const <String, dynamic>{'provider': 'test'},
+        metadata: metadata,
+        subagentRunId: subagentRunId,
+      ),
+  'CUSTOM': (metadata, subagentRunId) => CustomEvent(
+        name: 'custom',
+        value: null,
+        metadata: metadata,
+        subagentRunId: subagentRunId,
+      ),
+  'STEP_STARTED': (metadata, subagentRunId) => StepStartedEvent(
+        stepName: 'step',
+        metadata: metadata,
+        subagentRunId: subagentRunId,
+      ),
+  'STEP_FINISHED': (metadata, subagentRunId) => StepFinishedEvent(
+        stepName: 'step',
+        metadata: metadata,
+        subagentRunId: subagentRunId,
+      ),
+  'REASONING_START': (metadata, subagentRunId) => ReasoningStartEvent(
+        messageId: 'reasoning',
+        metadata: metadata,
+        subagentRunId: subagentRunId,
+      ),
+  'REASONING_MESSAGE_START': (metadata, subagentRunId) =>
+      ReasoningMessageStartEvent(
+        messageId: 'reasoning',
+        metadata: metadata,
+        subagentRunId: subagentRunId,
+      ),
+  'REASONING_MESSAGE_CONTENT': (metadata, subagentRunId) =>
+      ReasoningMessageContentEvent(
+        messageId: 'reasoning',
+        delta: 'thinking',
+        metadata: metadata,
+        subagentRunId: subagentRunId,
+      ),
+  'REASONING_MESSAGE_END': (metadata, subagentRunId) =>
+      ReasoningMessageEndEvent(
+        messageId: 'reasoning',
+        metadata: metadata,
+        subagentRunId: subagentRunId,
+      ),
+  'REASONING_MESSAGE_CHUNK': (metadata, subagentRunId) =>
+      ReasoningMessageChunkEvent(
+        messageId: 'reasoning',
+        delta: 'thinking',
+        metadata: metadata,
+        subagentRunId: subagentRunId,
+      ),
+  'REASONING_END': (metadata, subagentRunId) => ReasoningEndEvent(
+        messageId: 'reasoning',
+        metadata: metadata,
+        subagentRunId: subagentRunId,
+      ),
+  'REASONING_ENCRYPTED_VALUE': (metadata, subagentRunId) =>
+      ReasoningEncryptedValueEvent(
+        subtype: ReasoningEncryptedValueSubtype.message,
+        entityId: 'reasoning',
+        encryptedValue: 'cipher',
+        metadata: metadata,
+        subagentRunId: subagentRunId,
+      ),
+};
+
 void main() {
   const attributedTypes = <String>{
     'TEXT_MESSAGE_START',
@@ -164,6 +314,88 @@ void main() {
       }
     });
 
+    test(
+      'all 24 attribution carriers cover construction, factories, copies, and SSE',
+      () {
+        expect(_attributedEventBuilders.keys.toSet(), attributedTypes);
+        final metadata = <String, dynamic>{
+          'carrier': 'event',
+          'nullValue': null,
+          'zero': 0,
+          'falseValue': false,
+        };
+
+        for (final type in attributedTypes) {
+          final builder = _attributedEventBuilders[type]!;
+          final constructed = builder(metadata, 'constructed-$type');
+          expect(constructed.metadata, same(metadata), reason: type);
+          expect(
+            (constructed as dynamic).subagentRunId,
+            'constructed-$type',
+            reason: type,
+          );
+          expect(constructed.toJson()['metadata'], metadata, reason: type);
+          expect(
+            constructed.toJson()['subagentRunId'],
+            'constructed-$type',
+            reason: type,
+          );
+
+          final direct = BaseEvent.fromJson(
+            _payload(type, attributed: true),
+          );
+          final decoded = decoder.decodeJson(_payload(type, attributed: true));
+          for (final event in [direct, decoded]) {
+            expect(event.metadata, _payload(type)['metadata'], reason: type);
+            expect(
+              (event as dynamic).subagentRunId,
+              'child-$type',
+              reason: type,
+            );
+          }
+
+          final dynamic dynamicEvent = constructed;
+          final noOp = dynamicEvent.copyWith();
+          expect(noOp.metadata, metadata, reason: '$type no-op metadata');
+          expect(
+            noOp.subagentRunId,
+            'constructed-$type',
+            reason: '$type no-op attribution',
+          );
+          expect(
+            dynamicEvent.copyWith(metadata: {'replacement': type}).metadata,
+            {'replacement': type},
+            reason: '$type metadata replacement',
+          );
+          expect(
+            dynamicEvent.copyWith(metadata: null).metadata,
+            isNull,
+            reason: '$type metadata clear',
+          );
+          expect(
+            dynamicEvent
+                .copyWith(subagentRunId: 'replacement-$type')
+                .subagentRunId,
+            'replacement-$type',
+            reason: '$type attribution replacement',
+          );
+          expect(
+            dynamicEvent.copyWith(subagentRunId: null).subagentRunId,
+            isNull,
+            reason: '$type attribution clear',
+          );
+
+          final roundTrip = decoder.decodeSSE(encoder.encodeSSE(constructed));
+          expect(roundTrip.metadata, metadata, reason: '$type SSE metadata');
+          expect(
+            (roundTrip as dynamic).subagentRunId,
+            'constructed-$type',
+            reason: '$type SSE attribution',
+          );
+        }
+      },
+    );
+
     test('only the planned 24 event types expose typed attribution', () {
       for (final type in attributedTypes) {
         final event = decoder.decodeJson(_payload(type, attributed: true));
@@ -182,7 +414,7 @@ void main() {
         'RUN_FINISHED',
         'RUN_ERROR',
       }) {
-        final event = decoder.decodeJson(_payload(type));
+        final event = decoder.decodeJson(_payload(type, attributed: true));
         expect(
           event.toJson().containsKey('subagentRunId'),
           isFalse,
@@ -208,6 +440,23 @@ void main() {
     test('malformed metadata on a cipher event is scrubbed', () {
       final json = _payload('REASONING_ENCRYPTED_VALUE')
         ..['metadata'] = ['wrong'];
+      expect(
+        () => decoder.decodeJson(json),
+        throwsA(
+          isA<DecodingError>()
+              .having((e) => e.actualValue, 'actualValue', isNull)
+              .having(
+                (e) => e.cause.toString(),
+                'cause',
+                isNot(contains('cipher')),
+              ),
+        ),
+      );
+    });
+
+    test('malformed attribution on a cipher event is scrubbed', () {
+      final json = _payload('REASONING_ENCRYPTED_VALUE')
+        ..['subagent_run_id'] = ['wrong'];
       expect(
         () => decoder.decodeJson(json),
         throwsA(

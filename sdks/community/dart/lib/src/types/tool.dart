@@ -5,23 +5,12 @@
 library;
 
 import 'base.dart';
+import 'copy_utils.dart';
 import 'metadata.dart';
+import 'wire_safety.dart';
 
-Metadata? _readToolCallMetadata(Map<String, dynamic> json) {
-  try {
-    return JsonDecoder.optionalField<Map<String, dynamic>>(json, 'metadata');
-  } on AGUIValidationError catch (e) {
-    if (!json.containsKey('encryptedValue') &&
-        !json.containsKey('encrypted_value')) {
-      rethrow;
-    }
-    throw AGUIValidationError(
-      message: e.message,
-      field: e.field,
-      value: e.value?.runtimeType.toString(),
-    );
-  }
-}
+Metadata? _readToolCallMetadata(Map<String, dynamic> json) =>
+    readCipherAwareOptionalField<Map<String, dynamic>>(json, 'metadata');
 
 // `kUnsetSentinel` (from `base.dart`) is the shared sentinel for all
 // `copyWith` methods in this file.
@@ -129,9 +118,7 @@ class ToolCall extends AGUIModel {
       encryptedValue: identical(encryptedValue, kUnsetSentinel)
           ? this.encryptedValue
           : encryptedValue as String?,
-      metadata: identical(metadata, kUnsetSentinel)
-          ? this.metadata
-          : metadata as Metadata?,
+      metadata: resolveNullableCopy<Metadata>(metadata, this.metadata),
     );
   }
 }

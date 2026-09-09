@@ -312,34 +312,6 @@ class JsonDecoder {
     return optionalField<T>(json, snakeKey);
   }
 
-  /// Reads an optional dual-spelling field without retaining wire data in an
-  /// error.
-  ///
-  /// Use this for fields on cipher-bearing payloads. A wrong-typed value is
-  /// represented only by its runtime type; [AGUIValidationError.json],
-  /// [AGUIValidationError.cause], and the raw value remain absent. Key-presence
-  /// precedence matches [optionalEitherField].
-  static T? optionalCipherSafeEitherField<T>(
-    Map<String, dynamic> json,
-    String camelKey,
-    String snakeKey,
-  ) {
-    final field = json.containsKey(camelKey) ? camelKey : snakeKey;
-    if (!json.containsKey(field) || json[field] == null) {
-      return null;
-    }
-    final value = json[field];
-    if (value is! T) {
-      throw AGUIValidationError(
-        message:
-            'Field has incorrect type. Expected $T, got ${value.runtimeType}',
-        field: field,
-        value: value.runtimeType.toString(),
-      );
-    }
-    return value;
-  }
-
   /// Reads an optional integer field, accepting either `int` or `num`
   /// on the wire.
   ///
@@ -410,8 +382,6 @@ class JsonDecoder {
   ///
   /// **All cipher-safe helpers a new cipher-bearing event factory must use:**
   /// - [_requireCipherSafeString] — required string field without json: leak
-  /// - [optionalCipherSafeEitherField] — optional dual-spelling field without
-  ///   json/value/cause leakage
   /// - [optionalCipherSafeIntField] — optional int field without json: leak
   /// - Set `rawEvent: null` unconditionally in the factory return (or
   ///   conditionally via a `hasCipher` predicate like MessagesSnapshotEvent)

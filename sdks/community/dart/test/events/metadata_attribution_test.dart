@@ -715,5 +715,87 @@ void main() {
       );
       _expectNoSecrets(error, const [cipher, metadataSecret]);
     });
+
+    test('parent cipher scrubs a nested non-cipher tool-call error', () {
+      const cipher = 'parent-message-cipher-secret';
+      const metadataSecret = 'nested-tool-metadata-secret';
+      final error = _captureDecodingError(
+        () => decoder.decodeJson({
+          'type': 'MESSAGES_SNAPSHOT',
+          'messages': <Map<String, dynamic>>[
+            {
+              'id': 'assistant',
+              'role': 'assistant',
+              'encryptedValue': cipher,
+              'toolCalls': <Map<String, dynamic>>[
+                {
+                  'id': 'call',
+                  'type': 'function',
+                  'function': {'name': 'lookup', 'arguments': '{}'},
+                  'metadata': <String>[metadataSecret],
+                },
+              ],
+            },
+          ],
+        }),
+      );
+
+      expect(error.field, 'messages[0].toolCalls[0].metadata');
+      expect(error.actualValue, isNull);
+      _expectNoSecrets(error.message, const [cipher, metadataSecret]);
+      _expectNoSecrets(error.cause, const [cipher, metadataSecret]);
+      _expectNoSecrets(error, const [cipher, metadataSecret]);
+    });
+
+    test('parent cipher scrubs direct and run-input nested errors', () {
+      const cipher = 'parent-direct-cipher-secret';
+      const metadataSecret = 'nested-direct-metadata-secret';
+      final message = <String, dynamic>{
+        'id': 'assistant',
+        'role': 'assistant',
+        'encryptedValue': cipher,
+        'toolCalls': <Map<String, dynamic>>[
+          {
+            'id': 'call',
+            'type': 'function',
+            'function': {'name': 'lookup', 'arguments': '{}'},
+            'metadata': <String>[metadataSecret],
+          },
+        ],
+      };
+
+      final direct = _captureValidationError(
+        () => AssistantMessage.fromJson(message),
+      );
+      expect(direct.field, 'toolCalls[0].metadata');
+      expect(direct.value, 'List<String>');
+      expect(direct.json, isNull);
+      expect(direct.cause, isNull);
+      expect(direct.message, contains('Expected Map<String, dynamic>'));
+      _expectNoSecrets(direct, const [cipher, metadataSecret]);
+
+      final nested = _captureValidationError(
+        () => RunStartedEvent.fromJson({
+          'type': 'RUN_STARTED',
+          'threadId': 'thread',
+          'runId': 'run',
+          'input': {
+            'threadId': 'thread',
+            'runId': 'run',
+            'state': <String, dynamic>{},
+            'messages': [message],
+            'tools': <Map<String, dynamic>>[],
+            'context': <Map<String, dynamic>>[],
+            'forwardedProps': <String, dynamic>{},
+          },
+        }),
+      );
+      expect(nested.field, 'input.messages[0].toolCalls[0].metadata');
+      expect(nested.value, 'List<String>');
+      expect(nested.json, isNull);
+      expect(nested.cause, isNull);
+      expect(nested.message, contains('Expected Map<String, dynamic>'));
+      _expectNoSecrets(nested, const [cipher, metadataSecret]);
+    });
   });
 }

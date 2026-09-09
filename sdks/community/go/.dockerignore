@@ -3,6 +3,7 @@
 **
 !go.mod
 !go.sum
+!internal/jsonnumber/**/*.go
 !pkg/**/*.go
 !pkg/**/testdata/**
 !example/server/go.mod

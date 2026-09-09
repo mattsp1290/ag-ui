@@ -15,6 +15,7 @@ void main() {
       'go.sum',
       '.dockerignore',
       'pkg/example.go',
+      'internal/jsonnumber/int64.go',
       'example/server/go.mod',
       'example/server/go.sum',
       'example/server/Dockerfile',
@@ -38,11 +39,21 @@ void main() {
       await File(
         '${source.path}/pkg/.hidden.go',
       ).writeAsString('not a build input');
+      final excluded = File('${source.path}/internal/parity/harness.go');
+      await excluded.parent.create(recursive: true);
+      await excluded.writeAsString('not a runtime dependency');
       await copyGoBuildContext(source, target);
       expect(
         await File('${target.path}/pkg/example.go').readAsString(),
         'fixture',
       );
+      expect(
+        await File(
+          '${target.path}/internal/jsonnumber/int64.go',
+        ).readAsString(),
+        'fixture',
+      );
+      expect(Directory('${target.path}/internal/parity').existsSync(), isFalse);
       expect(File('${target.path}/pkg/notes.txt').existsSync(), isFalse);
       expect(File('${target.path}/pkg/.hidden.go').existsSync(), isFalse);
     },

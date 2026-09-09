@@ -21,6 +21,7 @@ Future<void> copyGoBuildContext(Directory source, Directory target) async {
   }
   for (final relative in [
     'pkg',
+    'internal/jsonnumber',
     'example/server/cmd',
     'example/server/internal',
   ]) {

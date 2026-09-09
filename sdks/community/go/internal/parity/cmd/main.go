@@ -294,7 +294,8 @@ func validResultShape(kind string, raw json.RawMessage) bool {
 
 func decodeAndEncode(tc testCase, input json.RawMessage, useEncoder, fromPeer bool) (json.RawMessage, bool, error) {
 	if tc.Kind == "aggregate" || tc.Kind == "mapper" {
-		return nil, true, fmt.Errorf("Go SDK has no public %s API", tc.Kind)
+		value, err := encodeUsageHelper(tc.Kind, input, fromPeer)
+		return value, false, err
 	}
 	if tc.Check == "validate" {
 		var err error
@@ -372,6 +373,62 @@ func decodeAndEncode(tc testCase, input json.RawMessage, useEncoder, fromPeer bo
 	}
 	encoded, err := json.Marshal(value)
 	return encoded, false, err
+}
+
+// Peer helper artifacts are already-computed results: validate and preserve
+// them rather than feeding them back into a helper's input schema.
+func encodeUsageHelper(kind string, input json.RawMessage, fromPeer bool) (json.RawMessage, error) {
+	var value any
+	if fromPeer {
+		if kind == "aggregate" {
+			var entries []events.TokenUsage
+			if err := json.Unmarshal(input, &entries); err != nil {
+				return nil, err
+			}
+			for i, entry := range entries {
+				if err := entry.Validate(); err != nil {
+					return nil, fmt.Errorf("usage[%d]: %w", i, err)
+				}
+			}
+			value = entries
+		} else {
+			var usage *events.TokenUsage
+			if err := json.Unmarshal(input, &usage); err != nil {
+				return nil, err
+			}
+			if usage != nil {
+				if err := usage.Validate(); err != nil {
+					return nil, err
+				}
+			}
+			value = usage
+		}
+	} else if kind == "aggregate" {
+		var request struct {
+			Entries []events.TokenUsage `json:"entries"`
+		}
+		if err := json.Unmarshal(input, &request); err != nil {
+			return nil, err
+		}
+		var err error
+		value, err = events.AggregateTokenUsage(request.Entries)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		var request struct {
+			Metadata any    `json:"metadata"`
+			Provider string `json:"provider"`
+			Model    string `json:"model"`
+		}
+		decoder := json.NewDecoder(bytes.NewReader(input))
+		decoder.UseNumber()
+		if err := decoder.Decode(&request); err != nil {
+			return nil, err
+		}
+		value = events.TokenUsageFromLangChainMetadata(request.Metadata, request.Provider, request.Model)
+	}
+	return json.Marshal(value)
 }
 
 func unmarshalStrict(data []byte, value any) error {

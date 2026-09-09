@@ -53,13 +53,17 @@ func validateRouteRules(t *testing.T, corpus parityCorpus, manifest parityManife
 		}
 	}
 	seen = map[string]bool{}
+	paths := map[string][]string{
+		"aggregate.empty_labels": {"/0/provider", "/0/model"},
+		"mapper.langchain.zero":  {"/provider", "/model"},
+	}
 	for _, rule := range manifest.RouteNormalizations {
 		key := rule.Route + "/" + rule.CaseID + rule.Path
 		require.False(t, seen[key], "duplicate route normalization")
 		seen[key] = true
-		require.Equal(t, "aggregate.empty_labels", rule.CaseID)
+		require.Contains(t, paths, rule.CaseID)
 		require.Contains(t, []string{"go.from-python", "go.from-typescript"}, rule.Route)
-		require.Contains(t, []string{"/0/provider", "/0/model"}, rule.Path)
+		require.Contains(t, paths[rule.CaseID], rule.Path)
 		require.Equal(t, "omit-if-empty-string", rule.Operation)
 		require.NotEmpty(t, rule.Reason)
 	}
@@ -229,13 +233,17 @@ func normalizeArtifact(t *testing.T, raw json.RawMessage, caseID, route string, 
 			if rule.CaseID != caseID || rule.Route != route {
 				continue
 			}
-			field := strings.TrimPrefix(rule.Path, "/0/")
-			items, ok := value.([]any)
-			if !ok || len(items) == 0 {
-				continue
+			field := strings.TrimPrefix(rule.Path, "/")
+			object, _ := value.(map[string]any)
+			if strings.HasPrefix(rule.Path, "/0/") {
+				items, ok := value.([]any)
+				if !ok || len(items) == 0 {
+					continue
+				}
+				object, _ = items[0].(map[string]any)
+				field = strings.TrimPrefix(rule.Path, "/0/")
 			}
-			object, ok := items[0].(map[string]any)
-			if ok && object[field] == "" {
+			if object[field] == "" {
 				delete(object, field)
 				used[route+"/"+caseID+rule.Path] = true
 			}

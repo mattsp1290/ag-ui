@@ -447,10 +447,44 @@ func runParityCase(c parityCase, check string) error {
 		var value types.AgentCapabilities
 		return runValueCase(c, "marshal", &value)
 	case "aggregate", "mapper":
-		return fmt.Errorf("unsupported feature: no public Go %s API", c.Kind)
+		return runUsageHelperCase(c)
 	default:
 		return fmt.Errorf("unsupported corpus kind %q", c.Kind)
 	}
+}
+
+func runUsageHelperCase(c parityCase) error {
+	var value any
+	var err error
+	if c.Kind == "aggregate" {
+		var input struct {
+			Entries []events.TokenUsage `json:"entries"`
+		}
+		if err := json.Unmarshal(c.Input, &input); err != nil {
+			return decodeResult(c, err)
+		}
+		value, err = events.AggregateTokenUsage(input.Entries)
+	} else {
+		var input struct {
+			Metadata any    `json:"metadata"`
+			Provider string `json:"provider"`
+			Model    string `json:"model"`
+		}
+		decoder := json.NewDecoder(bytes.NewReader(c.Input))
+		decoder.UseNumber()
+		if err := decoder.Decode(&input); err != nil {
+			return decodeResult(c, err)
+		}
+		value = events.TokenUsageFromLangChainMetadata(input.Metadata, input.Provider, input.Model)
+	}
+	if err != nil || !c.Valid {
+		return decodeResult(c, err)
+	}
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		return err
+	}
+	return compareJSON(c.Expected, encoded, false)
 }
 
 func runValueCase(c parityCase, check string, value any) error {

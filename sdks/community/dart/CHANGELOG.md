@@ -5,6 +5,47 @@ All notable changes to the AG-UI Dart SDK will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- Canonical metadata helpers and subagent attribution across supported message
+  and event carriers.
+- Typed run outcomes, interrupt resume entries, subagent lifecycle events and
+  subagent outcomes.
+- Token-usage aggregation and capability value models.
+- Cross-language parity evidence covering 95 resolved cases across 16 total
+  artifact routes, including six directed Dart-to/from-peer consumer routes,
+  pinned in `test/fixtures/parity_manifest.json`.
+- Flutter example projection for root and subagent lifecycle, attribution,
+  outcomes, metadata, and usage.
+- Typed multimodal `UserMessage` parts for text, image, audio, video, and
+  document inputs. This supersedes the historical 0.3.0 gap note below; the
+  legacy binary shape remains supported separately.
+
+### Breaking Changes
+
+- Exhaustive switches over `EventType` or sealed `BaseEvent` subtypes must add
+  `subagentStarted` / `SubagentStartedEvent`, `subagentFinished` /
+  `SubagentFinishedEvent`, and `subagentError` / `SubagentErrorEvent`.
+
+### Compatibility boundaries
+
+- Protobuf and WebSocket transports remain unsupported. Capability types are
+  declarations only; the client does not add capability discovery.
+- The deprecated Dart-only `THINKING_CONTENT` event and legacy
+  `SimpleRunAgentInput` defaults remain for compatibility.
+- `RunAgentInput.toJson()` omits null `forwardedProps`; the canonical HTTP
+  `Encoder` used by `runAgentInput` emits the required key with a null value.
+- Shared token counts are limited to the exact cross-language integer range of
+  `2^53 - 1`. Go can represent larger integers and may collapse empty usage
+  labels to absent values.
+- Language-specific agent, middleware, reactive-stream, and UI runtimes are
+  outside the wire-model parity scope.
+
+Historical release notes below describe the state of their release and may
+list gaps that this unreleased work has since closed.
+
 ## [0.3.0]
 
 ### Breaking Changes (review-fix pass)

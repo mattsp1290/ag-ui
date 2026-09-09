@@ -340,6 +340,11 @@ void main() {
 
       for (final entry in exports) {
         final symbol = entry['symbol'] as String;
+        expect(
+          entry['status'],
+          anyOf('implemented', 'partial', 'excluded'),
+          reason: symbol,
+        );
         final python = entry['python'];
         final typescript = entry['typescript'];
         final go = entry['go'];
@@ -352,7 +357,7 @@ void main() {
         if (go != null && go != 'any') {
           expect(goDeclarations, contains(go), reason: symbol);
         }
-        if (entry['status'] != 'pending') {
+        if (entry['status'] != 'excluded') {
           expect(
             dartDeclarations,
             contains(entry['dart']),
@@ -591,7 +596,8 @@ void main() {
             )
             .every(
               (event) =>
-                  event['owner'] == 'PR04' && event['dart_status'] == 'pending',
+                  event['owner'] == 'PR04' &&
+                  event['dart_status'] == 'implemented',
             ),
         isTrue,
       );
@@ -619,11 +625,19 @@ void main() {
       expect(dartOnly['dart_status'], 'implemented-legacy');
     });
 
-    test('assigns all later verification and documentation work', () {
+    test('records completed verification and documentation work', () {
+      expect(
+        manifest['inventory_status'],
+        'resolved-with-explicit-differences',
+      );
       final packages = _asMap(manifest['work_packages']);
       expect(
         packages.keys,
         unorderedEquals(List<String>.generate(9, (index) => 'PR0${index + 1}')),
+      );
+      expect(
+        packages.values.map(_asMap).map((entry) => entry['state']),
+        everyElement(startsWith('implemented-by-')),
       );
 
       final tests = _asMap(manifest['test_catalog']);
@@ -634,13 +648,8 @@ void main() {
         surfaceOwners.add(owner);
         expect(owner, matches(RegExp(r'^PR0[7-9]$')));
         final testRecord = _asMap(tests[surface['test_id']]);
-        if (owner == 'PR07') {
-          expect(surface['status'], 'verified');
-          expect(testRecord['status'], 'executable');
-        } else {
-          expect(surface['status'], 'pending');
-          expect(testRecord['status'], 'planned');
-        }
+        expect(surface['status'], 'verified');
+        expect(testRecord['status'], 'executable');
         expect(testRecord['owner'], owner);
       }
       expect(surfaceOwners, unorderedEquals(['PR07', 'PR08', 'PR09']));
@@ -660,6 +669,7 @@ void main() {
       expect(
         differences.map((entry) => entry['scope']),
         containsAll(<String>[
+          'Python MetadataMixin',
           'tokenUsageFromAiSdkUsage',
           'protobuf and WebSockets',
           'capability HTTP discovery',

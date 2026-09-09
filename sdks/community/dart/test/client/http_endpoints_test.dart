@@ -354,7 +354,7 @@ void main() {
           return http.StreamedResponse(
             Stream.value(
               utf8.encode(
-                'data: {"type":"RUN_FINISHED","threadId":"t","runId":"r"}\n\n',
+                'data: {"type":"RUN_FINISHED","threadId":"t","runId":"r","usage":[{"inputTokens":1,"outputTokens":0}]}\n\n',
               ),
             ),
             200,
@@ -484,7 +484,7 @@ void main() {
                 'data: {"type":"SUBAGENT_FINISHED","subagentRunId":"child","outcome":{"type":"success"}}\n\n',
               ),
               utf8.encode(
-                'data: {"type":"RUN_FINISHED","threadId":"t","runId":"r"}\n\n',
+                'data: {"type":"RUN_FINISHED","threadId":"t","runId":"r","usage":[{"inputTokens":1,"outputTokens":0}]}\n\n',
               ),
             ]),
             200,
@@ -518,6 +518,10 @@ void main() {
           SubagentFinishedEvent,
           RunFinishedEvent,
         ]);
+        expect(
+          (events.last as RunFinishedEvent).usage?.single.toJson(),
+          {'inputTokens': 1, 'outputTokens': 0},
+        );
       });
     });
 

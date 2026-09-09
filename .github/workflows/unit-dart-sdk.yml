@@ -44,6 +44,9 @@ jobs:
       - name: Run tests
         run: dart test --exclude-tags requires-server
 
+      - name: Run token usage tests in Chrome
+        run: dart test -p chrome test/types/token_usage_test.dart
+
   flutter-example:
     name: Flutter example
     runs-on: ubuntu-latest

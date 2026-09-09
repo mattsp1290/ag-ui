@@ -9,6 +9,7 @@ library;
 
 import 'dart:developer' as developer;
 
+import '../internal/token_usage_codec.dart';
 import '../types/base.dart';
 import '../types/context.dart';
 import '../types/copy_utils.dart';
@@ -16,6 +17,7 @@ import '../types/metadata.dart';
 import '../types/message.dart';
 import '../types/run_outcome.dart';
 import '../types/subagent_outcome.dart';
+import '../types/token_usage.dart';
 import '../types/wire_safety.dart';
 import 'event_type.dart';
 

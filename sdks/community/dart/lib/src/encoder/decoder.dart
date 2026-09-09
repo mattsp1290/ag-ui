@@ -9,6 +9,7 @@ import 'dart:typed_data';
 import '../client/errors.dart';
 import '../client/validators.dart';
 import '../events/events.dart';
+import '../internal/token_usage_codec.dart';
 import '../types/base.dart';
 import '../types/run_outcome.dart';
 // `encoder/errors.dart` defines its own `ValidationError`, distinct from
@@ -440,6 +441,7 @@ class EventDecoder {
       case RunFinishedEvent():
         Validators.validateThreadId(event.threadId);
         Validators.validateRunId(event.runId);
+        validateTokenUsageList(event.usage);
         switch (event.outcome) {
           case null:
           case RunFinishedSuccessOutcome():
@@ -466,6 +468,7 @@ class EventDecoder {
         }
       case RunErrorEvent():
         Validators.requireNonEmpty(event.message, 'message');
+        validateTokenUsageList(event.usage);
       case StepStartedEvent():
         Validators.requireNonEmpty(event.stepName, 'stepName');
       case StepFinishedEvent():

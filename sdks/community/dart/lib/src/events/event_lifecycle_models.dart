@@ -181,6 +181,7 @@ final class RunFinishedEvent extends BaseEvent {
   final String threadId;
   final String runId;
   final RunFinishedOutcome? outcome;
+  final List<TokenUsage>? usage;
 
   /// Optional run-completion payload (`z.any().optional()` /
   /// `Optional[Any] = None` in TS/Python). On the wire, an explicit
@@ -204,6 +205,7 @@ final class RunFinishedEvent extends BaseEvent {
     required this.runId,
     this.result,
     this.outcome,
+    this.usage,
     super.timestamp,
     super.metadata,
     super.rawEvent,
@@ -225,25 +227,27 @@ final class RunFinishedEvent extends BaseEvent {
         runId: JsonDecoder.requireEitherField<String>(json, 'runId', 'run_id'),
         result: json['result'],
         outcome: _readRunFinishedOutcome(json),
+        usage: readTokenUsageList(json),
         timestamp: JsonDecoder.optionalIntField(json, 'timestamp'),
         rawEvent: _readRawEvent(json),
       );
     } on AGUIValidationError catch (error) {
-      throw sanitizeValidationError(
-        enclosingJson: json,
-        error: error,
-      );
+      throw sanitizeValidationError(enclosingJson: json, error: error);
     }
   }
 
   @override
-  Map<String, dynamic> toJson() => {
-        ...super.toJson(),
-        'threadId': threadId,
-        'runId': runId,
-        if (result != null) 'result': result,
-        if (outcome != null) 'outcome': outcome!.toJson(),
-      };
+  Map<String, dynamic> toJson() {
+    final encodedUsage = encodeTokenUsageList(usage);
+    return {
+      ...super.toJson(),
+      'threadId': threadId,
+      'runId': runId,
+      if (result != null) 'result': result,
+      if (outcome != null) 'outcome': outcome!.toJson(),
+      if (encodedUsage != null) 'usage': encodedUsage,
+    };
+  }
 
   // See `_Unset` (top of file) for the sentinel rationale.
   @override
@@ -253,6 +257,7 @@ final class RunFinishedEvent extends BaseEvent {
     String? runId,
     Object? result = kUnsetSentinel,
     Object? outcome = kUnsetSentinel,
+    Object? usage = kUnsetSentinel,
     int? timestamp,
     dynamic rawEvent,
   }) {
@@ -264,6 +269,7 @@ final class RunFinishedEvent extends BaseEvent {
       outcome: identical(outcome, kUnsetSentinel)
           ? this.outcome
           : outcome as RunFinishedOutcome?,
+      usage: resolveNullableCopy<List<TokenUsage>>(usage, this.usage),
       timestamp: timestamp ?? this.timestamp,
       rawEvent: rawEvent ?? this.rawEvent,
     );
@@ -276,37 +282,49 @@ final class RunErrorEvent extends BaseEvent {
 
   /// Optional machine-readable error code.
   final String? code;
+  final List<TokenUsage>? usage;
 
   const RunErrorEvent({
     required this.message,
     this.code,
+    this.usage,
     super.timestamp,
     super.metadata,
     super.rawEvent,
   }) : super(eventType: EventType.runError);
 
   factory RunErrorEvent.fromJson(Map<String, dynamic> json) {
-    return RunErrorEvent(
-      metadata: _readMetadata(json),
-      message: JsonDecoder.requireField<String>(json, 'message'),
-      code: JsonDecoder.optionalField<String>(json, 'code'),
-      timestamp: JsonDecoder.optionalIntField(json, 'timestamp'),
-      rawEvent: _readRawEvent(json),
-    );
+    try {
+      return RunErrorEvent(
+        metadata: _readMetadata(json),
+        message: JsonDecoder.requireField<String>(json, 'message'),
+        code: JsonDecoder.optionalField<String>(json, 'code'),
+        usage: readTokenUsageList(json),
+        timestamp: JsonDecoder.optionalIntField(json, 'timestamp'),
+        rawEvent: _readRawEvent(json),
+      );
+    } on AGUIValidationError catch (error) {
+      throw sanitizeValidationError(enclosingJson: json, error: error);
+    }
   }
 
   @override
-  Map<String, dynamic> toJson() => {
-        ...super.toJson(),
-        'message': message,
-        if (code != null) 'code': code,
-      };
+  Map<String, dynamic> toJson() {
+    final encodedUsage = encodeTokenUsageList(usage);
+    return {
+      ...super.toJson(),
+      'message': message,
+      if (code != null) 'code': code,
+      if (encodedUsage != null) 'usage': encodedUsage,
+    };
+  }
 
   @override
   RunErrorEvent copyWith({
     Object? metadata = kUnsetSentinel,
     String? message,
     Object? code = kUnsetSentinel,
+    Object? usage = kUnsetSentinel,
     int? timestamp,
     dynamic rawEvent,
   }) {
@@ -314,6 +332,7 @@ final class RunErrorEvent extends BaseEvent {
       metadata: resolveNullableCopy<Metadata>(metadata, this.metadata),
       message: message ?? this.message,
       code: identical(code, kUnsetSentinel) ? this.code : code as String?,
+      usage: resolveNullableCopy<List<TokenUsage>>(usage, this.usage),
       timestamp: timestamp ?? this.timestamp,
       rawEvent: rawEvent ?? this.rawEvent,
     );
@@ -347,10 +366,7 @@ final class StepStartedEvent extends _SubagentAttributedEvent {
   }
 
   @override
-  Map<String, dynamic> toJson() => {
-        ...super.toJson(),
-        'stepName': stepName,
-      };
+  Map<String, dynamic> toJson() => {...super.toJson(), 'stepName': stepName};
 
   @override
   StepStartedEvent copyWith({
@@ -400,10 +416,7 @@ final class StepFinishedEvent extends _SubagentAttributedEvent {
   }
 
   @override
-  Map<String, dynamic> toJson() => {
-        ...super.toJson(),
-        'stepName': stepName,
-      };
+  Map<String, dynamic> toJson() => {...super.toJson(), 'stepName': stepName};
 
   @override
   StepFinishedEvent copyWith({

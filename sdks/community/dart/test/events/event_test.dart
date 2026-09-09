@@ -599,13 +599,18 @@ void main() {
           threadId: 'thread_001',
           runId: 'run_001',
           result: result,
+          usage: [TokenUsage(inputTokens: 0, outputTokens: 2)],
         );
 
         final json = event.toJson();
         expect(json['result'], result);
+        expect(json['usage'], [
+          {'inputTokens': 0, 'outputTokens': 2},
+        ]);
 
         final decoded = RunFinishedEvent.fromJson(json);
         expect(decoded.result, result);
+        expect(decoded.usage?.single.outputTokens, 2);
       });
 
       test('RunFinishedEvent.copyWith(result: null) clears the result', () {
@@ -673,15 +678,20 @@ void main() {
         final event = RunErrorEvent(
           message: 'Something went wrong',
           code: 'ERR_TIMEOUT',
+          usage: [TokenUsage(totalTokens: 4)],
         );
 
         final json = event.toJson();
         expect(json['message'], 'Something went wrong');
         expect(json['code'], 'ERR_TIMEOUT');
+        expect(json['usage'], [
+          {'totalTokens': 4},
+        ]);
 
         final decoded = RunErrorEvent.fromJson(json);
         expect(decoded.message, event.message);
         expect(decoded.code, event.code);
+        expect(decoded.usage?.single.totalTokens, 4);
       });
 
       test('StepEvents handle both camelCase and snake_case', () {

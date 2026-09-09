@@ -266,6 +266,7 @@ Map<String, dynamic> _canonicalEvidence() {
       'content' => 'content',
       'type' => 'type',
       'outcome' => 'outcome',
+      'usage' => 'usage',
       _ => throw StateError('No evidence adapter for $kind ($rowId)'),
     };
     evidence['canonical.$rowId'] = <String, dynamic>{
@@ -299,6 +300,8 @@ Map<String, dynamic> _decodeEvidence(
       return model.startsWith('SubagentFinished')
           ? SubagentFinishedOutcome.fromJson(input).toJson()
           : RunFinishedOutcome.fromJson(input).toJson();
+    case 'usage':
+      return TokenUsage.fromJson(input).toJson();
     case 'type':
       switch (model) {
         case 'Context':
@@ -330,6 +333,8 @@ String _modelRelativePath(Map<String, dynamic> evidence) {
     return '/${segments.skip(2).join('/')}';
   }
   switch (evidence['model']) {
+    case 'TokenUsage':
+      return '/${evidence['field']}';
     case 'Context':
       return path.replaceFirst('/context/0', '');
     case 'FunctionCall':
@@ -361,6 +366,9 @@ Map<String, dynamic> _adapterInput(
   final model = evidence['model'] as String;
   final path = evidence['path'] as String;
   switch (model) {
+    case 'TokenUsage':
+      final parentPath = path.substring(0, path.lastIndexOf('/'));
+      return _asMap(_atJsonPointer(rootInput, parentPath), model);
     case 'Context':
       return _asMap(_atJsonPointer(rootInput, '/context/0'), model);
     case 'FunctionCall':

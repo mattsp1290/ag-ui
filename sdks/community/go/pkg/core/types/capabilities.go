@@ -3,9 +3,8 @@ package types
 import (
 	"encoding/json"
 	"fmt"
-	"math/big"
-	"strconv"
-	"strings"
+
+	"github.com/ag-ui-protocol/ag-ui/sdks/community/go/internal/jsonnumber"
 )
 
 // Capability declarations describe an agent's advertised behavior. They do
@@ -142,33 +141,13 @@ func (c *ExecutionCapabilities) UnmarshalJSON(data []byte) error {
 }
 
 func decodeIntegralLimit(raw json.RawMessage) (*int64, error) {
-	s := string(raw)
-	if s == "null" {
+	if string(raw) == "null" {
 		return nil, nil
 	}
-	// Syntax has already been checked by the enclosing JSON decoder. Bound
-	// the exponent before exact arithmetic so its magnitude cannot cause an
-	// allocation larger than the input warrants, even for 1e-999999999.
-	mantissa, exponent := s, "0"
-	if i := strings.IndexAny(s, "eE"); i >= 0 {
-		mantissa, exponent = s[:i], s[i+1:]
+	value, err := jsonnumber.Int64(raw)
+	if err != nil {
+		return nil, err
 	}
-	if strings.Trim(mantissa, "-0.") == "" {
-		zero := int64(0)
-		return &zero, nil
-	}
-	power, err := strconv.ParseInt(exponent, 10, 64)
-	bound := int64(len(mantissa)) + 20
-	if err != nil || power < -bound || power > bound {
-		return nil, fmt.Errorf("must be an exact int64 integer")
-	}
-	// Exact arithmetic accepts decimal/exponent spellings without rounding
-	// fractions or values adjacent to the int64 limits through float64.
-	exact, ok := new(big.Rat).SetString(s)
-	if !ok || !exact.IsInt() || !exact.Num().IsInt64() {
-		return nil, fmt.Errorf("must be an exact int64 integer")
-	}
-	value := exact.Num().Int64()
 	return &value, nil
 }
 

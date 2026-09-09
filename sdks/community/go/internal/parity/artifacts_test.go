@@ -92,6 +92,23 @@ func TestGoArtifactCLI(t *testing.T) {
 			}
 		}
 	}
+	for _, c := range corpus.Cases {
+		if c.Kind != "aggregate" && c.Kind != "mapper" {
+			continue
+		}
+		for _, document := range []artifactDocument{direct, encoded} {
+			for _, record := range document.Cases {
+				if record.ID != c.ID {
+					continue
+				}
+				require.False(t, record.Unsupported, "public helper must execute: %s", c.ID)
+				require.Equal(t, c.Valid, record.Accepted, "%s: %s", c.ID, record.Error)
+				if c.Valid {
+					require.NoError(t, compareJSON(c.Expected, record.Value, false), c.ID)
+				}
+			}
+		}
+	}
 	// Simulate a peer envelope solely to exercise the import boundary. The
 	// next oracle slice supplies real Python/TypeScript producer artifacts.
 	peer := direct
@@ -120,6 +137,22 @@ func TestGoArtifactCLI(t *testing.T) {
 		if record.ID == "event.TEXT_MESSAGE_START.full" {
 			require.True(t, record.Accepted, record.Error)
 			require.NoError(t, compareJSON(importedValue, record.Value, false), "import must consume peer bytes")
+		}
+	}
+	// Import computed helper outputs as usage, without running the helpers a
+	// second time. Their input envelopes have entirely different shapes.
+	for _, id := range []string{"aggregate.groups_preserve_missing_zero_order", "mapper.langchain.full", "mapper.langchain.labels_only"} {
+		var expected json.RawMessage
+		for _, record := range direct.Cases {
+			if record.ID == id {
+				expected = record.Value
+			}
+		}
+		for _, record := range imported.Cases {
+			if record.ID == id {
+				require.True(t, record.Accepted, record.Error)
+				require.NoError(t, compareJSON(expected, record.Value, false), id)
+			}
 		}
 	}
 	for _, mutation := range []struct {
@@ -177,6 +210,22 @@ func TestGoArtifactCLI(t *testing.T) {
 	output, err = run("--source", "typescript")
 	require.NoError(t, err, "%s", output)
 	read("go.from-typescript")
+	// Import computed helper outputs as usage, without running the helpers a
+	// second time. Their input envelopes have entirely different shapes.
+	for _, id := range []string{"aggregate.groups_preserve_missing_zero_order", "mapper.langchain.full", "mapper.langchain.labels_only"} {
+		var expected json.RawMessage
+		for _, record := range direct.Cases {
+			if record.ID == id {
+				expected = record.Value
+			}
+		}
+		for _, record := range imported.Cases {
+			if record.ID == id {
+				require.True(t, record.Accepted, record.Error)
+				require.NoError(t, compareJSON(expected, record.Value, false), id)
+			}
+		}
+	}
 	for _, mutation := range []struct {
 		name string
 		edit func(map[string]any)

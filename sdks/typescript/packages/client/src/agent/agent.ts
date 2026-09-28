@@ -54,6 +54,16 @@ import packageJson from "../../package.json";
 let warnedDeprecatedMaxVersion = false;
 
 /**
+ * Inputs that runAgent() is starting. onInitialize() checks resume answers
+ * against pending interrupts only for these. Every other caller, such as
+ * connectAgent(), only reads the thread's history and answers nothing, so an
+ * interrupted thread must still connect. The check stays inside onInitialize()
+ * because subclasses reconcile pending interrupts there before calling super.
+ * A module WeakSet, not a field, because clone() skips field initializers.
+ */
+const runInputs = new WeakSet<RunAgentInput>();
+
+/**
  * The producer's RUN_STARTED declaration, judged against what this client
  * speaks. Older or absent is the downgrade signal the versioning rules expect
  * a consumer to notice quietly; NEWER means material this client may be
@@ -313,6 +323,7 @@ export abstract class AbstractAgent {
         subscriber ?? {},
       ];
 
+      runInputs.add(input);
       await this.onInitialize(input, subscribers);
 
       // Per-run detachment signal + completion promise
@@ -566,7 +577,7 @@ export abstract class AbstractAgent {
   }
 
   protected async onInitialize(input: RunAgentInput, subscribers: AgentSubscriber[]) {
-    if (this.pendingInterrupts.length > 0) {
+    if (runInputs.has(input) && this.pendingInterrupts.length > 0) {
       const resumeIds = new Set((input.resume ?? []).map((r) => r.interruptId));
       const uncovered = this.pendingInterrupts.map((i) => i.id).filter((id) => !resumeIds.has(id));
       if (uncovered.length > 0) {

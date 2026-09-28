@@ -105,7 +105,7 @@ describe("legacy command.resume after interrupt-outcome run", () => {
     (agent as any).pendingInterrupts = [{ id: "int-1", reason: "confirm" }];
 
     // onInitialize is invoked by runAgent before run(); call it directly to
-    // assert the guard does not throw for a legacy resume.
+    // assert the bridge drops the tracked interrupts for a legacy resume.
     await expect(
       (agent as any).onInitialize(
         {
@@ -127,19 +127,9 @@ describe("legacy command.resume after interrupt-outcome run", () => {
     const agent = new LangGraphHttpAgent({ url: "http://localhost:8000" });
     (agent as any).pendingInterrupts = [{ id: "int-1", reason: "confirm" }];
 
+    // The guard applies to runs only, and rejects before any HTTP request.
     await expect(
-      (agent as any).onInitialize(
-        {
-          runId: "run-2",
-          threadId: "t1",
-          messages: [],
-          tools: [],
-          context: [],
-          state: {},
-          forwardedProps: {},
-        },
-        [],
-      ),
+      agent.runAgent({ runId: "run-2", forwardedProps: {} }),
     ).rejects.toThrow(/pending interrupt/i);
   });
 });

@@ -709,6 +709,8 @@ export class MastraAgent extends AbstractAgent {
       ...this.config,
       agentId: this.nativeAgentId,
     });
+    // Constructed with the native id for backend calls; keep the public alias.
+    cloned.agentId = this.agentId;
     if (this.headers) {
       cloned.headers = { ...this.headers };
     }

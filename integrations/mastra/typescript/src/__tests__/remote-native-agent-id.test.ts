@@ -56,6 +56,7 @@ describe("remote native agent identity", () => {
       config.agentId = "mutated-config";
       agent.agentId = "registry-alias";
       const cloned = agent.clone();
+      expect(cloned.agentId).toBe("registry-alias");
       cloned.agentId = "runtime-alias";
 
       const events = await collectEvents(
@@ -89,6 +90,28 @@ describe("remote native agent identity", () => {
       });
     },
   );
+
+  it("clone keeps the source alias and the native backend id", async () => {
+    const { agent, requests } = remoteFixture();
+    agent.agentId = "registry-alias";
+    const cloned = agent.clone();
+    const reCloned = cloned.clone();
+
+    expect(cloned.agentId).toBe("registry-alias");
+    expect(reCloned.agentId).toBe("registry-alias");
+
+    await collectEvents(reCloned, makeInput({ state: { edited: true } }));
+
+    const memoryRequests = requests.filter(({ url }) =>
+      url.pathname.includes("/memory/"),
+    );
+    expect(
+      memoryRequests.map(({ url }) => url.searchParams.get("agentId")),
+    ).toEqual(["native-agent", "native-agent"]);
+    expect(requests.at(-1)?.url.pathname).toBe(
+      "/api/agents/native-agent/stream",
+    );
+  });
 
   it("resumes the native agent after runtime aliasing", async () => {
     const { agent, requests } = remoteFixture();

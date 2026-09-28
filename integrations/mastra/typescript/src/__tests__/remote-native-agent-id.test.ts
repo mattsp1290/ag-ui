@@ -3,7 +3,10 @@ import { describe, expect, it } from "vitest";
 import { MastraAgent } from "../mastra";
 import { collectEvents, makeInput } from "./helpers";
 
-function remoteFixture(missingThread = false, withAgentId = true) {
+function remoteFixture(
+  missingThread = false,
+  nativeId: string | null = "native-agent",
+) {
   const requests: Array<{ method: string; url: URL; body: unknown }> = [];
   let writes = 0;
   const fetch: typeof globalThis.fetch = async (input, init) => {
@@ -39,7 +42,7 @@ function remoteFixture(missingThread = false, withAgentId = true) {
     fetch,
   });
   const config = {
-    agentId: withAgentId ? "native-agent" : undefined,
+    agentId: nativeId ?? undefined,
     agent: client.getAgent("native-agent"),
     resourceId: "resource-1",
     remoteClient: client,
@@ -139,21 +142,24 @@ describe("remote native agent identity", () => {
     });
   });
 
-  it("falls back to the public agentId when constructed without one", async () => {
-    const { agent, requests } = remoteFixture(false, false);
-    agent.agentId = "public-agent";
+  it.each([null, ""])(
+    "falls back to the public agentId when constructed with agentId %j",
+    async (nativeId) => {
+      const { agent, requests } = remoteFixture(false, nativeId);
+      agent.agentId = "public-agent";
 
-    await collectEvents(agent, makeInput({ state: { edited: true } }));
+      await collectEvents(agent, makeInput({ state: { edited: true } }));
 
-    const memoryRequests = requests.filter(({ url }) =>
-      url.pathname.includes("/memory/"),
-    );
-    expect(
-      memoryRequests.map(({ url }) => url.searchParams.get("agentId")),
-    ).toEqual(["public-agent", "public-agent"]);
-    // The per-run handle targets the public id, not the shared handle's agent.
-    expect(requests.at(-1)?.url.pathname).toBe(
-      "/api/agents/public-agent/stream",
-    );
-  });
+      const memoryRequests = requests.filter(({ url }) =>
+        url.pathname.includes("/memory/"),
+      );
+      expect(
+        memoryRequests.map(({ url }) => url.searchParams.get("agentId")),
+      ).toEqual(["public-agent", "public-agent"]);
+      // The per-run handle targets the public id, not the shared handle's agent.
+      expect(requests.at(-1)?.url.pathname).toBe(
+        "/api/agents/public-agent/stream",
+      );
+    },
+  );
 });

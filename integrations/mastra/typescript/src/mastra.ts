@@ -594,7 +594,11 @@ interface MastraAgentStreamOptions {
 }
 
 export class MastraAgent extends AbstractAgent {
-  /** Backend identity stays stable when a runtime assigns a public registry alias. */
+  /**
+   * Backend agent id captured from `config.agentId`, read only by remote paths
+   * so a runtime-assigned public alias does not change the backend target.
+   * Unset (or empty) means remote paths fall back to the public `agentId`.
+   */
   private readonly nativeAgentId?: string;
   agent: LocalMastraAgent | RemoteMastraAgent;
   resourceId?: string;
@@ -690,7 +694,7 @@ export class MastraAgent extends AbstractAgent {
       ...rest
     } = config;
     super(rest);
-    this.nativeAgentId = config.agentId;
+    this.nativeAgentId = config.agentId || undefined;
     this.emitInterruptOutcome = emitInterruptOutcome ?? true;
     this.streamServerToolCalls = streamServerToolCalls ?? false;
     this.agent = agent;

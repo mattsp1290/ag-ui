@@ -1231,13 +1231,14 @@ export class MastraAgent extends AbstractAgent {
   private remoteAgentForRun(abortSignal?: AbortSignal): RemoteMastraAgent {
     const shared = this.agent as RemoteMastraAgent;
     const client = this.remoteClient;
-    if (!abortSignal || !this.nativeAgentId) return shared;
+    const agentId = this.nativeAgentId ?? this.agentId;
+    if (!abortSignal || !agentId) return shared;
     if (!client?.options?.baseUrl || typeof client.getAgent !== "function") {
       return shared;
     }
     try {
       return new MastraClient({ ...client.options, abortSignal }).getAgent(
-        this.nativeAgentId,
+        agentId,
       );
     } catch (error) {
       console.warn(
@@ -3060,9 +3061,9 @@ export class MastraAgent extends AbstractAgent {
 
     // Remote agent: write through the MastraClient (working-memory HTTP route).
     // Requires the client (set by getRemoteAgents) and the agent id.
-    if (!this.remoteClient || !this.nativeAgentId) return;
+    const agentId = this.nativeAgentId ?? this.agentId;
+    if (!this.remoteClient || !agentId) return;
     const client = this.remoteClient;
-    const agentId = this.nativeAgentId;
 
     let existing: Record<string, any> = {};
     try {

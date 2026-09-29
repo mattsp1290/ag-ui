@@ -5,7 +5,7 @@ let package = Package(
     name: "AGUIConsumerQualification",
     platforms: [.macOS(.v13), .iOS(.v16)],
     dependencies: [
-        .package(url: "https://github.com/mattsp1290/ag-ui-swift.git", revision: "31dceaa535e735bc33d6edad547faed410b049e8"),
+        .package(url: "https://github.com/mattsp1290/ag-ui-swift.git", revision: "f709674e35b120a1df7eeabe01be27efccbb335a"),
     ],
     targets: [
         .testTarget(

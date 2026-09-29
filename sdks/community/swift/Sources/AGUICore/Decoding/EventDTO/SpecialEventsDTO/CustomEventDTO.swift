@@ -31,25 +31,14 @@ struct CustomEventDTO {
         }
 
         // AG-UI protocol wire format uses "value" (not "data"); value is optional
-        let dataValue = jsonObject["value"]
+        let dataValue = try EventJSONField.data("value", from: data)
 
         // Extract timestamp using shared helper
         let timestamp = try EventDecodingHelpers.extractTimestamp(from: jsonObject)
 
         // Convert value to JSON data; treat absent/null value as empty object {}
         let eventData: Data
-        if let dataValue {
-            if dataValue is NSNull {
-                eventData = Data("null".utf8)
-            } else if dataValue is [Any] || dataValue is [String: Any] {
-                eventData = try JSONSerialization.data(withJSONObject: dataValue, options: [])
-            } else {
-                let encoder = JSONEncoder()
-                eventData = try encoder.encode(JSONPrimitiveWrapper(value: dataValue))
-            }
-        } else {
-            eventData = Data("{}".utf8)
-        }
+        eventData = dataValue ?? Data("{}".utf8)
 
         return CustomEventDTO(customType: customType, data: eventData, timestamp: timestamp)
     }

@@ -31,7 +31,7 @@ struct ActivitySnapshotEventDTO {
             )
         }
 
-        guard let contentValue = jsonObject["content"] else {
+        guard let contentValue = try EventJSONField.value("content", from: data) else {
             throw DecodingError.keyNotFound(
                 CodingKeys.content,
                 DecodingError.Context(codingPath: [], debugDescription: "Missing content field")
@@ -48,17 +48,10 @@ struct ActivitySnapshotEventDTO {
         // When the server sends content as a JSON string (e.g. Python SDK), re-parse it
         // so downstream consumers receive the unwrapped JSON object/array bytes.
         let contentData: Data
-        if contentValue is NSNull {
-            contentData = Data("null".utf8)
-        } else if contentValue is [Any] || contentValue is [String: Any] {
-            contentData = try JSONSerialization.data(withJSONObject: contentValue, options: [])
-        } else if let jsonString = contentValue as? String, let stringData = jsonString.data(using: .utf8) {
+        if case .string(let jsonString) = contentValue, let stringData = jsonString.data(using: .utf8) {
             // Content was double-encoded as a JSON string — unwrap it.
             contentData = stringData
-        } else {
-            let encoder = JSONEncoder()
-            contentData = try encoder.encode(JSONPrimitiveWrapper(value: contentValue))
-        }
+        } else { contentData = try contentValue.encoded() }
 
         return ActivitySnapshotEventDTO(
             messageId: messageId,

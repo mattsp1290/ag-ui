@@ -122,10 +122,21 @@ public struct AGUISchemaDocument {
                     }
                 }
                 if let selected { return project(value, schema: selected) }
-                // A known discriminator with an unknown value denotes a future union member.
+                // Only a well-typed unknown discriminator denotes a future member.
+                // A number in a string discriminator is malformed and must reach validation.
                 if variants.contains(where: { variant in
                     guard let properties = resolve(variant)?["properties"] as? [String: [String: Any]] else { return false }
                     return properties.contains { key, field in field["const"] != nil && fields[key] != nil }
+                }), variants.contains(where: { variant in
+                    guard let properties = resolve(variant)?["properties"] as? [String: [String: Any]] else { return false }
+                    return properties.contains { key, field in
+                        guard let constant = field["const"], let supplied = fields[key],
+                              let expected = try? AGUIJSON.foundation(constant) else { return false }
+                        switch (supplied, expected) {
+                        case (.string, .string), (.number, .number), (.bool, .bool): return true
+                        default: return false
+                        }
+                    }
                 }) { return nil }
             }
             if let selected = variants.first(where: { variant in

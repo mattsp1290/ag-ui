@@ -70,4 +70,47 @@ final class ForwardCompatibilityTests: XCTestCase {
         XCTAssertTrue(String(decoding: raw, as: UTF8.self).contains(digits))
         XCTAssertFalse(String(decoding: raw, as: UTF8.self).contains("future"))
     }
+
+    func testMalformedUnionDiscriminatorsAreFatal() {
+        for input in [
+            #"{"type":"MESSAGES_SNAPSHOT","messages":[{"id":"m","role":42,"content":"hello"}]}"#,
+            #"{"type":"RUN_FINISHED","threadId":"t","runId":"r","outcome":{"type":42}}"#,
+            #"{"type":"MESSAGES_SNAPSHOT","messages":[{"id":"m","role":"user","content":[{"type":42,"text":"hello"}]}]}"#
+        ] {
+            XCTAssertThrowsError(try decoder.decode(Data(input.utf8)), input)
+        }
+    }
+
+    func testWellTypedFutureUnionDiscriminatorsAreRemoved() throws {
+        let messages = try decoder.decode(Data(#"{"type":"MESSAGES_SNAPSHOT","messages":[{"id":"future","role":"hologram","content":"x"},{"id":"known","role":"user","content":"hello"}]}"#.utf8))
+        XCTAssertEqual((messages as? MessagesSnapshotEvent)?.messages.count, 1)
+        let finished = try decoder.decode(Data(#"{"type":"RUN_FINISHED","threadId":"t","runId":"r","outcome":{"type":"future"}}"#.utf8))
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: XCTUnwrap(finished.rawEvent)) as? [String: Any])
+        XCTAssertNil(object["outcome"])
+    }
+
+    func testOpenEventPayloadsKeepLargeIntegersInDomainValues() throws {
+        let digits = "1234567890123456789012345678901234567890123456789012345678"
+        let cases: [(String, (any AGUIEvent) -> Data?)] = [
+            ("{\"type\":\"STATE_SNAPSHOT\",\"snapshot\":{\"value\":\(digits)}}", { ($0 as? StateSnapshotEvent)?.snapshot }),
+            ("{\"type\":\"STATE_DELTA\",\"delta\":[{\"op\":\"add\",\"path\":\"/x\",\"value\":\(digits)}]}", { ($0 as? StateDeltaEvent)?.delta }),
+            ("{\"type\":\"RAW\",\"event\":{\"value\":\(digits)}}", { ($0 as? RawEvent)?.data }),
+            ("{\"type\":\"CUSTOM\",\"name\":\"x\",\"value\":{\"value\":\(digits)}}", { ($0 as? CustomEvent)?.value }),
+            ("{\"type\":\"ACTIVITY_SNAPSHOT\",\"messageId\":\"m\",\"activityType\":\"x\",\"content\":{\"value\":\(digits)}}", { ($0 as? ActivitySnapshotEvent)?.content }),
+            ("{\"type\":\"ACTIVITY_DELTA\",\"messageId\":\"m\",\"activityType\":\"x\",\"patch\":[{\"op\":\"add\",\"path\":\"/x\",\"value\":\(digits)}]}", { ($0 as? ActivityDeltaEvent)?.patch })
+        ]
+        for (input, payload) in cases {
+            let event = try decoder.decode(Data(input.utf8))
+            let data = try XCTUnwrap(payload(event), input)
+            XCTAssertTrue(String(decoding: data, as: UTF8.self).contains(digits), input)
+        }
+    }
+
+    func testStructuredToolResultKeepsLargeIntegerInUsableContent() throws {
+        let digits = "1234567890123456789012345678901234567890123456789012345678"
+        let input = "{\"type\":\"TOOL_CALL_RESULT\",\"messageId\":\"m\",\"toolCallId\":\"tc\",\"content\":[{\"type\":\"text\",\"text\":\"hello\",\"metadata\":{\"value\":\(digits)}}]}"
+        let event = try XCTUnwrap(try decoder.decode(Data(input.utf8)) as? ToolCallResultEvent)
+        XCTAssertTrue(event.content.contains(digits))
+    }
+
 }

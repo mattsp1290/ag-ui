@@ -5,15 +5,15 @@ types and `AGUIClient` for HTTP streaming agents. It also includes the
 `agui-dojo-chat` example command. The package declares iOS 16+ and macOS 13+
 in [Package.swift](Package.swift), and requires Swift 5.9 or newer.
 
-## Use in a local Swift package
+## SwiftPM dependency
 
-The SDK currently lives in the [AG-UI monorepo](../../..). Add a local package
-dependency pointing to `sdks/community/swift`. For example, if the consuming
-`Package.swift` is at the monorepo root, use:
+The standalone distribution is at
+`https://github.com/mattsp1290/ag-ui-swift.git`; its repository root contains
+`Package.swift`. Pin a full immutable commit SHA from the distribution repository:
 
 ```swift
 dependencies: [
-    .package(path: "sdks/community/swift"),
+    .package(url: "https://github.com/mattsp1290/ag-ui-swift.git", revision: "<published full SHA>"),
 ],
 targets: [
     .target(
@@ -27,9 +27,25 @@ targets: [
 ```
 
 Import `AGUICore` for protocol models and `AGUIClient` for `HttpAgent`.
-Adjust the path for the location of your own package manifest.
-The package is not yet distributed through a standalone SwiftPM repository;
-a standalone package URL is deferred.
+See [DISTRIBUTION.md](DISTRIBUTION.md) for the source mapping and update procedure.
+
+## Bounded raw SSE watch
+
+`BoundedSSEClient.open(_:maximumFrameBytes:maximumQueuedBytes:)` accepts any
+`URLRequest`, including GET watches without `RunAgentInput` and POST requests
+with a body. It returns status, content type and raw `SseEvent` values with
+`event`, `id`, `retry` and `data`. Handle application control frames before
+passing AG-UI JSON data to `AGUIEventDecoder`. This surface does not admit runs,
+retry, interpret host state, or apply run lifecycle validation.
+
+The parser retains at most `maximumFrameBytes` of source frame bytes; the
+transport's own queued network data stays at or below `maximumQueuedBytes`.
+One incoming Foundation callback `Data` may temporarily exist outside that
+queue. Decoding a completed line and producing an event create transient string
+copies of at most one frame. Exceeding either configured limit terminates only
+that request with a content-free error; no bytes or events are silently dropped.
+Call `SSEWatchResponse.cancel()` when leaving a watch early. Each watch owns its
+URLSession, so cancellation leaves other watches and host networking untouched.
 
 ## Build and test
 
@@ -47,7 +63,5 @@ default. Set `AGUI_DOJO_BASE_URL` to use another base URL:
 swift run agui-dojo-chat "Hello"
 ```
 
-See the [Swift SDK overview](../../../docs/sdk/swift/overview.mdx) for more
-context, [CHANGELOG.md](CHANGELOG.md) for changes, and
-[DERIVATION.md](DERIVATION.md) for source attribution. This package retains the
-original [MIT license](LICENSE).
+See [CHANGELOG.md](CHANGELOG.md), [DERIVATION.md](DERIVATION.md), and
+[LICENSE](LICENSE).

@@ -1,5 +1,6 @@
 import XCTest
 @testable import AGUIClient
+import AGUICore
 
 final class BoundedSSEParserTests: XCTestCase {
     private func parse(_ bytes: [UInt8], limit: Int = 4096) throws -> [SseEvent] {
@@ -60,5 +61,13 @@ final class BoundedSSEParserTests: XCTestCase {
             XCTAssertEqual(types.first, "MESSAGES_SNAPSHOT")
             XCTAssertEqual(types.last, "STATE_SNAPSHOT")
         }
+    }
+
+    func testSnapshotRevisionAboveDoublePrecisionSurvivesTypedDecode() throws {
+        let wire = "data: {\"type\":\"STATE_SNAPSHOT\",\"snapshot\":{\"Watermark\":{\"Revision\":9007199254740993}}}\n\n"
+        let frame = try XCTUnwrap(parse(Array(wire.utf8)).first)
+        let decoded = try AGUIEventDecoder().decode(Data(frame.data.utf8))
+        let snapshot = try XCTUnwrap(decoded as? StateSnapshotEvent)
+        XCTAssertTrue(String(decoding: snapshot.snapshot, as: UTF8.self).contains("9007199254740993"))
     }
 }

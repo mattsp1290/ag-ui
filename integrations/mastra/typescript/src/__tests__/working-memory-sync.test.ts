@@ -4,7 +4,7 @@ import {
   makeLocalMastraAgent,
   makeInput,
   collectEvents,
-  collectRunError,
+  collectError,
 } from "./helpers";
 
 const SIMPLE_STREAM_CHUNKS = [
@@ -68,7 +68,7 @@ describe("input.state -> working memory sync (local agent)", () => {
     };
     const agent = makeLocalMastraAgent({ memory, streamChunks: SIMPLE_STREAM_CHUNKS });
 
-    const { error } = await collectRunError(
+    const { error } = await collectError(
       agent,
       makeInput({ threadId: "thread-1", state: { plan: "draft" } }),
     );

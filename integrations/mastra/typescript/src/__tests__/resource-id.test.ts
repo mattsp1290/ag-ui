@@ -3,7 +3,7 @@ import { MastraAgent } from "../mastra";
 import {
   FakeLocalAgent,
   collectEvents,
-  collectRunError,
+  collectError,
   makeInput,
 } from "./helpers";
 
@@ -163,7 +163,7 @@ describe("resourceId is always plumbed to Mastra Memory in the working-memory sy
       resourceId: "",
     });
 
-    const { error } = await collectRunError(
+    const { error } = await collectError(
       agent,
       makeInput({ state: { userName: "Alice" } }),
     );

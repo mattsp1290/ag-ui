@@ -142,4 +142,44 @@ final class SchemaFixtureTests: XCTestCase {
         let escaped = try AGUIJSON.parse(Data(#"{"text":"line\n\"quote\"","emoji":"\uD83D\uDE00"}"#.utf8))
         XCTAssertEqual(try AGUIJSON.parse(escaped.encoded()), escaped)
     }
+
+    func testUnboundedNumbersStayExactAcrossEveryModelBoundary() throws {
+        let huge = "1" + String(repeating: "0", count: 400)
+        for lexeme in [huge, "1e10000"] {
+            let eventData = Data("{\"type\":\"STATE_SNAPSHOT\",\"snapshot\":{\"value\":\(lexeme)}}".utf8)
+            let event = try AGUI1Event(eventData)
+            let snapshot = try XCTUnwrap(event.asStateSnapshotEvent)
+            XCTAssertEqual(snapshot.snapshot?.document.jsonFields["value"], .number(lexeme))
+            let edited = try snapshot.settingTimestamp(1)
+            XCTAssertEqual(edited.timestamp, 1)
+            XCTAssertEqual(edited.snapshot?.document.jsonFields["value"], .number(lexeme))
+            XCTAssertTrue(String(decoding: try edited.encoded(), as: UTF8.self).contains(lexeme))
+            XCTAssertTrue(String(decoding: try edited.document.sseFrame(), as: UTF8.self).contains(lexeme))
+
+            let optionalNull = Data("{\"type\":\"STATE_SNAPSHOT\",\"snapshot\":{\"value\":\(lexeme)},\"rawEvent\":null}".utf8)
+            let normalized = try AGUISchemaDocument(normalizing: optionalNull)
+            XCTAssertEqual(normalized.jsonFields["snapshot"]?.object?["value"], .number(lexeme))
+            XCTAssertNil(normalized.jsonFields["rawEvent"])
+
+            let custom = try AGUI1CustomEvent(Data("{\"type\":\"CUSTOM\",\"name\":\"n\",\"value\":\(lexeme)}".utf8))
+            XCTAssertEqual(custom.value, .number(lexeme))
+            XCTAssertEqual(try custom.settingValue(custom.value).value, .number(lexeme))
+        }
+    }
+
+    func testIntegerTypeAndBoundsAreExact() throws {
+        let fractional = "1.0000000000000000000000000000000000000001"
+        XCTAssertThrowsError(try AGUI1TokenUsage(Data("{\"inputTokens\":\(fractional)}".utf8)))
+        XCTAssertThrowsError(try AGUI1Event(Data("{\"type\":\"STATE_SNAPSHOT\",\"snapshot\":{},\"timestamp\":\(fractional)}".utf8)))
+        XCTAssertEqual(try AGUI1TokenUsage(Data("{\"inputTokens\":1.0}".utf8)).inputTokens, 1)
+        XCTAssertThrowsError(try AGUI1TokenUsage(Data("{\"inputTokens\":9007199254740992}".utf8)))
+        XCTAssertThrowsError(try AGUI1Event(Data("{\"type\":\"STATE_SNAPSHOT\",\"snapshot\":{},\"timestamp\":-9007199254740992}".utf8)))
+        XCTAssertEqual(try AGUI1TokenUsage(Data("{\"inputTokens\":9007199254740991}".utf8)).inputTokens, 9007199254740991)
+    }
+
+    func testNamedDocumentConstructorRejectsOtherDefinitions() throws {
+        let event = try AGUISchemaDocument(Data(#"{"type":"STATE_SNAPSHOT","snapshot":{}}"#.utf8))
+        XCTAssertThrowsError(try AGUI1RunAgentInput(document: event))
+        XCTAssertNoThrow(try AGUI1Event(document: event))
+    }
 }

@@ -12,6 +12,13 @@ public indirect enum AGUIJSON: Equatable, Sendable {
     public var object: [String: AGUIJSON]? { if case .object(let v) = self { v } else { nil } }
     public var array: [AGUIJSON]? { if case .array(let v) = self { v } else { nil } }
     public var string: String? { if case .string(let v) = self { v } else { nil } }
+    public var number: String? { if case .number(let v) = self { v } else { nil } }
+    /// Intended for schema fields bounded to the JSON safe-integer range.
+    public var int64: Int64? {
+        guard case .number(let v) = self else { return nil }
+        return NSDecimalNumber(string: v).int64Value
+    }
+    public var bool: Bool? { if case .bool(let v) = self { v } else { nil } }
 
     public static func parse(_ data: Data) throws -> AGUIJSON {
         var parser = JSONParser(bytes: Array(data))

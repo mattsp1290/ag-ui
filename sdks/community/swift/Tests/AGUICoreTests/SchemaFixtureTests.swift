@@ -13,9 +13,8 @@ final class SchemaFixtureTests: XCTestCase {
         let root = repository.appendingPathComponent("spec/1.0/fixtures")
         let manifest = try String(contentsOf: root.appendingPathComponent("MANIFEST.txt"), encoding: .utf8)
             .split(separator: "\n").map(String.init).filter { !$0.hasPrefix("#") && !$0.isEmpty }
-        let actual = FileManager.default.enumerator(at: root, includingPropertiesForKeys: nil)!.allObjects
-            .compactMap { $0 as? URL }.filter { $0.pathExtension == "json" }
-            .map { String($0.path.dropFirst(root.path.count + 1)) }.sorted()
+        let actual = try FileManager.default.subpathsOfDirectory(atPath: root.path)
+            .filter { $0.hasSuffix(".json") }.sorted()
         XCTAssertEqual(manifest, actual)
         var valid = 0, invalid = 0
         for path in manifest where !path.hasSuffix(".expect.json") {

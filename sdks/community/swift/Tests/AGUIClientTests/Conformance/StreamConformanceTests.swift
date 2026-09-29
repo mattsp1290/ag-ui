@@ -12,7 +12,6 @@ final class StreamConformanceTests: XCTestCase {
         "activity-snapshot-then-delta": ["messageCount", "messages"],
         "state-delta-unappliable-warns-and-keeps": ["state"],
         "state-delta-unknown-op-dropped": ["state"],
-        "tool-call-metadata-lands-on-the-call": ["messages"],
         "tool-result-file-source-passes-through": ["messages"],
         "tool-result-parts-mint-tool-message": ["messages"]
     ]
@@ -127,6 +126,16 @@ final class StreamConformanceTests: XCTestCase {
                 throw HarnessError("TypeScript override must explain its divergence")
             }
             for (key, value) in values where key != "intentional" { resolved[key] = value }
+        }
+        if fixture["name"] as? String == "tool-call-metadata-lands-on-the-call",
+           var messages = resolved["messages"] as? [[String: Any]] {
+            // Only the call metadata is pending; keep identity, name, and arguments asserted.
+            for messageIndex in messages.indices {
+                guard var calls = messages[messageIndex]["toolCalls"] as? [[String: Any]] else { continue }
+                for callIndex in calls.indices { calls[callIndex].removeValue(forKey: "metadata") }
+                messages[messageIndex]["toolCalls"] = calls
+            }
+            resolved["messages"] = messages
         }
         return resolved
     }

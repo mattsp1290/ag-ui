@@ -254,44 +254,31 @@ public struct AGUIEventDecoder: Sendable {
             return try handleMissingHandler(for: type, typeRaw: disc.typeRaw, rawEvent: data)
         }
 
-        return try executeHandler(handler,
-            data: config.enforceForwardCompatibility ? try sanitize(data, type: type) : data,
-            decoder: decoder)
+        if config.enforceForwardCompatibility {
+            let sanitized: Data
+            do {
+                sanitized = try sanitize(data, type: type)
+            } catch {
+                // Keep the registry's more precise field diagnostic when it also rejects
+                // the event. A permissive handler cannot override schema validation.
+                do { _ = try executeHandler(handler, data: data, decoder: decoder) }
+                catch { throw error }
+                throw error
+            }
+            return try executeHandler(handler, data: sanitized, decoder: decoder)
+        }
+        return try executeHandler(handler, data: data, decoder: decoder)
     }
 
-    /// Remove future optional material before decoding while retaining malformed known values.
+    /// Remove unknown material from closed schema objects before registry decoding.
     private func sanitize(_ data: Data, type: EventType) throws -> Data {
-        guard var object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return data }
-        switch type {
-        case .runStarted:
-            if let parent = object["parentRunId"], !(parent is String), !(parent is NSNull) {
-                throw EventDecodingError.decodingFailed("Type mismatch 'String' at parentRunId")
-            }
-            let allowed: Set<String> = ["type", "threadId", "runId", "parentRunId", "input",
-                                        "protocolVersion", "timestamp", "metadata"]
-            object = object.filter { allowed.contains($0.key) }
-        case .textMessageContent:
-            let allowed: Set<String> = ["type", "messageId", "delta", "timestamp", "metadata", "subagentRunId"]
-            object = object.filter { allowed.contains($0.key) }
-        case .runFinished:
-            if let outcome = object["outcome"] as? [String: Any],
-               let kind = outcome["type"] as? String,
-               !["success", "interrupt", "cancelled"].contains(kind) {
-                object.removeValue(forKey: "outcome")
-            }
-        case .messagesSnapshot:
-            if var messages = object["messages"] as? [[String: Any]] {
-                for index in messages.indices {
-                    if let parts = messages[index]["content"] as? [[String: Any]] {
-                        let known: Set<String> = ["text", "image", "audio", "video", "document", "binary"]
-                        messages[index]["content"] = parts.filter { known.contains($0["type"] as? String ?? "") }
-                    }
-                }
-                object["messages"] = messages
-            }
-        default: return data
+        do {
+            return try AGUISchemaDocument(sanitizing: data, eventType: type).encoded()
+        } catch {
+            let issue = AGUISchemaDocument.eventValidationIssue(data, eventType: type)
+                ?? "Invalid known field in \(type.rawValue): \(error)"
+            throw EventDecodingError.decodingFailed(issue)
         }
-        return try JSONSerialization.data(withJSONObject: object)
     }
 
     /// Rewrites a legacy `THINKING_*` wire event to its `REASONING_*` equivalent.

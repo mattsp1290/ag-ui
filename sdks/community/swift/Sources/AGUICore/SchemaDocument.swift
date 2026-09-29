@@ -30,6 +30,51 @@ public struct AGUISchemaDocument {
         self.allowsUnknownFields = false
     }
 
+    /// Projects future fields from closed schema objects before strict validation.
+    /// Open objects (metadata, state, patch operations, and opaque values) stay intact.
+    init(sanitizing data: Data, eventType: EventType) throws {
+        let input = try AGUIJSON.parse(data)
+        guard let event = Self.definitions["Event"],
+              let variants = event["oneOf"] as? [[String: Any]],
+              let variant = variants.first(where: { Self.eventType(of: $0) == eventType.rawValue }),
+              let projected = Self.project(input, schema: variant) else {
+            throw AGUISchemaError.invalidValue("Event")
+        }
+        try self.init(normalizing: projected.encoded())
+    }
+
+    /// The event map must remain exhaustive when the protocol adds a new event.
+    static var sanitizableEventTypes: Set<EventType> {
+        let variants = definitions["Event"]?["oneOf"] as? [[String: Any]] ?? []
+        return Set(variants.compactMap { eventType(of: $0) }.compactMap(EventType.init(rawValue:)))
+    }
+
+    static func eventValidationIssue(_ data: Data, eventType: EventType) -> String? {
+        guard let input = try? AGUIJSON.parse(data), case .object(let fields) = input,
+              let variants = definitions["Event"]?["oneOf"] as? [[String: Any]],
+              let variant = variants.first(where: { self.eventType(of: $0) == eventType.rawValue }),
+              let schema = resolve(variant) else { return nil }
+        var properties = schema["properties"] as? [String: [String: Any]] ?? [:]
+        var required = Set(schema["required"] as? [String] ?? [])
+        for part in schema["allOf"] as? [[String: Any]] ?? [] {
+            guard let source = resolve(part) else { continue }
+            properties.merge(source["properties"] as? [String: [String: Any]] ?? [:]) { current, _ in current }
+            required.formUnion(source["required"] as? [String] ?? [])
+        }
+        for key in required.sorted() where fields[key] == nil { return "Missing key '\(key)'" }
+        for key in fields.keys.sorted() {
+            guard let value = fields[key], let property = properties[key],
+                  !accepts(value, schema: property, allowUnknown: true) else { continue }
+            if let constant = property["const"] as? String { return "expected \"\(constant)\" at \(key)" }
+            if let expected = property["type"] as? String {
+                if expected == "object", case .array = value { return "expected object, received array at \(key)" }
+                return "Invalid \(expected) at \(key)"
+            }
+            return "Invalid value at \(key)"
+        }
+        return nil
+    }
+
     public func encoded() throws -> Data {
         try json.encoded()
     }
@@ -50,6 +95,77 @@ public struct AGUISchemaDocument {
 
     private static func acceptsJSON(_ json: AGUIJSON, schema: [String: Any]) -> Bool {
         accepts(json, schema: schema)
+    }
+
+    private static func eventType(of variant: [String: Any]) -> String? {
+        guard let ref = variant["$ref"] as? String,
+              let definition = definitions[String(ref.split(separator: "/").last ?? "")],
+              let properties = definition["properties"] as? [String: [String: Any]] else { return nil }
+        return properties["type"]?["const"] as? String
+    }
+
+    /// A nil result is an unrecognised union member. Its parent removes it when optional
+    /// or in a list; required positions retain it so validation reports the bad value.
+    private static func project(_ value: AGUIJSON, schema: [String: Any]) -> AGUIJSON? {
+        if let ref = schema["$ref"] as? String,
+           let target = definitions[String(ref.split(separator: "/").last ?? "")] {
+            return project(value, schema: target)
+        }
+        if let variants = schema["oneOf"] as? [[String: Any]] {
+            if case .object(let fields) = value {
+                let selected = variants.first { variant in
+                    guard let resolved = resolve(variant),
+                          let properties = resolved["properties"] as? [String: [String: Any]] else { return false }
+                    return properties.contains { key, field in
+                        guard let constant = field["const"], let supplied = fields[key] else { return false }
+                        return matches(supplied, constant)
+                    }
+                }
+                if let selected { return project(value, schema: selected) }
+                // A known discriminator with an unknown value denotes a future union member.
+                if variants.contains(where: { variant in
+                    guard let properties = resolve(variant)?["properties"] as? [String: [String: Any]] else { return false }
+                    return properties.contains { key, field in field["const"] != nil && fields[key] != nil }
+                }) { return nil }
+            }
+            if let selected = variants.first(where: { variant in
+                guard let type = resolve(variant)?["type"] as? String else { return false }
+                switch (type, value) {
+                case ("array", .array), ("string", .string), ("object", .object): return true
+                default: return false
+                }
+            }) ?? variants.first(where: { accepts(value, schema: $0, allowUnknown: true) }) {
+                return project(value, schema: selected)
+            }
+            return value
+        }
+        if case .array(let values) = value, let item = schema["items"] as? [String: Any] {
+            return .array(values.compactMap { project($0, schema: item) })
+        }
+        guard case .object(let fields) = value else { return value }
+        var properties = schema["properties"] as? [String: [String: Any]] ?? [:]
+        var required = Set(schema["required"] as? [String] ?? [])
+        for part in schema["allOf"] as? [[String: Any]] ?? [] {
+            guard let resolved = resolve(part) else { continue }
+            properties.merge(resolved["properties"] as? [String: [String: Any]] ?? [:]) { current, _ in current }
+            required.formUnion(resolved["required"] as? [String] ?? [])
+        }
+        let closed = schema["unevaluatedProperties"] as? Bool == false || schema["additionalProperties"] as? Bool == false
+        var result: [String: AGUIJSON] = [:]
+        for (key, field) in fields {
+            if let property = properties[key] {
+                if let projected = project(field, schema: property) { result[key] = projected }
+                else if required.contains(key) { return nil }
+            } else if !closed {
+                result[key] = field
+            }
+        }
+        return .object(result)
+    }
+
+    private static func resolve(_ schema: [String: Any]) -> [String: Any]? {
+        guard let ref = schema["$ref"] as? String else { return schema }
+        return definitions[String(ref.split(separator: "/").last ?? "")]
     }
 
     private static func normalizeJSON(_ value: AGUIJSON, schema: [String: Any]) -> AGUIJSON {

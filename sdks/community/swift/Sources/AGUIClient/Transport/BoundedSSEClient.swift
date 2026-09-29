@@ -76,6 +76,10 @@ public struct BoundedSSEClient {
         let connection = SSEByteConnection(maximumQueuedBytes: maximumQueuedBytes)
         connection.start(request: request, configuration: configuration)
         let response = try await connection.response()
+        if Task.isCancelled {
+            connection.cancel()
+            throw ClientError.cancelled
+        }
         guard (200...299).contains(response.statusCode) else {
             connection.cancel()
             throw ClientError.httpError(statusCode: response.statusCode)

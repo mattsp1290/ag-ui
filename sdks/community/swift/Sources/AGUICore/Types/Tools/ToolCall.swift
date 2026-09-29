@@ -86,7 +86,9 @@ public struct ToolCall: Sendable, Codable, Hashable {
     /// When present, carries a cryptographic value for verified tool-call
     /// workflows (e.g., from a ``ReasoningEncryptedValueEvent`` with subtype `.toolCall`).
     public let encryptedValue: String?
-    /// Open extension metadata accumulated from tool-call events.
+    /// Open extension metadata accumulated from tool-call events. For exact
+    /// arbitrary-size JSON numbers, decode the containing message with
+    /// MessageDecoder; direct JSONDecoder may round nested numbers.
     public let metadata: Data?
 
     /// Creates a new tool call.

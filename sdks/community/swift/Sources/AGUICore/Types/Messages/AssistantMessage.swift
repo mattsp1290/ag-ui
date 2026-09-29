@@ -107,7 +107,10 @@ public struct AssistantMessage: Message, Sendable, Hashable {
     /// When present, carries a cryptographic value produced by the agent's
     /// reasoning process.
     public let encryptedValue: String?
-    /// Open extension metadata carried by message events.
+    /// Open extension metadata carried by message events. Decode wire messages
+    /// with MessageDecoder (or AGUIEventDecoder for snapshots) when numeric
+    /// lexemes must remain exact. A direct JSONDecoder cannot expose the raw
+    /// bytes of arbitrary nested numbers to this Decodable initializer.
     public let metadata: Data?
     public let subagentRunId: String?
 

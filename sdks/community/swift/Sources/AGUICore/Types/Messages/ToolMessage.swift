@@ -68,6 +68,8 @@ public struct ToolMessage: Message, Sendable, Hashable, Decodable {
     /// Matches the TypeScript schema `content: z.string()` — required, non-nullable.
     public let content: String
     /// Structured content parts from a tool result, when provided instead of text.
+    /// MessageDecoder preserves arbitrary-size JSON numbers in these parts;
+    /// direct JSONDecoder may round them because Decoder omits source lexemes.
     public let contentParts: Data?
 
     /// The ID of the tool call this message responds to.

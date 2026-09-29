@@ -143,9 +143,66 @@ public struct PatchApplicator: Sendable {
         let fractionCount = decimal.count == 2 ? decimal[1].count : 0
         let trailingCount = digits.reversed().prefix(while: { $0 == "0" }).count
         digits = String(digits.drop(while: { $0 == "0" }).dropLast(trailingCount))
-        guard let exponent = parts.count == 2 ? Int(parts[1]) : 0 else { return value }
-        let (adjusted, overflow) = exponent.addingReportingOverflow(trailingCount - fractionCount)
-        guard !overflow else { return value }
-        return (negative ? "-" : "") + digits + "e" + String(adjusted)
+        let exponent = parts.count == 2 ? String(parts[1]) : "0"
+        return (negative ? "-" : "") + digits + "e" +
+            adjustedExponent(exponent, by: trailingCount - fractionCount)
+    }
+
+    /// Adds a bounded mantissa shift to an exponent of arbitrary decimal length.
+    private func adjustedExponent(_ exponent: String, by shift: Int) -> String {
+        let exponentNegative = exponent.hasPrefix("-")
+        let exponentDigits = exponent.trimmingCharacters(in: CharacterSet(charactersIn: "+-"))
+        let a = Array(exponentDigits.utf8.reversed()).map { Int($0 - 48) }
+        let b = Array(String(shift.magnitude).utf8.reversed()).map { Int($0 - 48) }
+        let shiftNegative = shift < 0
+        let negative: Bool
+        let magnitude: [Int]
+        if exponentNegative == shiftNegative {
+            magnitude = addDigits(a, b)
+            negative = exponentNegative
+        } else if compareDigits(a, b) >= 0 {
+            magnitude = subtractDigits(a, b)
+            negative = exponentNegative
+        } else {
+            magnitude = subtractDigits(b, a)
+            negative = shiftNegative
+        }
+        let canonical = magnitude.reversed().map(String.init).joined()
+        return (negative && canonical != "0" ? "-" : "") + canonical
+    }
+
+    private func compareDigits(_ a: [Int], _ b: [Int]) -> Int {
+        let lhs = Array(a.reversed().drop(while: { $0 == 0 }))
+        let rhs = Array(b.reversed().drop(while: { $0 == 0 }))
+        if lhs.count != rhs.count { return lhs.count < rhs.count ? -1 : 1 }
+        for (x, y) in zip(lhs, rhs) where x != y { return x < y ? -1 : 1 }
+        return 0
+    }
+
+    private func addDigits(_ a: [Int], _ b: [Int]) -> [Int] {
+        var result: [Int] = []
+        var carry = 0
+        for index in 0..<max(a.count, b.count) {
+            let sum = (index < a.count ? a[index] : 0) +
+                (index < b.count ? b[index] : 0) + carry
+            result.append(sum % 10)
+            carry = sum / 10
+        }
+        if carry != 0 { result.append(carry) }
+        return result
+    }
+
+    /// Subtracts b from a when a >= b, with least significant digits first.
+    private func subtractDigits(_ a: [Int], _ b: [Int]) -> [Int] {
+        var result: [Int] = []
+        var borrow = 0
+        for index in a.indices {
+            var digit = a[index] - (index < b.count ? b[index] : 0) - borrow
+            borrow = digit < 0 ? 1 : 0
+            if borrow != 0 { digit += 10 }
+            result.append(digit)
+        }
+        while result.count > 1 && result.last == 0 { result.removeLast() }
+        return result
     }
 }

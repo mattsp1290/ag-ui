@@ -35,4 +35,16 @@ final class PatchPrecisionProbeTests: XCTestCase {
         XCTAssertEqual(try AGUIJSON.parse(result).object?["n"], .number("2"))
         XCTAssertTrue(String(decoding: result, as: UTF8.self).contains(huge))
     }
+
+    func testTestComparesExponentsBeyondMachineIntegerRange() throws {
+        let state = Data("{\"large\":1e9223372036854775808,\"small\":1e-9223372036854775808}".utf8)
+        let equivalent = Data("""
+        [{"op":"test","path":"/large","value":10e9223372036854775807},
+         {"op":"test","path":"/small","value":0.1e-9223372036854775807}]
+        """.utf8)
+        XCTAssertNoThrow(try PatchApplicator().apply(patch: equivalent, to: state))
+
+        let different = Data("[{\"op\":\"test\",\"path\":\"/large\",\"value\":10e9223372036854775808}]".utf8)
+        XCTAssertThrowsError(try PatchApplicator().apply(patch: different, to: state))
+    }
 }

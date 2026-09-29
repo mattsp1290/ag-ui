@@ -9,8 +9,8 @@ The two copied SSE fixtures are synthetic Agentcraft watch captures from
 `agentcraft/apps/app/assets/fixtures/` and are described in
 `agentcraft/apps/app/test/fixtures/README.md`. The tests serve them through a
 real loopback HTTP listener, check GET watch decoding and preserved snapshot
-revisions, exercise a generic POST, test parser and transport limits, and cancel
-one stream while another runs.
+revisions, exercise a generic POST, test parser and transport limits, reject a
+real redirect, and cancel one stream while another runs.
 
 Run from this directory on macOS:
 

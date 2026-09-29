@@ -95,6 +95,20 @@ final class ConsumerTests: XCTestCase {
         for try await _ in other.events { count += 1 }
         XCTAssertEqual(count, 2)
     }
+
+    func testRealLocalRedirectIsRejectedWithoutFollowingIt() async throws {
+        let server = try FixtureServer()
+        defer { server.stop() }
+        do {
+            _ = try await BoundedSSEClient().open(
+                URLRequest(url: server.url("redirect")),
+                maximumFrameBytes: 4096, maximumQueuedBytes: 8192)
+            XCTFail("Redirect must be rejected")
+        } catch {
+            XCTAssertEqual(error as? ClientError, .httpError(statusCode: 302))
+        }
+        XCTAssertEqual(server.requests(), ["GET /redirect "])
+    }
 }
 
 private final class FixtureServer: @unchecked Sendable {
@@ -170,6 +184,11 @@ private final class FixtureServer: @unchecked Sendable {
     }
 
     private func respond(_ connection: NWConnection, path: String) {
+        if path == "/redirect" {
+            let response = Data("HTTP/1.1 302 Found\r\nLocation: /watch\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".utf8)
+            connection.send(content: response, completion: .contentProcessed { _ in connection.cancel() })
+            return
+        }
         let body: Data
         switch path {
         case "/preadmission", "/watch":

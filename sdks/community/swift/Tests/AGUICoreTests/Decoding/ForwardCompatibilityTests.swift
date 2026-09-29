@@ -113,4 +113,17 @@ final class ForwardCompatibilityTests: XCTestCase {
         XCTAssertTrue(event.content.contains(digits))
     }
 
+    func testMessagesSnapshotActivityContentKeepsLargeInteger() throws {
+        let digits = "1234567890123456789012345678901234567890123456789012345678"
+        let input = "{\"type\":\"MESSAGES_SNAPSHOT\",\"messages\":[{\"id\":\"m\",\"role\":\"activity\",\"activityType\":\"x\",\"content\":{\"value\":\(digits)}}]}"
+        let event = try XCTUnwrap(try decoder.decode(Data(input.utf8)) as? MessagesSnapshotEvent)
+        let message = try XCTUnwrap(event.messages.first as? ActivityMessage)
+        XCTAssertTrue(String(decoding: message.content, as: UTF8.self).contains(digits))
+    }
+
+    func testMessagesSnapshotStillRejectsNonObjectMessageWithoutSchemaEnforcement() {
+        let input = Data(#"{"type":"MESSAGES_SNAPSHOT","messages":[42]}"#.utf8)
+        XCTAssertThrowsError(try AGUIEventDecoder().decode(input))
+    }
+
 }

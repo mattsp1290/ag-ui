@@ -24,7 +24,7 @@ struct ActivityMessageDTO {
         let activityType = try MessageDecodingHelpers.extractRequiredString(from: jsonObject, key: "activityType")
 
         // Extract content as JSON object (wire format key is "content")
-        guard let activityContentValue = jsonObject["content"] else {
+        guard let activityContent = try EventJSONField.data("content", from: data) else {
             throw DecodingError.keyNotFound(
                 CodingKeys.content,
                 DecodingError.Context(
@@ -32,18 +32,6 @@ struct ActivityMessageDTO {
                     debugDescription: "Missing content field"
                 )
             )
-        }
-
-        // Convert activityContent to Data
-        let activityContent: Data
-        if activityContentValue is NSNull {
-            activityContent = Data("null".utf8)
-        } else if activityContentValue is [Any] || activityContentValue is [String: Any] {
-            activityContent = try JSONSerialization.data(withJSONObject: activityContentValue, options: [])
-        } else {
-            // Primitive value - wrap in encoder
-            let encoder = JSONEncoder()
-            activityContent = try encoder.encode(JSONPrimitiveWrapper(value: activityContentValue))
         }
 
         return ActivityMessageDTO(id: id, activityType: activityType, activityContent: activityContent)

@@ -1,0 +1,13 @@
+{
+  "pins" : [
+    {
+      "identity" : "ag-ui-swift",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/mattsp1290/ag-ui-swift.git",
+      "state" : {
+        "revision" : "31dceaa535e735bc33d6edad547faed410b049e8"
+      }
+    }
+  ],
+  "version" : 2
+}

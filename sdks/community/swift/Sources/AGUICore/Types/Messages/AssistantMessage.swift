@@ -160,7 +160,12 @@ extension AssistantMessage: Decodable {
         name = try container.decodeIfPresent(String.self, forKey: .name)
         toolCalls = try container.decodeIfPresent([ToolCall].self, forKey: .toolCalls)
         encryptedValue = try container.decodeIfPresent(String.self, forKey: .encryptedValue)
-        metadata = nil
+        if container.contains(.metadata), !(try container.decodeNil(forKey: .metadata)) {
+            let nested = try container.nestedContainer(keyedBy: JSONCodingKeys.self, forKey: .metadata)
+            metadata = try JSONSerialization.data(withJSONObject: nested.decodeJSONObject())
+        } else {
+            metadata = nil
+        }
         subagentRunId = try container.decodeIfPresent(String.self, forKey: .subagentRunId)
     }
 }

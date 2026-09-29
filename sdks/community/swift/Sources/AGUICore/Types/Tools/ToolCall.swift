@@ -86,6 +86,8 @@ public struct ToolCall: Sendable, Codable, Hashable {
     /// When present, carries a cryptographic value for verified tool-call
     /// workflows (e.g., from a ``ReasoningEncryptedValueEvent`` with subtype `.toolCall`).
     public let encryptedValue: String?
+    /// Open extension metadata accumulated from tool-call events.
+    public let metadata: Data?
 
     /// Creates a new tool call.
     ///
@@ -99,12 +101,14 @@ public struct ToolCall: Sendable, Codable, Hashable {
     public init(
         id: String,
         function: FunctionCall,
-        encryptedValue: String? = nil
+        encryptedValue: String? = nil,
+        metadata: Data? = nil
     ) {
         self.id = id
         self.type = "function"
         self.function = function
         self.encryptedValue = encryptedValue
+        self.metadata = metadata
     }
 
     // MARK: - Codable
@@ -114,6 +118,7 @@ public struct ToolCall: Sendable, Codable, Hashable {
         case type
         case function
         case encryptedValue
+        case metadata
     }
 
     public init(from decoder: Decoder) throws {
@@ -121,6 +126,12 @@ public struct ToolCall: Sendable, Codable, Hashable {
         id = try container.decode(String.self, forKey: .id)
         function = try container.decode(FunctionCall.self, forKey: .function)
         encryptedValue = try container.decodeIfPresent(String.self, forKey: .encryptedValue)
+        if container.contains(.metadata), !(try container.decodeNil(forKey: .metadata)) {
+            let nested = try container.nestedContainer(keyedBy: JSONCodingKeys.self, forKey: .metadata)
+            metadata = try JSONSerialization.data(withJSONObject: nested.decodeJSONObject())
+        } else {
+            metadata = nil
+        }
 
         // Type should always be "function", decode if present but default to "function"
         type = try container.decodeIfPresent(String.self, forKey: .type) ?? "function"
@@ -132,5 +143,9 @@ public struct ToolCall: Sendable, Codable, Hashable {
         try container.encode(type, forKey: .type)
         try container.encode(function, forKey: .function)
         try container.encodeIfPresent(encryptedValue, forKey: .encryptedValue)
+        if let metadata {
+            var nested = container.nestedContainer(keyedBy: JSONCodingKeys.self, forKey: .metadata)
+            try nested.encodeJSONObject(JSONSerialization.jsonObject(with: metadata))
+        }
     }
 }

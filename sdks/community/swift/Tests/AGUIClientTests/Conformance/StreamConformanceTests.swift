@@ -14,16 +14,6 @@ final class StreamConformanceTests: XCTestCase {
         "era-pinned-peer-omits-protocol-version": "optional pinned peer-era request translation (conformance README)",
         "unknown-enum-value-role-fatal": "admitted TypeScript enum gap contradicts protocol (conformance README)"
     ]
-    // Exact pending application assertions. A new fixture must fail until it is
-    // implemented or deliberately added here with its own observed failure.
-    private let pendingAssertions: [String: Set<String>] = [
-        "activity-replace-false-preserves": ["messageCount", "messages"],
-        "activity-snapshot-then-delta": ["messageCount", "messages"],
-        "state-delta-unappliable-warns-and-keeps": ["state"],
-        "state-delta-unknown-op-dropped": ["state"],
-        "tool-result-file-source-passes-through": ["messages"],
-        "tool-result-parts-mint-tool-message": ["messages"]
-    ]
     private let expectationKeys: Set<String> = [
         "outcome", "errorContains", "runError", "eventTypes", "eventTypesAbsent",
         "eventPaths", "eventAbsentPaths", "warnings", "noWarnings", "messageCount",
@@ -41,9 +31,6 @@ final class StreamConformanceTests: XCTestCase {
         XCTAssertTrue(Set(skippedFixtures.keys).isSubset(of: Set(manifest.map { String($0.dropLast(5)) })),
                       "Swift skip list names a fixture absent from MANIFEST.txt")
         guard Set(skippedFixtures.keys).isSubset(of: Set(manifest.map { String($0.dropLast(5)) })) else { return }
-        XCTAssertTrue(Set(pendingAssertions.keys).isSubset(of: Set(manifest.map { String($0.dropLast(5)) })),
-                      "Swift pending assertion list names a fixture absent from MANIFEST.txt")
-        guard Set(pendingAssertions.keys).isSubset(of: Set(manifest.map { String($0.dropLast(5)) })) else { return }
 
         for filename in manifest {
             let fixture = try object(try JSONSerialization.jsonObject(with: Data(contentsOf: directory.appendingPathComponent(filename))))
@@ -68,9 +55,6 @@ final class StreamConformanceTests: XCTestCase {
             let failures = check(expect: expect, result: result)
             if failures.isEmpty {
                 print("PASS \(name)")
-            } else if isExpectedApplicationFailure(name: name, failures: failures) {
-                let reason = failures.map(\.description).joined(separator: "; ").replacingOccurrences(of: "\n", with: " ")
-                print("XFAIL \(name): application coverage pending: \(reason.prefix(240))")
             } else {
                 XCTFail("\(name): \(failures.map(\.description).joined(separator: "; "))")
             }
@@ -138,32 +122,7 @@ final class StreamConformanceTests: XCTestCase {
             }
             for (key, value) in values where key != "intentional" { resolved[key] = value }
         }
-        if fixture["name"] as? String == "tool-call-metadata-lands-on-the-call",
-           var messages = resolved["messages"] as? [[String: Any]] {
-            // Only the call metadata is pending; keep identity, name, and arguments asserted.
-            for messageIndex in messages.indices {
-                guard var calls = messages[messageIndex]["toolCalls"] as? [[String: Any]] else { continue }
-                for callIndex in calls.indices { calls[callIndex].removeValue(forKey: "metadata") }
-                messages[messageIndex]["toolCalls"] = calls
-            }
-            resolved["messages"] = messages
-        }
         return resolved
-    }
-
-    private func isExpectedApplicationFailure(name: String, failures: [ExpectationFailure]) -> Bool {
-        guard let allowed = pendingAssertions[name], !failures.isEmpty else { return false }
-        return failures.allSatisfy { allowed.contains($0.key) }
-    }
-
-    func testPendingFixtureCannotHideProtocolRegression() {
-        let result = ReplayResult(events: [], messages: [], state: nil, request: nil, error: "regressed")
-        let failures = check(expect: ["outcome": "completed", "messages": [["id": "expected"]]], result: result)
-        XCTAssertEqual(Set(failures.map(\.key)), ["outcome", "messages"])
-        XCTAssertFalse(isExpectedApplicationFailure(name: "tool-result-parts-mint-tool-message", failures: failures))
-        XCTAssertFalse(isExpectedApplicationFailure(name: "tool-result-parts-mint-tool-message", failures: [
-            ExpectationFailure(key: "request", detail: "regressed")
-        ]))
     }
 
     func testTypeScriptOverrideAddsSubagentTerminalOrderAssertion() throws {
@@ -179,7 +138,6 @@ final class StreamConformanceTests: XCTestCase {
         }
         let failures = check(expect: resolved, result: ReplayResult(events: wrong, messages: [], state: nil, request: nil, error: nil))
         XCTAssertTrue(failures.contains { $0.key == "eventTypes" })
-        XCTAssertFalse(isExpectedApplicationFailure(name: "subagent-terminal-closes-open-chunk-stream", failures: failures))
     }
 
     func testReasoningScopesRejectOrphansDuplicatesAndOpenTerminals() async {

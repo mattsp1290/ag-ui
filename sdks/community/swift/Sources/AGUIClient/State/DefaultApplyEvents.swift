@@ -120,7 +120,8 @@ extension AsyncSequence where Element == any AGUIEvent {
                         case let e as ToolCallStartEvent:
                             let toolCall = ToolCall(
                                 id: e.toolCallId,
-                                function: FunctionCall(name: e.toolCallName, arguments: "")
+                                function: FunctionCall(name: e.toolCallName, arguments: ""),
+                                metadata: eventMetadata(event)
                             )
                             if let parentId = e.parentMessageId,
                                let idx = messages.lastIndex(where: { $0.id == parentId }),
@@ -147,22 +148,32 @@ extension AsyncSequence where Element == any AGUIEvent {
                                    assistantMsg.toolCalls?.contains(where: { $0.id == id }) == true {
                                     messages[idx] = assistantMsg.withUpdatedToolCallArguments(
                                         toolCallId: id,
-                                        appendDelta: e.delta
+                                        appendDelta: e.delta,
+                                        metadata: eventMetadata(event)
                                     )
                                     break
                                 }
                             }
                             continuation.yield(AgentState(messages: messages))
 
-                        case is ToolCallEndEvent:
-                            // No-op: no state emission for end event
-                            break
+                        case let e as ToolCallEndEvent:
+                            for idx in messages.indices {
+                                if let assistant = messages[idx] as? AssistantMessage,
+                                   assistant.toolCalls?.contains(where: { $0.id == e.toolCallId }) == true {
+                                    messages[idx] = assistant.withUpdatedToolCallArguments(
+                                        toolCallId: e.toolCallId, appendDelta: "",
+                                        metadata: eventMetadata(event))
+                                    continuation.yield(AgentState(messages: messages))
+                                    break
+                                }
+                            }
 
                         case let e as ToolCallResultEvent:
                             let toolMsg = ToolMessage(
                                 id: e.messageId,
                                 content: e.content,
-                                toolCallId: e.toolCallId
+                                toolCallId: e.toolCallId,
+                                contentParts: toolResultParts(e)
                             )
                             messages.append(toolMsg)
                             continuation.yield(AgentState(messages: messages))
@@ -170,6 +181,27 @@ extension AsyncSequence where Element == any AGUIEvent {
                         case let e as MessagesSnapshotEvent:
                             messages = e.messages
                             continuation.yield(AgentState(messages: messages))
+
+                        case let e as ActivitySnapshotEvent:
+                            if let index = messages.firstIndex(where: { $0.id == e.messageId }) {
+                                if e.replace {
+                                    messages[index] = ActivityMessage(id: e.messageId,
+                                        activityType: e.activityType, content: e.content)
+                                }
+                            } else {
+                                messages.append(ActivityMessage(id: e.messageId,
+                                    activityType: e.activityType, content: e.content))
+                            }
+                            continuation.yield(AgentState(messages: messages))
+
+                        case let e as ActivityDeltaEvent:
+                            if let index = messages.firstIndex(where: { $0.id == e.messageId }),
+                               let activity = messages[index] as? ActivityMessage,
+                               let content = try? PatchApplicator().apply(patch: e.patch, to: activity.content) {
+                                messages[index] = ActivityMessage(id: activity.id,
+                                    activityType: activity.activityType, content: content)
+                                continuation.yield(AgentState(messages: messages))
+                            }
 
                         case let e as StateSnapshotEvent:
                             currentState = e.snapshot
@@ -186,6 +218,7 @@ extension AsyncSequence where Element == any AGUIEvent {
                             } catch PatchApplicator.PatchError.pathNotFound,
                                     PatchApplicator.PatchError.invalidOperation,
                                     PatchApplicator.PatchError.testFailed {
+                                FileHandle.standardError.write(Data("Failed to apply state patch; retaining prior state\n".utf8))
                                 break
                             }
 
@@ -214,10 +247,16 @@ extension AsyncSequence where Element == any AGUIEvent {
 
 private func eventMetadata(_ event: any AGUIEvent) -> Data? {
     guard let raw = event.rawEvent,
-          let object = (try? JSONSerialization.jsonObject(with: raw)) as? [String: Any],
-          let metadata = object["metadata"] as? [String: Any]
+          let metadata = (try? AGUIJSON.parse(raw))?.object?["metadata"]
     else { return nil }
-    return try? JSONSerialization.data(withJSONObject: metadata)
+    return try? metadata.encoded()
+}
+
+private func toolResultParts(_ event: ToolCallResultEvent) -> Data? {
+    guard let raw = event.rawEvent,
+          let content = (try? AGUIJSON.parse(raw))?.object?["content"],
+          content.array != nil else { return nil }
+    return try? content.encoded()
 }
 
 private func eventAttribution(_ event: any AGUIEvent) -> String? {
@@ -229,11 +268,11 @@ private func eventAttribution(_ event: any AGUIEvent) -> String? {
 
 private func mergedMetadata(_ current: Data?, _ next: Data?) -> Data? {
     guard let next else { return current }
-    var merged = (current.flatMap { try? JSONSerialization.jsonObject(with: $0) } as? [String: Any]) ?? [:]
-    for (key, value) in ((try? JSONSerialization.jsonObject(with: next)) as? [String: Any]) ?? [:] {
+    var merged = (current.flatMap { try? AGUIJSON.parse($0).object }) ?? [:]
+    for (key, value) in ((try? AGUIJSON.parse(next).object) ?? [:]) {
         merged[key] = value
     }
-    return try? JSONSerialization.data(withJSONObject: merged)
+    return try? AGUIJSON.object(merged).encoded()
 }
 
 private extension AssistantMessage {
@@ -251,7 +290,7 @@ private extension AssistantMessage {
             subagentRunId: subagentRunId)
     }
 
-    func withUpdatedToolCallArguments(toolCallId: String, appendDelta: String) -> AssistantMessage {
+    func withUpdatedToolCallArguments(toolCallId: String, appendDelta: String, metadata next: Data? = nil) -> AssistantMessage {
         guard let calls = toolCalls else { return self }
         let updated = calls.map { call in
             if call.id == toolCallId {
@@ -260,7 +299,9 @@ private extension AssistantMessage {
                     function: FunctionCall(
                         name: call.function.name,
                         arguments: call.function.arguments + appendDelta
-                    )
+                    ),
+                    encryptedValue: call.encryptedValue,
+                    metadata: mergedMetadata(call.metadata, next)
                 )
             }
             return call

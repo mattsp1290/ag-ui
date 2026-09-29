@@ -379,7 +379,9 @@ private func encodeToolMessage(_ message: any Message, encoder: JSONEncoder) thr
         "id": toolMsg.id,
         "role": toolMsg.role.rawValue,
         "toolCallId": toolMsg.toolCallId,
-        "content": toolMsg.content
+        "content": try toolMsg.contentParts.map {
+            try JSONSerialization.jsonObject(with: $0, options: [.fragmentsAllowed])
+        } ?? toolMsg.content
     ]
     if let name = toolMsg.name {
         dict["name"] = name

@@ -156,10 +156,86 @@ describe("remote native agent identity", () => {
       expect(
         memoryRequests.map(({ url }) => url.searchParams.get("agentId")),
       ).toEqual(["public-agent", "public-agent"]);
-      // The per-run handle targets the public id, not the shared handle's agent.
+      // The per-run handle is the shared handle with a new signal.
       expect(requests.at(-1)?.url.pathname).toBe(
-        "/api/agents/public-agent/stream",
+        "/api/agents/native-agent/stream",
       );
+    },
+  );
+
+  it.each(["native-agent", "assistant"])(
+    "streams through the handle and aborts its fetch on cancel (config agentId %j)",
+    async (configAgentId) => {
+      const paths: string[] = [];
+      let fetchSignal: AbortSignal | undefined;
+      const fetch: typeof globalThis.fetch = async (input, init) => {
+        const request = new Request(input, init);
+        const { pathname } = new URL(request.url);
+        paths.push(pathname);
+        if (pathname !== "/api/agents/native-agent/stream") {
+          return Response.json({ error: "Not found" }, { status: 404 });
+        }
+        fetchSignal = init?.signal ?? undefined;
+        const signal = fetchSignal;
+        const body = new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.enqueue(
+              new TextEncoder().encode(
+                'data: {"type":"text-delta","payload":{"text":"hi"}}\n\n',
+              ),
+            );
+            signal?.addEventListener("abort", () =>
+              controller.error(new DOMException("Aborted", "AbortError")),
+            );
+          },
+        });
+        return new Response(body, {
+          headers: { "content-type": "text/event-stream" },
+        });
+      };
+      const client = new MastraClient({
+        baseUrl: "http://mastra.test",
+        retries: 0,
+        fetch,
+      });
+      const agent = new MastraAgent({
+        agentId: configAgentId,
+        agent: client.getAgent("native-agent"),
+        resourceId: "resource-1",
+        remoteClient: client,
+      });
+
+      let error: unknown;
+      let settle = () => {};
+      const firstChunk = new Promise<void>((resolve) => {
+        settle = resolve;
+      });
+      const subscription = agent
+        .run(
+          makeInput({
+            messages: [{ id: "1", role: "user", content: "Hi" }] as any,
+          }),
+        )
+        .subscribe({
+          next: (event) => {
+            if (event.type === "TEXT_MESSAGE_CHUNK") settle();
+          },
+          error: (err) => {
+            error = err;
+            settle();
+          },
+          complete: () => settle(),
+        });
+      await firstChunk;
+
+      expect(error).toBeUndefined();
+      expect(paths).toEqual(["/api/agents/native-agent/stream"]);
+      expect(fetchSignal?.aborted).toBe(false);
+
+      subscription.unsubscribe();
+      await new Promise((resolve) => setTimeout(resolve, 20));
+
+      expect(fetchSignal?.aborted).toBe(true);
     },
   );
 });

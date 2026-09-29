@@ -774,14 +774,13 @@ export class MastraAgent extends AbstractAgent {
         { once: true },
       );
 
-      // A caller-supplied `ClientOptions.abortSignal` (an outer request
-      // disconnect or timeout) has to cancel this run too. Chaining it into the
-      // run's controller keeps ONE cancellation channel, so both sources take
-      // the identical path: the per-run client stops the producer, the listener
-      // above settles the Observable, and neither onError nor RUN_FINISHED
-      // fires. Cloning the caller's signal into the per-run client instead
-      // would leave the two unlinked, and the outer one would abort a fetch
-      // nothing here was watching.
+      // A caller-supplied `ClientOptions.abortSignal` on the remote handle (an
+      // outer request disconnect or timeout) has to cancel this run too.
+      // Chaining it into the run's controller keeps ONE cancellation channel,
+      // so both sources take the identical path: the per-run handle stops the
+      // producer, the listener above settles the Observable, and neither
+      // onError nor RUN_FINISHED fires. The per-run handle swaps in this run's
+      // signal, so without the chain the outer one would abort nothing.
       //
       // Registered after the settle listener so an ALREADY-aborted caller
       // signal still completes the subscriber rather than aborting into a
@@ -790,7 +789,10 @@ export class MastraAgent extends AbstractAgent {
       // The chain listener is scoped to this run's own signal, so it is removed
       // when the run ends: a long-lived caller signal does not accumulate one
       // listener per run.
-      const callerSignal = this.remoteClient?.options?.abortSignal;
+      const callerSignal = this.isLocalMastraAgent(this.agent)
+        ? undefined
+        : (this.agent.options?.abortSignal ??
+          this.remoteClient?.options?.abortSignal);
       if (callerSignal?.aborted) {
         abortController.abort();
       } else if (callerSignal) {
@@ -938,7 +940,7 @@ export class MastraAgent extends AbstractAgent {
             // fetch signal from construction-time ClientOptions.abortSignal,
             // so a per-call signal would just be JSON-serialized into the POST
             // body as `{}`. The remote resume below carries this run's signal
-            // on a per-run client instead — see remoteAgentForRun.
+            // on a per-run handle instead, see remoteAgentForRun.
             resumeOptions.abortSignal = abortController.signal;
           }
           if (this.tracingOptions) {
@@ -1047,7 +1049,7 @@ export class MastraAgent extends AbstractAgent {
               // a processDataStream response (callback-based), so we drive it
               // through the same createChunkProcessor used by the remote
               // .stream() path — single source of truth for chunk handling.
-              // Per-run client so this run's signal reaches the fetch (#2288).
+              // Per-run handle so this run's signal reaches the fetch.
               const remoteAgent = this.remoteAgentForRun(
                 abortController.signal,
               ) as unknown as Partial<RemoteResumableAgent>;
@@ -1212,46 +1214,31 @@ export class MastraAgent extends AbstractAgent {
   /**
    * The remote agent handle to use for a single run.
    *
-   * `@mastra/client-js` takes the fetch signal from construction-time
-   * `ClientOptions.abortSignal` — its stream params Omit `abortSignal`, so a
-   * per-call signal is only JSON-serialized into the POST body and never
-   * reaches the wire. Cloning the client with this run's signal is what makes
-   * cancellation abort the underlying fetch and stop the server-side run,
-   * instead of only silencing our own consumption loop (#2288). The client also
-   * watches the signal to tear down `processDataStream`.
+   * `@mastra/client-js` reads the fetch signal from `this.options.abortSignal`
+   * on every request; its stream params Omit `abortSignal`, so a per-call
+   * signal is only JSON-serialized into the POST body. The per-run handle is
+   * the shared handle with only that signal swapped, so cancelling the run
+   * aborts the fetch and stops the server-side run. The client also watches
+   * the signal to tear down `processDataStream`.
    *
-   * Returns the shared handle unchanged when there is no signal, no agent id,
-   * or nothing cloneable to clone from — a `remoteClient` without real
-   * `ClientOptions` (a stand-in, or an agent wired up by hand rather than
-   * through `getRemoteAgents`) cannot produce a working per-run client, and the
-   * caller-supplied handle is the one that must keep being used. Remote
-   * cancellation stays best-effort in those cases rather than failing the run.
+   * Delegating to the shared handle keeps its agent id, version pin, and route
+   * overrides. Nothing is rebuilt from an id, so a handle whose agent differs
+   * from the configured `agentId` still reaches the right agent.
    *
-   * `abortSignal` replaces any `ClientOptions.abortSignal` on the clone, which
-   * is safe because `run` chains a caller-supplied one into this run's
-   * controller: the signal passed here already fires whenever the caller's
-   * does, so the outer disconnect or timeout keeps being honoured.
+   * Returns the shared handle unchanged when there is no signal or the handle
+   * has no real `ClientOptions` (a stand-in). Remote cancellation stays local
+   * only in that case rather than failing the run.
+   *
+   * `abortSignal` replaces any `ClientOptions.abortSignal` on the copy, which is
+   * safe because `run` chains the handle's own signal into this run's
+   * controller, so the outer disconnect or timeout keeps being honoured.
    */
   private remoteAgentForRun(abortSignal?: AbortSignal): RemoteMastraAgent {
     const shared = this.agent as RemoteMastraAgent;
-    const client = this.remoteClient;
-    const agentId = this.nativeAgentId ?? this.agentId;
-    if (!abortSignal || !agentId) return shared;
-    if (!client?.options?.baseUrl || typeof client.getAgent !== "function") {
-      return shared;
-    }
-    try {
-      return new MastraClient({ ...client.options, abortSignal }).getAgent(
-        agentId,
-      );
-    } catch (error) {
-      console.warn(
-        "[MastraAgent] Failed to bind the run's abort signal to a per-run client; " +
-          "falling back to the shared client (remote cancellation stays local-only):",
-        error,
-      );
-      return shared;
-    }
+    if (!abortSignal || !shared.options?.baseUrl) return shared;
+    return Object.create(shared, {
+      options: { value: { ...shared.options, abortSignal } },
+    }) as RemoteMastraAgent;
   }
 
   /**
@@ -3394,7 +3381,7 @@ export class MastraAgent extends AbstractAgent {
           // there and reads the fetch signal from construction-time
           // `ClientOptions.abortSignal`, so a per-call signal would only be
           // JSON-serialized into the POST body as `{}`. This run's signal is
-          // bound to a per-run client instead — see remoteAgentForRun (#2288).
+          // bound to a per-run handle instead, see remoteAgentForRun.
         };
         if (this.tracingOptions) {
           streamOptions.tracingOptions = this.tracingOptions;
@@ -3407,7 +3394,7 @@ export class MastraAgent extends AbstractAgent {
             headers: this.headers,
           };
         }
-        // Per-run client so this run's signal reaches the fetch (#2288).
+        // Per-run handle so this run's signal reaches the fetch.
         const response = await this.remoteAgentForRun(abortSignal).stream(
           convertedMessages,
           streamOptions,
@@ -3444,7 +3431,7 @@ export class MastraAgent extends AbstractAgent {
             onChunk: async (chunk: any) => {
               if (stopped) return;
               // Cancelled (unsubscribe or abortRun): stop consuming (#2288).
-              // The per-run client also aborts the underlying fetch, so the
+              // The per-run handle also aborts the underlying fetch, so the
               // server stops producing rather than just going unread.
               if (abortSignal.aborted) {
                 stopped = true;

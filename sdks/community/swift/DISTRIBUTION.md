@@ -1,7 +1,8 @@
 # Standalone SwiftPM distribution
 
-The authoritative development source is `sdks/community/swift` on the
-`feat/swift-agentcraft` branch of `mattsp1290/ag-ui`. The package is published to
+The authoritative development source is `sdks/community/swift` in
+`mattsp1290/ag-ui`, with an exact AG-UI source SHA recorded for each published
+revision. The package is published to
 `https://github.com/mattsp1290/ag-ui-swift.git` by splitting that directory into
 the root of a standalone Git repository. The distribution is maintained by
 Matt Spurlin. Its `LICENSE` retains Perfect Aduh's MIT attribution; see

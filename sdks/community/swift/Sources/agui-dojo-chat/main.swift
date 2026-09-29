@@ -20,6 +20,7 @@ struct DojoChat {
         let input = RunAgentInput(
             threadId: UUID().uuidString,
             runId: UUID().uuidString,
+            protocolVersion: nil, // This dojo server predates the optional 1.0 field.
             messages: [UserMessage(id: UUID().uuidString, content: prompt)]
         )
         let agent = HttpAgent(baseURL: baseURL)

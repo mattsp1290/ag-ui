@@ -74,6 +74,10 @@ public struct RunAgentInput: Sendable, Codable, Hashable {
     /// The unique identifier for this run.
     public let runId: String
 
+    /// Declared AG-UI protocol version. Pass `nil` only for a legacy peer whose
+    /// request schema rejects this optional field.
+    public let protocolVersion: String?
+
     /// Optional parent run identifier for nested agent calls.
     public let parentRunId: String?
 
@@ -116,6 +120,7 @@ public struct RunAgentInput: Sendable, Codable, Hashable {
     /// - Parameters:
     ///   - threadId: Conversation thread identifier
     ///   - runId: Unique run identifier
+    ///   - protocolVersion: Declared protocol version (defaults to `"1.0"`)
     ///   - parentRunId: Optional parent run identifier
     ///   - state: State data as JSON (defaults to empty object)
     ///   - messages: Message history (defaults to empty)
@@ -126,6 +131,7 @@ public struct RunAgentInput: Sendable, Codable, Hashable {
     public init(
         threadId: String,
         runId: String,
+        protocolVersion: String? = "1.0",
         parentRunId: String? = nil,
         state: Data = Data("{}".utf8),
         messages: [any Message] = [],
@@ -136,6 +142,7 @@ public struct RunAgentInput: Sendable, Codable, Hashable {
     ) {
         self.threadId = threadId
         self.runId = runId
+        self.protocolVersion = protocolVersion
         self.parentRunId = parentRunId
         self.state = state
         self.messages = messages
@@ -166,6 +173,10 @@ public struct RunAgentInput: Sendable, Codable, Hashable {
         // Decode simple string fields
         threadId = try container.decode(String.self, forKey: .threadId)
         runId = try container.decode(String.self, forKey: .runId)
+        // Inputs decoded from a fixture or older caller still declare the
+        // current protocol when sent again. Explicit legacy opt-out is an
+        // initializer choice for the request being made.
+        protocolVersion = try container.decodeIfPresent(String.self, forKey: .protocolVersion) ?? "1.0"
         parentRunId = try container.decodeIfPresent(String.self, forKey: .parentRunId)
 
         // Decode state as arbitrary JSON object and convert to Data.
@@ -216,7 +227,7 @@ public struct RunAgentInput: Sendable, Codable, Hashable {
         // Encode simple string fields
         try container.encode(threadId, forKey: .threadId)
         try container.encode(runId, forKey: .runId)
-        try container.encode("1.0", forKey: .protocolVersion)
+        try container.encodeIfPresent(protocolVersion, forKey: .protocolVersion)
         try container.encodeIfPresent(parentRunId, forKey: .parentRunId)
 
         // Encode state: send null when empty so backends treat it as "no state".
@@ -260,6 +271,7 @@ public struct RunAgentInput: Sendable, Codable, Hashable {
     public func hash(into hasher: inout Hasher) {
         hasher.combine(threadId)
         hasher.combine(runId)
+        hasher.combine(protocolVersion)
         hasher.combine(parentRunId)
         hasher.combine(state)
         hasher.combine(tools)
@@ -279,6 +291,7 @@ public struct RunAgentInput: Sendable, Codable, Hashable {
         // Fast path: check simple properties first
         guard lhs.threadId == rhs.threadId &&
               lhs.runId == rhs.runId &&
+              lhs.protocolVersion == rhs.protocolVersion &&
               lhs.parentRunId == rhs.parentRunId &&
               lhs.state == rhs.state &&
               lhs.tools == rhs.tools &&

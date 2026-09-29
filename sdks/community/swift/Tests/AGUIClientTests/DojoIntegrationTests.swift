@@ -24,6 +24,7 @@ final class DojoIntegrationTests: XCTestCase {
         let input = RunAgentInput(
             threadId: UUID().uuidString,
             runId: UUID().uuidString,
+            protocolVersion: nil, // The local dojo rejects unknown request fields.
             messages: [UserMessage(id: UUID().uuidString, content: "Say hello")]
         )
         let agent = HttpAgent(baseURL: baseURL)

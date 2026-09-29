@@ -5,6 +5,15 @@ import XCTest
 
 /// Replays the committed corpus through the same HTTP/SSE path as HttpAgent.
 final class StreamConformanceTests: XCTestCase {
+    private let skippedFixtures: [String: String] = [
+        "era-0-0-39-flattens-content": "optional 0.0.39 peer-era translation (conformance README)",
+        "era-0-0-45-thinking-translated": "optional 0.0.45 peer-era translation (conformance README)",
+        "era-0-0-47-upgrades-binary-content": "optional 0.0.47 peer-era translation (conformance README)",
+        "era-0-0-57-subagent-dropped-with-warning": "optional 0.0.57 peer-era translation (conformance README)",
+        "era-current-peer-keeps-modern-content": "peer-era translation fixture (conformance README)",
+        "era-pinned-peer-omits-protocol-version": "optional pinned peer-era request translation (conformance README)",
+        "unknown-enum-value-role-fatal": "admitted TypeScript enum gap contradicts protocol (conformance README)"
+    ]
     // Exact pending application assertions. A new fixture must fail until it is
     // implemented or deliberately added here with its own observed failure.
     private let pendingAssertions: [String: Set<String>] = [
@@ -29,6 +38,12 @@ final class StreamConformanceTests: XCTestCase {
             .filter { $0.hasSuffix(".json") }.sorted()
         XCTAssertEqual(manifest, actual, "Conformance manifest must match the fixture directory in both directions")
         guard manifest == actual else { return }
+        XCTAssertTrue(Set(skippedFixtures.keys).isSubset(of: Set(manifest.map { String($0.dropLast(5)) })),
+                      "Swift skip list names a fixture absent from MANIFEST.txt")
+        guard Set(skippedFixtures.keys).isSubset(of: Set(manifest.map { String($0.dropLast(5)) })) else { return }
+        XCTAssertTrue(Set(pendingAssertions.keys).isSubset(of: Set(manifest.map { String($0.dropLast(5)) })),
+                      "Swift pending assertion list names a fixture absent from MANIFEST.txt")
+        guard Set(pendingAssertions.keys).isSubset(of: Set(manifest.map { String($0.dropLast(5)) })) else { return }
 
         for filename in manifest {
             let fixture = try object(try JSONSerialization.jsonObject(with: Data(contentsOf: directory.appendingPathComponent(filename))))
@@ -44,12 +59,8 @@ final class StreamConformanceTests: XCTestCase {
             }
 
             // README.md identifies exactly these corpus assertions as client-specific relaxations.
-            if name.hasPrefix("era-") {
-                print("SKIP \(name): optional peer-era translation (conformance README)")
-                continue
-            }
-            if name == "unknown-enum-value-role-fatal" {
-                print("SKIP \(name): admitted TypeScript enum gap contradicts protocol (conformance README)")
+            if let reason = skippedFixtures[name] {
+                print("SKIP \(name): \(reason)")
                 continue
             }
 

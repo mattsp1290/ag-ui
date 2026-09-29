@@ -115,6 +115,10 @@ public enum EventType: String, Codable, CaseIterable, Sendable {
     /// Incremental activity update received
     case activityDelta = "ACTIVITY_DELTA"
 
+    case subagentStarted = "SUBAGENT_STARTED"
+    case subagentFinished = "SUBAGENT_FINISHED"
+    case subagentError = "SUBAGENT_ERROR"
+
     // MARK: - Internal Sentinel (1)
 
     /// Sentinel type returned by ``UnknownEvent`` for events that could not be decoded.
@@ -125,4 +129,18 @@ public enum EventType: String, Codable, CaseIterable, Sendable {
     /// - Note: This case is an implementation detail. Consumer code should check `event is UnknownEvent`
     ///   rather than switching on `.unknown` directly.
     case unknown = "__UNKNOWN__"
+
+    /// Wire-level event types defined by version 1.0. The unknown sentinel is not a protocol value.
+    public static var protocolCases: [EventType] { allCases }
+
+    public static var allCases: [EventType] {
+        [.runStarted, .runFinished, .runError, .stepStarted, .stepFinished,
+         .textMessageStart, .textMessageContent, .textMessageEnd, .textMessageChunk,
+         .toolCallStart, .toolCallArgs, .toolCallEnd, .toolCallResult, .toolCallChunk,
+         .stateSnapshot, .stateDelta, .messagesSnapshot,
+         .reasoningStart, .reasoningMessageStart, .reasoningMessageContent,
+         .reasoningMessageEnd, .reasoningMessageChunk, .reasoningEnd,
+         .reasoningEncryptedValue, .raw, .custom, .activitySnapshot,
+         .activityDelta, .subagentStarted, .subagentFinished, .subagentError]
+    }
 }

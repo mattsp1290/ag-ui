@@ -24,8 +24,8 @@ final class UnknownEventTests: XCTestCase, AGUIEventDecoderTestHelpers {
         XCTAssertFalse(knownRawValues.contains("__UNKNOWN__"))
     }
 
-    func test_unknownEventType_isInAllCases() {
-        XCTAssertTrue(EventType.allCases.contains(.unknown))
+    func test_unknownEventType_isNotAProtocolCase() {
+        XCTAssertFalse(EventType.allCases.contains(.unknown))
     }
 
     // MARK: - Feature: UnknownEvent.eventType returns .unknown

@@ -63,6 +63,11 @@ final class SchemaFixtureTests: XCTestCase {
         let definitions = schema["$defs"] as! [String: [String: Any]]
         let wireEvents = Set(definitions["EventType"]!["enum"] as! [String])
         XCTAssertEqual(Set(EventType.allCases.map(\.rawValue)), wireEvents)
+        XCTAssertThrowsError(try JSONEncoder().encode(EventType.unknown))
+        XCTAssertThrowsError(try JSONDecoder().decode(EventType.self, from: Data("\"__UNKNOWN__\"".utf8)))
+        for type in EventType.allCases {
+            XCTAssertEqual(try JSONDecoder().decode(EventType.self, from: JSONEncoder().encode(type)), type)
+        }
         XCTAssertEqual(Set(AGUI1RoleValue.allCases.map(\.rawValue)),
                        Set(definitions["Role"]!["enum"] as! [String]))
         XCTAssertEqual(AGUI1Definitions.all.count, definitions.count)
@@ -104,8 +109,37 @@ final class SchemaFixtureTests: XCTestCase {
         let json = Data("{\"type\":\"STATE_SNAPSHOT\",\"snapshot\":{\"value\":\(digits)},\"futureField\":true}".utf8)
         XCTAssertThrowsError(try AGUI1StateSnapshotEvent(json))
         let forwarded = try AGUI1StateSnapshotEvent(forwardCompatible: json)
-        XCTAssertEqual(try forwarded.encoded(), json)
+        XCTAssertTrue(String(decoding: try forwarded.encoded(), as: UTF8.self).contains(digits))
+        XCTAssertTrue(String(decoding: try forwarded.snapshot!.encoded(), as: UTF8.self).contains(digits))
+        let edited = try forwarded.settingTimestamp(1)
+        XCTAssertTrue(String(decoding: try edited.encoded(), as: UTF8.self).contains(digits))
+        XCTAssertEqual(edited.timestamp, 1)
+        XCTAssertNotNil(edited.document.jsonFields["futureField"])
+        let union = try AGUI1Event(forwardCompatible: json)
+        XCTAssertTrue(String(decoding: try union.asStateSnapshotEvent!.snapshot!.encoded(), as: UTF8.self).contains(digits))
+        let request = Data(#"{"threadId":"t","runId":"r","messages":[{"id":"m","role":"user","content":"hello","futureField":true}]}"#.utf8)
+        let projected = try AGUI1RunAgentInput(forwardCompatible: request).messages
+        XCTAssertEqual(projected?.count, 1)
+        XCTAssertNotNil(projected?.first?.asUserMessage)
+        XCTAssertTrue(String(decoding: try projected!.first!.encoded(), as: UTF8.self).contains("futureField"))
         XCTAssertEqual(String(decoding: try forwarded.document.sseFrame(), as: UTF8.self),
-                       "data: \(String(decoding: json, as: UTF8.self))\n\n")
+                       "data: \(String(decoding: try forwarded.encoded(), as: UTF8.self))\n\n")
+
+        let pretty = Data("{\n  \"type\": \"STATE_SNAPSHOT\",\n  \"snapshot\": {\"value\": \(digits)}\n}".utf8)
+        let frame = String(decoding: try AGUI1Event(pretty).document.sseFrame(), as: UTF8.self)
+        XCTAssertEqual(frame.filter { $0 == "\n" }.count, 2)
+        XCTAssertTrue(frame.hasPrefix("data: {"))
+    }
+
+    func testLosslessJSONRejectsInvalidNumbersAndDuplicateKeys() throws {
+        for lexeme in ["01", "+1", "1.", "1e", "NaN", "--2"] {
+            XCTAssertThrowsError(try AGUIJSON.number(lexeme).encoded(), lexeme)
+        }
+        for json in [#"{"x":1,"x":2}"#, #"{"x":1,"\u0078":2}"#,
+                     "{\"x\":\"bad\nescape\"}", #"[1,]"#] {
+            XCTAssertThrowsError(try AGUIJSON.parse(Data(json.utf8)), json)
+        }
+        let escaped = try AGUIJSON.parse(Data(#"{"text":"line\n\"quote\"","emoji":"\uD83D\uDE00"}"#.utf8))
+        XCTAssertEqual(try AGUIJSON.parse(escaped.encoded()), escaped)
     }
 }

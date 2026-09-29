@@ -143,4 +143,22 @@ public enum EventType: String, Codable, CaseIterable, Sendable {
          .reasoningEncryptedValue, .raw, .custom, .activitySnapshot,
          .activityDelta, .subagentStarted, .subagentFinished, .subagentError]
     }
+
+    public init(from decoder: Decoder) throws {
+        let raw = try decoder.singleValueContainer().decode(String.self)
+        guard let value = EventType(rawValue: raw), value != .unknown else {
+            throw DecodingError.dataCorrupted(.init(codingPath: decoder.codingPath,
+                                                    debugDescription: "Not an AG-UI 1.0 event type: \(raw)"))
+        }
+        self = value
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        guard self != .unknown else {
+            throw EncodingError.invalidValue(self, .init(codingPath: encoder.codingPath,
+                                                          debugDescription: "UnknownEvent is not a wire event type"))
+        }
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
 }

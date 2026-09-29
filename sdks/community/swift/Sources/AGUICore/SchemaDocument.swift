@@ -5,56 +5,69 @@ import Foundation
 /// The original JSON tree is retained, including extension fields and opaque values.
 public struct AGUISchemaDocument {
     public let definition: String
-    public let value: Any
+    public let json: AGUIJSON
+    public var jsonFields: [String: AGUIJSON] { json.object ?? [:] }
+    public var value: Any { (try? JSONSerialization.jsonObject(with: (try json.encoded()), options: [.fragmentsAllowed])) ?? NSNull() }
     public var fields: [String: Any] { value as? [String: Any] ?? [:] }
-    private let originalData: Data?
+    public let allowsUnknownFields: Bool
 
     public init(_ data: Data, definition: String = "Event", allowUnknownFields: Bool = false) throws {
-        let object = try JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed])
+        let json = try AGUIJSON.parse(data)
+        let object = try JSONSerialization.jsonObject(with: try json.encoded(), options: [.fragmentsAllowed])
         guard let schema = Self.definitions[definition] else { throw AGUISchemaError.unknownDefinition(definition) }
         guard Self.accepts(object, schema: schema, allowUnknown: allowUnknownFields) else { throw AGUISchemaError.invalidValue(definition) }
         self.definition = definition
-        self.value = object
-        self.originalData = data
+        self.json = json
+        self.allowsUnknownFields = allowUnknownFields
     }
 
     /// Accepts producer objects with explicit optional nulls, applying the SDK's
     /// omission rule before strict schema validation.
     public init(normalizing data: Data, definition: String = "Event") throws {
-        guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let schema = Self.definitions[definition] else { throw AGUISchemaError.invalidJSON }
-        let normalized = Self.normalize(object, schema: schema) as! [String: Any]
-        guard Self.accepts(normalized, schema: schema) else { throw AGUISchemaError.invalidValue(definition) }
+        let input = try AGUIJSON.parse(data)
+        guard let schema = Self.definitions[definition] else { throw AGUISchemaError.unknownDefinition(definition) }
+        let normalized = Self.normalizeJSON(input, schema: schema)
+        guard Self.acceptsJSON(normalized, schema: schema) else { throw AGUISchemaError.invalidValue(definition) }
         self.definition = definition
-        self.value = normalized
-        self.originalData = nil
+        self.json = normalized
+        self.allowsUnknownFields = false
     }
 
     public func encoded() throws -> Data {
-        if let originalData { return originalData }
-        let object = Self.normalize(fields, schema: Self.definitions[definition]!) as! [String: Any]
-        return try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys, .fragmentsAllowed])
+        try json.encoded()
     }
 
-    public func sseFrame() throws -> Data { Data("data: \(String(decoding: try encoded(), as: UTF8.self))\n\n".utf8) }
+    public func sseFrame() throws -> Data { Data("data: \(String(decoding: try json.encoded(), as: UTF8.self))\n\n".utf8) }
+
+    public func updating(_ key: String, to newValue: AGUIJSON?) throws -> Self {
+        guard case .object(var object) = json else { throw AGUISchemaError.invalidValue(definition) }
+        object[key] = newValue
+        return try Self(AGUIJSON.object(object).encoded(), definition: definition,
+                        allowUnknownFields: allowsUnknownFields)
+    }
 
     private static let definitions: [String: [String: Any]] = {
         let data = Data(schemaJSON.utf8)
         return try! JSONSerialization.jsonObject(with: data) as! [String: [String: Any]]
     }()
 
-    private static func normalize(_ value: Any, schema: [String: Any]) -> Any {
+    private static func acceptsJSON(_ json: AGUIJSON, schema: [String: Any]) -> Bool {
+        guard let value = try? JSONSerialization.jsonObject(with: try json.encoded(), options: [.fragmentsAllowed]) else { return false }
+        return accepts(value, schema: schema)
+    }
+
+    private static func normalizeJSON(_ value: AGUIJSON, schema: [String: Any]) -> AGUIJSON {
         if let ref = schema["$ref"] as? String,
            let target = definitions[String(ref.split(separator: "/").last ?? "")] {
-            return normalize(value, schema: target)
+            return normalizeJSON(value, schema: target)
         }
         if let one = schema["oneOf"] as? [[String: Any]] {
             for variant in one {
-                let candidate = normalize(value, schema: variant)
-                if accepts(candidate, schema: variant) { return candidate }
+                let candidate = normalizeJSON(value, schema: variant)
+                if acceptsJSON(candidate, schema: variant) { return candidate }
             }
         }
-        guard let object = value as? [String: Any] else { return value }
+        guard case .object(let object) = value else { return value }
         var properties = schema["properties"] as? [String: [String: Any]] ?? [:]
         var required = Set(schema["required"] as? [String] ?? [])
         for part in schema["allOf"] as? [[String: Any]] ?? [] {
@@ -65,12 +78,12 @@ public struct AGUISchemaDocument {
             properties.merge(source["properties"] as? [String: [String: Any]] ?? [:]) { old, _ in old }
             required.formUnion(source["required"] as? [String] ?? [])
         }
-        var result: [String: Any] = [:]
+        var result: [String: AGUIJSON] = [:]
         for (key, field) in object {
-            if field is NSNull && properties[key] != nil && !required.contains(key) { continue }
-            result[key] = properties[key].map { normalize(field, schema: $0) } ?? field
+            if field == .null && properties[key] != nil && !required.contains(key) { continue }
+            result[key] = properties[key].map { normalizeJSON(field, schema: $0) } ?? field
         }
-        return result
+        return .object(result)
     }
 
     private static func accepts(_ value: Any, schema: [String: Any], allowUnknown: Bool = false) -> Bool {

@@ -225,6 +225,29 @@ interface RemoteResumableAgent {
 }
 
 /**
+ * What a run was asked to do about a suspended tool call, resolved from either
+ * resume channel. `declined` comes from the entry's status (or, legacy,
+ * `resume === false`), never from the payload value, so a resolved entry with
+ * no payload still resumes.
+ */
+interface ResumeDirective {
+  interruptEvent: unknown;
+  declined: boolean;
+  resumeData: unknown;
+}
+
+/** A resume request the adapter rejects before touching the Mastra snapshot. */
+class ResumeRequestError extends Error {
+  constructor(
+    message: string,
+    readonly code?: string,
+  ) {
+    super(message);
+    this.name = "ResumeRequestError";
+  }
+}
+
+/**
  * Walks `finish.payload.response.uiMessages` to pull the final assistant text
  * after Mastra's output processors have run.
  *
@@ -811,46 +834,17 @@ export class MastraAgent extends AbstractAgent {
 
         subscriber.next(runStartedEvent);
 
-        // CopilotKit passes resume data via forwardedProps.command (convention
-        // shared with LangGraph's interrupt bridge). forwardedProps is untyped
-        // (any) — the caller is responsible for shape validation.
-        let forwardedCommand = input.forwardedProps?.command;
-
-        // Standard AG-UI resume channel: clients on the canonical interrupt path
-        // (CopilotKit >= 1.61.2) drive resume through `RunAgentInput.resume`
-        // (an array of { interruptId, status, payload }) instead of the legacy
-        // `forwardedProps.command`. Mastra fully overrides run(), so the base
-        // AbstractAgent reconcile of `input.resume` is bypassed — we consume it
-        // here. We normalize the first entry into the same internal command shape
-        // the legacy path uses, so a single resume block serves both channels.
-        //
-        // The Mastra snapshot runId (the resumeStream key) is NOT carried by a
-        // ResumeEntry — only `interruptId` round-trips. So we encode the runId
-        // into the emitted Interrupt id as `${runId}::${toolCallId}` (see
-        // suspendToInterrupt) and decode it back here.
-        if (!forwardedCommand?.interruptEvent && Array.isArray(input.resume)) {
-          const entry = input.resume.find(
-            (r) => r?.status === "resolved" || r?.status === "cancelled",
-          );
-          if (entry?.interruptId) {
-            const sep = entry.interruptId.indexOf("::");
-            const runId =
-              sep >= 0 ? entry.interruptId.slice(0, sep) : input.runId;
-            const toolCallId =
-              sep >= 0 ? entry.interruptId.slice(sep + 2) : entry.interruptId;
-            forwardedCommand = {
-              resume: entry.status === "cancelled" ? false : entry.payload,
-              interruptEvent: { toolCallId, runId },
-            };
-          }
+        let directive: ResumeDirective | undefined;
+        try {
+          directive = this.resolveResumeDirective(input);
+        } catch (error) {
+          subscriber.error(error);
+          return;
         }
 
-        // resume: false means the user explicitly declined the tool call.
-        // Close the run cleanly without calling resumeStream.
-        if (
-          forwardedCommand?.resume === false &&
-          forwardedCommand?.interruptEvent
-        ) {
+        // A cancelled entry (legacy: resume === false) means the user declined
+        // the tool call. Close the run cleanly without calling resumeStream.
+        if (directive?.declined) {
           await this.emitWorkingMemorySnapshot(subscriber, input.threadId);
           subscriber.next({
             type: EventType.RUN_FINISHED,
@@ -861,17 +855,14 @@ export class MastraAgent extends AbstractAgent {
           return;
         }
 
-        if (
-          forwardedCommand?.resume != null &&
-          forwardedCommand?.interruptEvent
-        ) {
+        if (directive) {
           // Safely parse interruptEvent — client-supplied data
           let interruptEvent: any;
           try {
             interruptEvent =
-              typeof forwardedCommand.interruptEvent === "string"
-                ? JSON.parse(forwardedCommand.interruptEvent)
-                : forwardedCommand.interruptEvent;
+              typeof directive.interruptEvent === "string"
+                ? JSON.parse(directive.interruptEvent)
+                : directive.interruptEvent;
           } catch (err) {
             subscriber.error(
               new Error("Invalid interruptEvent: malformed JSON", {
@@ -1003,7 +994,7 @@ export class MastraAgent extends AbstractAgent {
           try {
             if (this.isLocalMastraAgent(this.agent)) {
               const response = await this.agent.resumeStream(
-                forwardedCommand.resume,
+                directive.resumeData,
                 resumeOptions,
               );
 
@@ -1063,7 +1054,7 @@ export class MastraAgent extends AbstractAgent {
               }
 
               const response = await remoteAgent.resumeStream(
-                forwardedCommand.resume,
+                directive.resumeData,
                 resumeOptions,
               );
 
@@ -1242,6 +1233,82 @@ export class MastraAgent extends AbstractAgent {
   }
 
   /**
+   * Resolves this run's resume directive from `RunAgentInput.resume` or the
+   * deprecated `forwardedProps.command`; `input.resume` wins when both arrive.
+   * Mastra fully overrides run(), so the base AbstractAgent handling of
+   * `input.resume` is bypassed and it is consumed here.
+   *
+   * The Mastra snapshot runId (the resumeStream key) is NOT carried by a
+   * ResumeEntry, only `interruptId` round-trips. So the emitted Interrupt id
+   * encodes it as `${runId}::${toolCallId}` (see suspendToInterrupt) and it is
+   * decoded back here.
+   */
+  private resolveResumeDirective(
+    input: RunAgentInput,
+  ): ResumeDirective | undefined {
+    // forwardedProps is untyped; the legacy command shape is shared with
+    // LangGraph's interrupt bridge.
+    const command = input.forwardedProps?.command;
+    const legacyResume = command?.resume;
+    const entries =
+      Array.isArray(input.resume) && input.resume.length > 0
+        ? input.resume
+        : undefined;
+
+    if (entries && legacyResume !== undefined) {
+      console.warn(
+        "[MastraAgent] both input.resume and forwardedProps.command.resume were provided; input.resume wins.",
+      );
+    } else if (!entries && legacyResume !== undefined) {
+      console.warn(
+        "[MastraAgent] forwardedProps.command.resume is deprecated; send RunAgentInput.resume[] instead.",
+      );
+    }
+
+    if (entries) {
+      // One resumeStream call serves one interrupt. Resuming one sibling while
+      // dropping the rest would half-advance the suspended snapshot, so reject
+      // up front and leave it intact for a retry.
+      if (entries.length > 1) {
+        const ids = entries.map((entry) => entry?.interruptId).join(", ");
+        throw new ResumeRequestError(
+          `Mastra can resume one interrupt per run; received ${entries.length} resume entries: ${ids}. None were applied.`,
+          "MASTRA_MULTIPLE_RESUME_ENTRIES",
+        );
+      }
+      const [entry] = entries;
+      if (
+        typeof entry?.interruptId !== "string" ||
+        entry.interruptId.length === 0 ||
+        (entry.status !== "resolved" && entry.status !== "cancelled")
+      ) {
+        throw new ResumeRequestError(
+          "Invalid resume entry: expected a non-empty interruptId and a status of resolved or cancelled",
+        );
+      }
+      const sep = entry.interruptId.indexOf("::");
+      return {
+        interruptEvent: {
+          toolCallId:
+            sep >= 0 ? entry.interruptId.slice(sep + 2) : entry.interruptId,
+          runId: sep >= 0 ? entry.interruptId.slice(0, sep) : input.runId,
+        },
+        declined: entry.status === "cancelled",
+        resumeData: entry.payload,
+      };
+    }
+
+    if (command?.interruptEvent && legacyResume !== undefined) {
+      return {
+        interruptEvent: command.interruptEvent,
+        declined: legacyResume === false,
+        resumeData: legacyResume,
+      };
+    }
+    return undefined;
+  }
+
+  /**
    * Maps a Mastra tool suspend to an AG-UI {@link Interrupt}.
    *
    * `id` is the suspended tool call id — the correlation key resume sends back
@@ -1292,6 +1359,9 @@ export class MastraAgent extends AbstractAgent {
     return {
       id: `${snapshotRunId}::${payload.toolCallId}`,
       reason: "mastra:tool_suspend",
+      ...(typeof payload.suspendPayload?.message === "string"
+        ? { message: payload.suspendPayload.message }
+        : {}),
       toolCallId: payload.toolCallId,
       ...(responseSchema ? { responseSchema } : {}),
       metadata: {

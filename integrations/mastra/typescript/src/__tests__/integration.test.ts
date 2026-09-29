@@ -1,7 +1,11 @@
 import { EventType } from "@ag-ui/client";
 import { Agent } from "@mastra/core/agent";
+import { Mastra } from "@mastra/core/mastra";
 import { MockMemory } from "@mastra/core/memory";
+import { InMemoryStore } from "@mastra/core/storage";
+import { createTool } from "@mastra/core/tools";
 import { MastraLanguageModelV2Mock } from "@mastra/core/test-utils/llm-mock";
+import { z } from "zod";
 import { MastraAgent } from "../mastra";
 import { makeInput, collectEvents } from "./helpers";
 
@@ -485,6 +489,124 @@ describe("integration with real Mastra Agent", () => {
 
       expect(events[0].type).toBe(EventType.RUN_STARTED);
       expect(events.some((e) => e.type === EventType.RUN_FINISHED)).toBe(true);
+    });
+  });
+
+  describe("suspend and resume", () => {
+    const usage = { inputTokens: 1, outputTokens: 1, totalTokens: 2 };
+
+    // First model call asks for the tool; any later call answers in text.
+    function toolThenTextModel() {
+      let calls = 0;
+      const model = new MastraLanguageModelV2Mock({
+        doStream: async () => {
+          calls++;
+          const chunks =
+            calls === 1
+              ? [
+                  {
+                    type: "tool-call",
+                    toolCallId: "tc-1",
+                    toolName: "approve_expense",
+                    input: JSON.stringify({ amount: 250 }),
+                  },
+                  { type: "finish", usage, finishReason: "tool-calls" },
+                ]
+              : [
+                  { type: "text-delta", id: "t1", delta: "Filed." },
+                  { type: "finish", usage, finishReason: "stop" },
+                ];
+          return {
+            stream: new ReadableStream({
+              start(controller) {
+                for (const chunk of chunks) controller.enqueue(chunk);
+                controller.close();
+              },
+            }),
+            request: { body: {} },
+            response: undefined,
+          };
+        },
+      });
+      return { model, modelCalls: () => calls };
+    }
+
+    function suspendingAgent() {
+      const { model, modelCalls } = toolThenTextModel();
+      const executions: unknown[] = [];
+      const approveExpense = createTool({
+        id: "approve_expense",
+        description: "Files an expense once a human approves it",
+        inputSchema: z.object({ amount: z.number() }),
+        suspendSchema: z.object({ message: z.string() }),
+        execute: async (_input: any, ctx: any) => {
+          executions.push(ctx?.agent?.resumeData);
+          if (executions.length === 1) {
+            return ctx.agent.suspend({ message: "Approve this expense?" });
+          }
+          return { filed: true };
+        },
+      });
+      const agent = new Agent({
+        id: "expense-agent",
+        name: "expense-agent",
+        instructions: "File expenses.",
+        model: model as any,
+        tools: { approve_expense: approveExpense },
+        memory: new MockMemory() as any,
+      });
+      const mastra = new Mastra({
+        agents: { expense: agent },
+        storage: new InMemoryStore(),
+        logger: false,
+      });
+      const bridge = new MastraAgent({
+        agentId: "expense-agent",
+        agent: mastra.getAgent("expense"),
+        resourceId: "resource-1",
+      });
+      return { bridge, executions, modelCalls };
+    }
+
+    it("resumes the suspended tool from a resolved entry with no payload", async () => {
+      const { bridge, executions, modelCalls } = suspendingAgent();
+
+      const first = await collectEvents(
+        bridge,
+        makeInput({
+          runId: "run-1",
+          messages: [{ id: "u1", role: "user", content: "File my dinner" }],
+        }),
+      );
+      const finished = first.find(
+        (e) => e.type === EventType.RUN_FINISHED,
+      ) as any;
+      expect(finished.outcome.type).toBe("interrupt");
+      const [interrupt] = finished.outcome.interrupts;
+      expect(interrupt.toolCallId).toBe("tc-1");
+      expect(interrupt.message).toBe("Approve this expense?");
+
+      const second = await collectEvents(
+        bridge,
+        makeInput({
+          runId: "run-2",
+          resume: [{ interruptId: interrupt.id, status: "resolved" }],
+        }),
+      );
+
+      // The suspended tool ran again with no resume data and returned, and the
+      // model was only called once more, to answer after the tool result. A
+      // fresh run would have asked the model first and produced no tool result.
+      expect(executions).toEqual([undefined, undefined]);
+      const results = second.filter(
+        (e) => e.type === EventType.TOOL_CALL_RESULT,
+      ) as any[];
+      expect(results).toHaveLength(1);
+      expect(results[0].toolCallId).toBe("tc-1");
+      expect(JSON.parse(results[0].content)).toEqual({ filed: true });
+      expect(modelCalls()).toBe(2);
+      expect(second.some((e) => e.type === EventType.RUN_ERROR)).toBe(false);
+      expect(second[second.length - 1].type).toBe(EventType.RUN_FINISHED);
     });
   });
 });

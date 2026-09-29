@@ -19,8 +19,8 @@ targets: [
     .target(
         name: "YourApp",
         dependencies: [
-            .product(name: "AGUICore", package: "AGUISwift"),
-            .product(name: "AGUIClient", package: "AGUISwift"),
+            .product(name: "AGUICore", package: "ag-ui-swift"),
+            .product(name: "AGUIClient", package: "ag-ui-swift"),
         ]
     ),
 ]

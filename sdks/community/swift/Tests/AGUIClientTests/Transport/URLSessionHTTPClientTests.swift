@@ -201,9 +201,18 @@ final class URLSessionHTTPClientTests: XCTestCase {
         consumingTask.cancel()
 
         let cancelled = await StallingURLProtocol.waitUntilCancelledOrTimeout()
-        XCTAssertTrue(cancelled, "URLSession task must be cancelled when consumer cancels the stream")
+        guard cancelled else {
+            XCTFail("URLSession task did not stop within 2 seconds of consumer cancellation")
+            return
+        }
         let consumed = try await consumingTask.value
         XCTAssertEqual(consumed, 1, "no bytes may be consumed after cancellation")
+    }
+
+    func test_cancellationWaitTimesOutWhenNetworkDoesNotStop() async {
+        StallingURLProtocol.reset()
+        let cancelled = await StallingURLProtocol.waitUntilCancelledOrTimeout(timeout: 0.05)
+        XCTAssertFalse(cancelled)
     }
 }
 
@@ -215,6 +224,7 @@ final class StallingURLProtocol: URLProtocol, @unchecked Sendable {
     private static let startedContinuations = NSLock()
     private static var _startedContinuation: CheckedContinuation<Void, Never>?
     private static var _cancelledContinuation: CheckedContinuation<Bool, Never>?
+    private static var _cancelledWaiterID: UUID?
     private static var _started = false
     private static var _cancelled = false
 
@@ -222,6 +232,7 @@ final class StallingURLProtocol: URLProtocol, @unchecked Sendable {
         startedContinuations.lock(); defer { startedContinuations.unlock() }
         _startedContinuation = nil
         _cancelledContinuation = nil
+        _cancelledWaiterID = nil
         _started = false
         _cancelled = false
     }
@@ -233,10 +244,29 @@ final class StallingURLProtocol: URLProtocol, @unchecked Sendable {
         }
     }
 
-    static func waitUntilCancelledOrTimeout() async -> Bool {
+    static func waitUntilCancelledOrTimeout(timeout: TimeInterval = 2) async -> Bool {
         await withCheckedContinuation { cont in
-            startedContinuations.lock(); defer { startedContinuations.unlock() }
-            if _cancelled { cont.resume(returning: true) } else { _cancelledContinuation = cont }
+            let id = UUID()
+            startedContinuations.lock()
+            if _cancelled {
+                startedContinuations.unlock()
+                cont.resume(returning: true)
+                return
+            }
+            _cancelledContinuation = cont
+            _cancelledWaiterID = id
+            startedContinuations.unlock()
+
+            DispatchQueue.global().asyncAfter(deadline: .now() + timeout) {
+                startedContinuations.lock()
+                let timedOut = _cancelledWaiterID == id
+                if timedOut {
+                    _cancelledContinuation = nil
+                    _cancelledWaiterID = nil
+                }
+                startedContinuations.unlock()
+                if timedOut { cont.resume(returning: false) }
+            }
         }
     }
 
@@ -248,10 +278,13 @@ final class StallingURLProtocol: URLProtocol, @unchecked Sendable {
     }
 
     private static func signalCancelled() {
-        startedContinuations.lock(); defer { startedContinuations.unlock() }
+        startedContinuations.lock()
         _cancelled = true
-        _cancelledContinuation?.resume(returning: true)
+        let continuation = _cancelledContinuation
         _cancelledContinuation = nil
+        _cancelledWaiterID = nil
+        startedContinuations.unlock()
+        continuation?.resume(returning: true)
     }
 
     override class func canInit(with request: URLRequest) -> Bool { true }

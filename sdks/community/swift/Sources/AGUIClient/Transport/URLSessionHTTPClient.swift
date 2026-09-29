@@ -105,7 +105,11 @@ public actor URLSessionHTTPClient: HTTPClient {
         // Bridge URLSession.AsyncBytes → AsyncThrowingStream<UInt8, Error> so that
         // HTTPResponse is decoupled from URLSession and can be mocked in tests.
         let stream = AsyncThrowingStream<UInt8, Error> { continuation in
-            let task = Task {
+            // Keep the client (and its session) alive until the byte producer
+            // completes or is cancelled. An HttpAgent may be released as soon
+            // as it returns its EventStream to the caller.
+            let task = Task { [owner = self] in
+                defer { withExtendedLifetime(owner) {} }
                 do {
                     for try await byte in bytes {
                         continuation.yield(byte)

@@ -367,6 +367,109 @@ describe("integration with real Mastra Agent", () => {
     });
   });
 
+  describe("attachment filenames in memory", () => {
+    const attachments = [
+      { type: "image", mimeType: "image/png", filename: "kitchen photo.png" },
+      { type: "audio", mimeType: "audio/mpeg", filename: "voice memo.mp3" },
+      { type: "video", mimeType: "video/mp4", filename: "walkthrough.mp4" },
+      {
+        type: "document",
+        mimeType: "application/pdf",
+        filename: "floor plan.pdf",
+      },
+    ] as const;
+    const dataUrl = (mimeType: string) =>
+      `data:${mimeType};base64,QVRUQUNITUVOVA==`;
+
+    it("stores each attachment once with its bytes, MIME type and original filename", async () => {
+      const memory = new MockMemory();
+      const agent = wrapAgent(
+        createTestAgent(createTextStreamModel("Got them."), { memory }),
+      );
+      const threadId = "thread-attachments";
+      const firstUser = {
+        id: "user-1",
+        role: "user" as const,
+        content: [
+          { type: "text" as const, text: "Here are my files" },
+          ...attachments.map(({ type, mimeType, filename }) => ({
+            type,
+            source: {
+              type: "data" as const,
+              value: "QVRUQUNITUVOVA==",
+              mimeType,
+            },
+            metadata: { filename },
+          })),
+        ],
+      };
+
+      const firstRun = await collectEvents(
+        agent,
+        makeInput({ threadId, messages: [firstUser] as any }),
+      );
+      expect(firstRun.some((e) => e.type === EventType.RUN_ERROR)).toBe(false);
+      const assistantId = (
+        firstRun.find((e) => e.type === EventType.TEXT_MESSAGE_CHUNK) as any
+      ).messageId;
+
+      const secondRun = await collectEvents(
+        agent,
+        makeInput({
+          threadId,
+          messages: [
+            firstUser,
+            { id: assistantId, role: "assistant", content: "Got them." },
+            { id: "user-2", role: "user", content: "Which one is the PDF?" },
+          ] as any,
+        }),
+      );
+      expect(secondRun.some((e) => e.type === EventType.RUN_ERROR)).toBe(false);
+
+      const { messages } = await memory.recall({
+        threadId,
+        resourceId: "resource-1",
+        perPage: false,
+      });
+      const storedFirstUser = messages.filter((m) =>
+        JSON.stringify(m.content).includes("Here are my files"),
+      );
+      expect(storedFirstUser).toHaveLength(1);
+
+      const storedJson = JSON.stringify(storedFirstUser[0].content);
+      const fileParts = storedFirstUser[0].content.parts.filter(
+        (part: any) => part.type === "file",
+      );
+      expect(fileParts).toEqual(
+        attachments.map(({ mimeType, filename }) =>
+          expect.objectContaining({
+            type: "file",
+            data: dataUrl(mimeType),
+            mimeType,
+            filename,
+          }),
+        ),
+      );
+      for (const { filename } of attachments) {
+        expect(storedJson.split(filename)).toHaveLength(2);
+      }
+
+      const { threads } = await memory.listThreads({ perPage: false });
+      expect(threads.map((t) => t.id)).toContain(threadId);
+      for (const thread of threads.filter((t) => t.id !== threadId)) {
+        const other = await memory.recall({
+          threadId: thread.id,
+          resourceId: thread.resourceId,
+          perPage: false,
+        });
+        const otherJson = JSON.stringify(other.messages);
+        for (const { filename } of attachments) {
+          expect(otherJson).not.toContain(filename);
+        }
+      }
+    });
+  });
+
   describe("message conversion", () => {
     it("handles a multi-message conversation without errors", async () => {
       const agent = createTestAgent(

@@ -6,13 +6,14 @@ import Foundation
 // MARK: - AGUIProtocolError
 
 /// An error thrown when the AG-UI protocol event sequence is violated.
-public struct AGUIProtocolError: Error, Sendable {
+public struct AGUIProtocolError: Error, Sendable, CustomStringConvertible {
     /// A human-readable description of the protocol violation.
     public let message: String
 
     public init(message: String) {
         self.message = message
     }
+    public var description: String { message }
 }
 
 // MARK: - EventVerifier
@@ -29,6 +30,9 @@ private final class EventVerifier {
     var activeMessages: [String: Bool] = [:]
     var activeToolCalls: [String: Bool] = [:]
     var activeSteps: [String: Bool] = [:]
+    var activeReasoningMessages: Set<String> = []
+    var activeSubagents: Set<String> = []
+    var activeAttribution: [String: String] = [:]
 
     let debug: Bool
 
@@ -41,6 +45,9 @@ private final class EventVerifier {
 
         // Handle RUN_STARTED as a special case first — it resets state for multi-run support
         if let _ = event as? RunStartedEvent {
+            if runStarted && !runFinished && !runError {
+                throw AGUIProtocolError(message: "Cannot send 'RUN_STARTED' while a run is still active")
+            }
             if runFinished {
                 // Multi-run: reset state for new run
                 activeMessages.removeAll()
@@ -48,6 +55,7 @@ private final class EventVerifier {
                 activeSteps.removeAll()
                 runFinished = false
             }
+            runError = false
             runStarted = true
             firstEventReceived = true
             return
@@ -55,11 +63,6 @@ private final class EventVerifier {
 
         // Handle RUN_ERROR as a special case — allowed as first event
         if let _ = event as? RunErrorEvent {
-            if runError {
-                throw AGUIProtocolError(
-                    message: "Cannot send event type '\(type)': The run has already errored"
-                )
-            }
             runError = true
             firstEventReceived = true
             return
@@ -70,17 +73,10 @@ private final class EventVerifier {
             throw AGUIProtocolError(message: "First event must be 'RUN_STARTED'")
         }
 
-        // After RUN_ERROR, no further events
-        if runError {
-            throw AGUIProtocolError(
-                message: "Cannot send event type '\(type)': The run has already errored"
-            )
-        }
-
         // After RUN_FINISHED (and no new RUN_STARTED has arrived), no events
         if runFinished {
             throw AGUIProtocolError(
-                message: "Cannot send event type '\(type)': The run has already finished"
+                message: "The run has already finished with 'RUN_FINISHED': \(type)"
             )
         }
 
@@ -88,6 +84,7 @@ private final class EventVerifier {
         switch event {
         case let e as TextMessageStartEvent:
             let id = e.messageId
+            recordAttribution(event, key: "message:\(id)")
             if activeMessages[id] == true {
                 throw AGUIProtocolError(
                     message: "A text message with ID '\(id)' is already in progress"
@@ -97,6 +94,7 @@ private final class EventVerifier {
 
         case let e as TextMessageContentEvent:
             let id = e.messageId
+            try checkAttribution(event, key: "message:\(id)")
             guard activeMessages[id] == true else {
                 throw AGUIProtocolError(
                     message: "No active text message found with ID '\(id)'"
@@ -114,6 +112,7 @@ private final class EventVerifier {
 
         case let e as ToolCallStartEvent:
             let id = e.toolCallId
+            recordAttribution(event, key: "tool:\(id)")
             if activeToolCalls[id] == true {
                 throw AGUIProtocolError(
                     message: "A tool call with ID '\(id)' is already in progress"
@@ -123,6 +122,7 @@ private final class EventVerifier {
 
         case let e as ToolCallArgsEvent:
             let id = e.toolCallId
+            try checkAttribution(event, key: "tool:\(id)")
             guard activeToolCalls[id] == true else {
                 throw AGUIProtocolError(
                     message: "No active tool call found with ID '\(id)'"
@@ -131,6 +131,7 @@ private final class EventVerifier {
 
         case let e as ToolCallEndEvent:
             let id = e.toolCallId
+            try checkAttribution(event, key: "tool:\(id)")
             guard activeToolCalls[id] == true else {
                 throw AGUIProtocolError(
                     message: "No active tool call found with ID '\(id)'"
@@ -150,10 +151,37 @@ private final class EventVerifier {
             }
             activeSteps.removeValue(forKey: name)
 
+        case let e as ReasoningMessageStartEvent:
+            guard e.role == "reasoning" else { throw AGUIProtocolError(message: #"REASONING_MESSAGE_START expected \"reasoning\" role"#) }
+            activeReasoningMessages.insert(e.messageId)
+
+        case let e as ReasoningMessageContentEvent:
+            guard activeReasoningMessages.contains(e.messageId) else {
+                throw AGUIProtocolError(message: "No active reasoning message found with ID '\(e.messageId)'")
+            }
+
+        case let e as ReasoningMessageEndEvent:
+            guard activeReasoningMessages.contains(e.messageId) else {
+                throw AGUIProtocolError(message: "No active reasoning message found with ID '\(e.messageId)'")
+            }
+            activeReasoningMessages.remove(e.messageId)
+
+        case let e as SubagentEvent:
+            switch e.eventType {
+            case .subagentStarted:
+                guard let name = e.name, !name.isEmpty else { throw AGUIProtocolError(message: "SUBAGENT_STARTED requires name") }
+                activeSubagents.insert(e.subagentRunId)
+            case .subagentFinished, .subagentError:
+                guard activeSubagents.remove(e.subagentRunId) != nil else {
+                    throw AGUIProtocolError(message: "Subagent \(e.subagentRunId) was not started")
+                }
+            default: break
+            }
+
         case is RunFinishedEvent:
             if !activeMessages.isEmpty {
                 throw AGUIProtocolError(
-                    message: "Cannot send 'RUN_FINISHED' while messages are still active"
+                    message: "Cannot send 'RUN_FINISHED' while text messages are still active"
                 )
             }
             if !activeToolCalls.isEmpty {
@@ -166,6 +194,9 @@ private final class EventVerifier {
                     message: "Cannot send 'RUN_FINISHED' while steps are still active"
                 )
             }
+            if let id = activeSubagents.first {
+                throw AGUIProtocolError(message: "Cannot send 'RUN_FINISHED' while subagent \(id) is active")
+            }
             runFinished = true
 
         default:
@@ -174,6 +205,23 @@ private final class EventVerifier {
 
         if debug {
             print("[EventVerifier] Verified: \(type)")
+        }
+    }
+
+    private func attribution(_ event: any AGUIEvent) -> String? {
+        guard let data = event.rawEvent,
+              let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+        else { return nil }
+        return object["subagentRunId"] as? String
+    }
+
+    private func recordAttribution(_ event: any AGUIEvent, key: String) {
+        if let id = attribution(event) { activeAttribution[key] = id }
+    }
+
+    private func checkAttribution(_ event: any AGUIEvent, key: String) throws {
+        if let id = attribution(event), let opened = activeAttribution[key], id != opened {
+            throw AGUIProtocolError(message: "subagentRunId \(id) does not match opener \(opened)")
         }
     }
 }

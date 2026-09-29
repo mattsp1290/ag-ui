@@ -360,6 +360,12 @@ private func encodeAssistantMessage(_ message: any Message, encoder: JSONEncoder
     if let encryptedValue = assistantMsg.encryptedValue {
         dict["encryptedValue"] = encryptedValue
     }
+    if let metadata = assistantMsg.metadata {
+        dict["metadata"] = try JSONSerialization.jsonObject(with: metadata)
+    }
+    if let subagentRunId = assistantMsg.subagentRunId {
+        dict["subagentRunId"] = subagentRunId
+    }
     return try JSONSerialization.data(withJSONObject: dict)
 }
 

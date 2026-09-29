@@ -73,9 +73,15 @@ public final class AbstractAgent: Sendable {
         parameters: RunAgentParameters? = nil,
         subscriber: (any AgentSubscriber)? = nil
     ) async throws {
-        guard await !storage.isDisposed else { return }
+        try await runAgent(input: buildInput(from: parameters), subscriber: subscriber)
+    }
 
-        let input = buildInput(from: parameters)
+    /// Runs the full processing pipeline with an explicit wire input.
+    public func runAgent(
+        input: RunAgentInput,
+        subscriber: (any AgentSubscriber)? = nil
+    ) async throws {
+        guard await !storage.isDisposed else { return }
 
         let registeredSubscribers = await subscriberManager.allSubscribers()
         var allSubscribers = registeredSubscribers

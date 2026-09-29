@@ -73,6 +73,9 @@ struct RunFinishedEventDTO {
     // MARK: - Private
 
     private static func decodeOutcome(from jsonObject: [String: Any]) throws -> RunFinishedOutcome? {
+        if jsonObject["outcome"] is [Any] {
+            throw EventDecodingError.decodingFailed("expected object, received array")
+        }
         guard let outcomeValue = jsonObject["outcome"],
               !(outcomeValue is NSNull),
               let outcomeObj = outcomeValue as? [String: Any],

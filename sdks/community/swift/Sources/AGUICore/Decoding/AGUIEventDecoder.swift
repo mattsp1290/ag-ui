@@ -124,6 +124,8 @@ public struct AGUIEventDecoder: Sendable {
         ///
         /// Defaults to `.throwError` (strict mode).
         public var unknownEventStrategy: UnknownEventStrategy = .throwError
+        /// Enables stripping of optional future fields at the client boundary.
+        public var enforceForwardCompatibility: Bool = false
 
         /// Creates a new configuration with default settings.
         public init() {}
@@ -252,7 +254,37 @@ public struct AGUIEventDecoder: Sendable {
             return try handleMissingHandler(for: type, typeRaw: disc.typeRaw, rawEvent: data)
         }
 
-        return try executeHandler(handler, data: data, decoder: decoder)
+        return try executeHandler(handler,
+            data: config.enforceForwardCompatibility ? try sanitize(data, type: type) : data,
+            decoder: decoder)
+    }
+
+    /// Remove future optional material before decoding while retaining malformed known values.
+    private func sanitize(_ data: Data, type: EventType) throws -> Data {
+        guard var object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return data }
+        switch type {
+        case .textMessageContent:
+            let allowed: Set<String> = ["type", "messageId", "delta", "timestamp", "metadata", "subagentRunId"]
+            object = object.filter { allowed.contains($0.key) }
+        case .runFinished:
+            if let outcome = object["outcome"] as? [String: Any],
+               let kind = outcome["type"] as? String,
+               !["success", "interrupt", "cancelled"].contains(kind) {
+                object.removeValue(forKey: "outcome")
+            }
+        case .messagesSnapshot:
+            if var messages = object["messages"] as? [[String: Any]] {
+                for index in messages.indices {
+                    if let parts = messages[index]["content"] as? [[String: Any]] {
+                        let known: Set<String> = ["text", "image", "audio", "video", "document", "binary"]
+                        messages[index]["content"] = parts.filter { known.contains($0["type"] as? String ?? "") }
+                    }
+                }
+                object["messages"] = messages
+            }
+        default: return data
+        }
+        return try JSONSerialization.data(withJSONObject: object)
     }
 
     /// Rewrites a legacy `THINKING_*` wire event to its `REASONING_*` equivalent.

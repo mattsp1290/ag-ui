@@ -107,6 +107,9 @@ public struct AssistantMessage: Message, Sendable, Hashable {
     /// When present, carries a cryptographic value produced by the agent's
     /// reasoning process.
     public let encryptedValue: String?
+    /// Open extension metadata carried by message events.
+    public let metadata: Data?
+    public let subagentRunId: String?
 
     /// Creates a new assistant message.
     ///
@@ -121,7 +124,9 @@ public struct AssistantMessage: Message, Sendable, Hashable {
         content: String? = nil,
         name: String? = nil,
         toolCalls: [ToolCall]? = nil,
-        encryptedValue: String? = nil
+        encryptedValue: String? = nil,
+        metadata: Data? = nil,
+        subagentRunId: String? = nil
     ) {
         self.id = id
         self.role = .assistant
@@ -129,6 +134,8 @@ public struct AssistantMessage: Message, Sendable, Hashable {
         self.name = name
         self.toolCalls = toolCalls
         self.encryptedValue = encryptedValue
+        self.metadata = metadata
+        self.subagentRunId = subagentRunId
     }
 }
 
@@ -141,6 +148,8 @@ extension AssistantMessage: Decodable {
         case name
         case toolCalls
         case encryptedValue
+        case metadata
+        case subagentRunId
     }
 
     public init(from decoder: Decoder) throws {
@@ -151,5 +160,7 @@ extension AssistantMessage: Decodable {
         name = try container.decodeIfPresent(String.self, forKey: .name)
         toolCalls = try container.decodeIfPresent([ToolCall].self, forKey: .toolCalls)
         encryptedValue = try container.decodeIfPresent(String.self, forKey: .encryptedValue)
+        metadata = nil
+        subagentRunId = try container.decodeIfPresent(String.self, forKey: .subagentRunId)
     }
 }

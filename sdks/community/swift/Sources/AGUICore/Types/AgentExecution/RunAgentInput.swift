@@ -157,6 +157,7 @@ public struct RunAgentInput: Sendable, Codable, Hashable {
         case context
         case forwardedProps
         case resume
+        case protocolVersion
     }
 
     public init(from decoder: Decoder) throws {
@@ -215,6 +216,7 @@ public struct RunAgentInput: Sendable, Codable, Hashable {
         // Encode simple string fields
         try container.encode(threadId, forKey: .threadId)
         try container.encode(runId, forKey: .runId)
+        try container.encode("1.0", forKey: .protocolVersion)
         try container.encodeIfPresent(parentRunId, forKey: .parentRunId)
 
         // Encode state: send null when empty so backends treat it as "no state".

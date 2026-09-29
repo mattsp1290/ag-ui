@@ -47,6 +47,14 @@ extension AsyncSequence where Element == any AGUIEvent {
 
                 do {
                     for try await event in self {
+                        for subscriber in subscribers {
+                            _ = await subscriber.onEvent(params: AgentEventParams(
+                                event: event,
+                                messages: messages,
+                                state: currentState,
+                                input: input
+                            ))
+                        }
                         // Emit initial messages on first event if present
                         if !initialMessagesEmitted {
                             initialMessagesEmitted = true
@@ -60,8 +68,11 @@ extension AsyncSequence where Element == any AGUIEvent {
                             break
 
                         case let e as TextMessageStartEvent:
-                            let newMessage = AssistantMessage(id: e.messageId, content: "")
-                            messages.append(newMessage)
+                            if !messages.contains(where: { $0.id == e.messageId }) {
+                                messages.append(AssistantMessage(id: e.messageId, content: "",
+                                    metadata: eventMetadata(event),
+                                    subagentRunId: eventAttribution(event)))
+                            }
                             continuation.yield(AgentState(messages: messages))
 
                         case let e as TextMessageContentEvent:
@@ -69,14 +80,29 @@ extension AsyncSequence where Element == any AGUIEvent {
                             if let idx = messages.lastIndex(where: { $0.id == id }),
                                let assistantMsg = messages[idx] as? AssistantMessage {
                                 messages[idx] = assistantMsg.withContent(
-                                    (assistantMsg.content ?? "") + e.delta
-                                )
+                                    (assistantMsg.content ?? "") + e.delta,
+                                    metadata: mergedMetadata(assistantMsg.metadata, eventMetadata(event)))
                                 continuation.yield(AgentState(messages: messages))
                             }
 
                         case is TextMessageEndEvent:
                             // No-op: no state emission for end event
                             break
+
+                        case let e as ReasoningMessageStartEvent:
+                            if !messages.contains(where: { $0.id == e.messageId }) {
+                                messages.append(ReasoningMessage(id: e.messageId, content: ""))
+                            }
+                            continuation.yield(AgentState(messages: messages))
+
+                        case let e as ReasoningMessageContentEvent:
+                            if let idx = messages.lastIndex(where: { $0.id == e.messageId }),
+                               let reasoning = messages[idx] as? ReasoningMessage {
+                                messages[idx] = ReasoningMessage(id: e.messageId,
+                                    content: (reasoning.content ?? "") + e.delta,
+                                    encryptedValue: reasoning.encryptedValue)
+                                continuation.yield(AgentState(messages: messages))
+                            }
 
                         case let e as ToolCallStartEvent:
                             let toolCall = ToolCall(
@@ -164,15 +190,43 @@ extension AsyncSequence where Element == any AGUIEvent {
 
 // MARK: - AssistantMessage Mutation Helpers
 
+private func eventMetadata(_ event: any AGUIEvent) -> Data? {
+    guard let raw = event.rawEvent,
+          let object = (try? JSONSerialization.jsonObject(with: raw)) as? [String: Any],
+          let metadata = object["metadata"] as? [String: Any]
+    else { return nil }
+    return try? JSONSerialization.data(withJSONObject: metadata)
+}
+
+private func eventAttribution(_ event: any AGUIEvent) -> String? {
+    guard let raw = event.rawEvent,
+          let object = (try? JSONSerialization.jsonObject(with: raw)) as? [String: Any]
+    else { return nil }
+    return object["subagentRunId"] as? String
+}
+
+private func mergedMetadata(_ current: Data?, _ next: Data?) -> Data? {
+    guard let next else { return current }
+    var merged = (current.flatMap { try? JSONSerialization.jsonObject(with: $0) } as? [String: Any]) ?? [:]
+    for (key, value) in ((try? JSONSerialization.jsonObject(with: next)) as? [String: Any]) ?? [:] {
+        merged[key] = value
+    }
+    return try? JSONSerialization.data(withJSONObject: merged)
+}
+
 private extension AssistantMessage {
-    func withContent(_ newContent: String) -> AssistantMessage {
-        AssistantMessage(id: id, content: newContent, name: name, toolCalls: toolCalls)
+    func withContent(_ newContent: String, metadata: Data? = nil) -> AssistantMessage {
+        AssistantMessage(id: id, content: newContent, name: name, toolCalls: toolCalls,
+            encryptedValue: encryptedValue, metadata: metadata ?? self.metadata,
+            subagentRunId: subagentRunId)
     }
 
     func withAppendedToolCall(_ toolCall: ToolCall) -> AssistantMessage {
         var calls = toolCalls ?? []
         calls.append(toolCall)
-        return AssistantMessage(id: id, content: content, name: name, toolCalls: calls)
+        return AssistantMessage(id: id, content: content, name: name, toolCalls: calls,
+            encryptedValue: encryptedValue, metadata: metadata,
+            subagentRunId: subagentRunId)
     }
 
     func withUpdatedToolCallArguments(toolCallId: String, appendDelta: String) -> AssistantMessage {
@@ -189,6 +243,8 @@ private extension AssistantMessage {
             }
             return call
         }
-        return AssistantMessage(id: id, content: content, name: name, toolCalls: updated)
+        return AssistantMessage(id: id, content: content, name: name, toolCalls: updated,
+            encryptedValue: encryptedValue, metadata: metadata,
+            subagentRunId: subagentRunId)
     }
 }

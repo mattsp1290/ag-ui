@@ -28,6 +28,11 @@ final class BoundedSSEParserTests: XCTestCase {
         XCTAssertThrowsError(try parse(bytes, limit: bytes.count - 1)) { error in
             XCTAssertEqual(error as? BoundedSSEParser.Failure, .frameTooLarge)
         }
+        let crlf = Array("data: x\r\n\r\n".utf8)
+        XCTAssertEqual(try parse(crlf, limit: crlf.count - 1).first?.data, "x")
+        XCTAssertThrowsError(try parse(crlf, limit: crlf.count - 2)) { error in
+            XCTAssertEqual(error as? BoundedSSEParser.Failure, .frameTooLarge)
+        }
     }
 
     func testLargeSingleChunkAndSmallChunksBothFailClosed() throws {

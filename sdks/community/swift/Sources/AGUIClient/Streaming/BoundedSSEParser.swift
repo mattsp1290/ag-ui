@@ -32,7 +32,13 @@ public struct BoundedSSEParser {
     public mutating func feed(_ byte: UInt8) throws -> SseEvent? {
         if sawCR {
             sawCR = false
-            if byte == 10 { return nil }
+            if byte == 10 {
+                if frameBytes > 0 {
+                    guard frameBytes < maximumFrameBytes else { throw Failure.frameTooLarge }
+                    frameBytes += 1
+                }
+                return nil
+            }
         }
         guard frameBytes < maximumFrameBytes else { throw Failure.frameTooLarge }
         frameBytes += 1
@@ -60,7 +66,7 @@ public struct BoundedSSEParser {
         if text.isEmpty {
             let result: SseEvent? = dataLines.isEmpty ? nil : SseEvent(
                 data: dataLines.joined(separator: "\n"), id: eventID,
-                event: eventName ?? "message", retry: retry)
+                event: eventName.flatMap { $0.isEmpty ? nil : $0 } ?? "message", retry: retry)
             dataLines.removeAll(keepingCapacity: true)
             eventName = nil
             eventID = nil

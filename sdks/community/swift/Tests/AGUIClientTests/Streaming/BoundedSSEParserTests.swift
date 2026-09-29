@@ -50,6 +50,21 @@ final class BoundedSSEParserTests: XCTestCase {
         }
     }
 
+    func testMultilineDataAggregateOverflowsEvenWhenEachLineFits() throws {
+        let wire = Array("data:a\ndata:b\ndata:c\n\n".utf8)
+        XCTAssertThrowsError(try parse(wire, limit: 20)) { error in
+            XCTAssertEqual(error as? BoundedSSEParser.Failure, .frameTooLarge)
+        }
+    }
+
+    func testMalformedJSONRemainsRawUntilTypedDecode() throws {
+        let wire = Array("event: MESSAGES_SNAPSHOT\ndata: {bad}\n\n".utf8)
+        let frame = try XCTUnwrap(parse(wire).first)
+        XCTAssertEqual(frame.event, "MESSAGES_SNAPSHOT")
+        XCTAssertEqual(frame.data, "{bad}")
+        XCTAssertThrowsError(try AGUIEventDecoder().decode(Data(frame.data.utf8)))
+    }
+
     func testAgentcraftFixturesStayRawAndPreserveSnapshotNumbers() throws {
         let directory = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
             .appendingPathComponent("Fixtures")

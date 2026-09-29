@@ -58,6 +58,14 @@ final class SchemaFixtureTests: XCTestCase {
     func testEventValuesAndLargeInteger() throws {
         XCTAssertEqual(EventType.protocolCases.count, 31)
         XCTAssertFalse(EventType.protocolCases.contains { $0.rawValue.hasPrefix("THINKING_") })
+        let schemaData = try Data(contentsOf: repository.appendingPathComponent("spec/1.0/schema.json"))
+        let schema = try JSONSerialization.jsonObject(with: schemaData) as! [String: Any]
+        let definitions = schema["$defs"] as! [String: [String: Any]]
+        let wireEvents = Set(definitions["EventType"]!["enum"] as! [String])
+        XCTAssertEqual(Set(EventType.allCases.map(\.rawValue)), wireEvents)
+        XCTAssertEqual(Set(AGUI1RoleValue.allCases.map(\.rawValue)),
+                       Set(definitions["Role"]!["enum"] as! [String]))
+        XCTAssertEqual(AGUI1Definitions.all.count, definitions.count)
         let original = Data(#"{"type":"STATE_SNAPSHOT","snapshot":{"large":9007199254740993}}"#.utf8)
         let output = try AGUISchemaDocument(original).encoded()
         XCTAssertTrue(String(decoding: output, as: UTF8.self).contains("9007199254740993"))

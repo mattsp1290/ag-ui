@@ -48,7 +48,7 @@ public struct PatchApplicator: Sendable {
                 document = try edit(document, tokens, value, .add)
             case "test":
                 guard let value = fields["value"] else { throw PatchError.invalidOperation("test missing value") }
-                guard try get(document, tokens) == value else { throw PatchError.testFailed(path) }
+                guard try equal(get(document, tokens), value) else { throw PatchError.testFailed(path) }
             default: break
             }
         }
@@ -71,7 +71,7 @@ public struct PatchApplicator: Sendable {
         switch document {
         case .object(let fields): child = fields[head]
         case .array(let values):
-            if let index = Int(head), values.indices.contains(index) { child = values[index] } else { child = nil }
+            if let index = arrayIndex(head), values.indices.contains(index) { child = values[index] } else { child = nil }
         default: child = nil
         }
         guard let child else { throw PatchError.pathNotFound("/" + tokens.joined(separator: "/")) }
@@ -94,7 +94,7 @@ public struct PatchApplicator: Sendable {
             }
             return .object(fields)
         case .array(var values):
-            let index = head == "-" && kind == .add && tail.isEmpty ? values.count : Int(head)
+            let index = head == "-" && kind == .add && tail.isEmpty ? values.count : arrayIndex(head)
             guard let index, index >= 0 else { throw PatchError.pathNotFound(head) }
             if tail.isEmpty {
                 if kind == .add {
@@ -111,5 +111,41 @@ public struct PatchApplicator: Sendable {
             return .array(values)
         default: throw PatchError.pathNotFound(head)
         }
+    }
+    private func arrayIndex(_ token: String) -> Int? {
+        guard token == "0" || (!token.isEmpty && token.first != "0" &&
+            token.utf8.allSatisfy({ $0 >= 48 && $0 <= 57 })) else { return nil }
+        return Int(token)
+    }
+
+    private func equal(_ lhs: AGUIJSON, _ rhs: AGUIJSON) -> Bool {
+        switch (lhs, rhs) {
+        case (.number(let a), .number(let b)):
+            return normalizedNumber(a) == normalizedNumber(b)
+        case (.array(let a), .array(let b)):
+            return a.count == b.count && zip(a, b).allSatisfy { equal($0, $1) }
+        case (.object(let a), .object(let b)):
+            return a.count == b.count && a.allSatisfy { key, value in
+                b[key].map { equal(value, $0) } ?? false
+            }
+        default: return lhs == rhs
+        }
+    }
+
+    private func normalizedNumber(_ value: String) -> String {
+        let parts = value.lowercased().split(separator: "e", omittingEmptySubsequences: false)
+        let mantissa = String(parts[0])
+        let negative = mantissa.hasPrefix("-")
+        let unsigned = negative ? String(mantissa.dropFirst()) : mantissa
+        let decimal = unsigned.split(separator: ".", omittingEmptySubsequences: false)
+        var digits = decimal.joined()
+        guard digits.contains(where: { $0 != "0" }) else { return "0" }
+        let fractionCount = decimal.count == 2 ? decimal[1].count : 0
+        let trailingCount = digits.reversed().prefix(while: { $0 == "0" }).count
+        digits = String(digits.drop(while: { $0 == "0" }).dropLast(trailingCount))
+        guard let exponent = parts.count == 2 ? Int(parts[1]) : 0 else { return value }
+        let (adjusted, overflow) = exponent.addingReportingOverflow(trailingCount - fractionCount)
+        guard !overflow else { return value }
+        return (negative ? "-" : "") + digits + "e" + String(adjusted)
     }
 }

@@ -138,8 +138,17 @@ extension ToolMessage {
         role = .tool
         // Default to "" when absent — matches TypeScript z.string() (required but may be
         // missing in legacy payloads).
-        content = try container.decodeIfPresent(String.self, forKey: .content) ?? ""
-        contentParts = nil
+        if let text = try? container.decode(String.self, forKey: .content) {
+            content = text
+            contentParts = nil
+        } else if container.contains(.content), !(try container.decodeNil(forKey: .content)) {
+            var parts = try container.nestedUnkeyedContainer(forKey: .content)
+            contentParts = try JSONSerialization.data(withJSONObject: parts.decodeJSONArray())
+            content = ""
+        } else {
+            content = ""
+            contentParts = nil
+        }
         toolCallId = try container.decode(String.self, forKey: .toolCallId)
         name = try container.decodeIfPresent(String.self, forKey: .name)
         error = try container.decodeIfPresent(String.self, forKey: .error)

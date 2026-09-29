@@ -360,13 +360,23 @@ private func encodeAssistantMessage(_ message: any Message, encoder: JSONEncoder
     if let encryptedValue = assistantMsg.encryptedValue {
         dict["encryptedValue"] = encryptedValue
     }
-    if let metadata = assistantMsg.metadata {
-        dict["metadata"] = try JSONSerialization.jsonObject(with: metadata)
-    }
     if let subagentRunId = assistantMsg.subagentRunId {
         dict["subagentRunId"] = subagentRunId
     }
-    return try JSONSerialization.data(withJSONObject: dict)
+    var fields = try AGUIJSON.foundation(dict).object ?? [:]
+    if let metadata = assistantMsg.metadata {
+        fields["metadata"] = try AGUIJSON.parse(metadata)
+    }
+    if let calls = assistantMsg.toolCalls, var rawCalls = fields["toolCalls"]?.array {
+        for (index, call) in calls.enumerated() where index < rawCalls.count {
+            if let metadata = call.metadata, var callFields = rawCalls[index].object {
+                callFields["metadata"] = try AGUIJSON.parse(metadata)
+                rawCalls[index] = .object(callFields)
+            }
+        }
+        fields["toolCalls"] = .array(rawCalls)
+    }
+    return try AGUIJSON.object(fields).encoded()
 }
 
 /// Encodes a ToolMessage to JSON data.
@@ -379,9 +389,7 @@ private func encodeToolMessage(_ message: any Message, encoder: JSONEncoder) thr
         "id": toolMsg.id,
         "role": toolMsg.role.rawValue,
         "toolCallId": toolMsg.toolCallId,
-        "content": try toolMsg.contentParts.map {
-            try JSONSerialization.jsonObject(with: $0, options: [.fragmentsAllowed])
-        } ?? toolMsg.content
+        "content": toolMsg.content
     ]
     if let name = toolMsg.name {
         dict["name"] = name
@@ -392,7 +400,11 @@ private func encodeToolMessage(_ message: any Message, encoder: JSONEncoder) thr
     if let encryptedValue = toolMsg.encryptedValue {
         dict["encryptedValue"] = encryptedValue
     }
-    return try JSONSerialization.data(withJSONObject: dict)
+    var fields = try AGUIJSON.foundation(dict).object ?? [:]
+    if let parts = toolMsg.contentParts {
+        fields["content"] = try AGUIJSON.parse(parts)
+    }
+    return try AGUIJSON.object(fields).encoded()
 }
 
 /// Encodes an ActivityMessage to JSON data.

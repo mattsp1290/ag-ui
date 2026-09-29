@@ -1,4 +1,5 @@
 import AGUIClient
+import AGUICore
 import Foundation
 import XCTest
 
@@ -12,5 +13,26 @@ final class PatchPrecisionProbeTests: XCTestCase {
         let json = String(decoding: output, as: UTF8.self)
         XCTAssertTrue(json.contains(existing), "unchanged state integer was rounded: \(json)")
         XCTAssertTrue(json.contains(inserted), "patch integer was rounded: \(json)")
+    }
+
+    func testArrayIndicesMustUseCanonicalDecimalForm() throws {
+        let state = Data("{\"items\":[10,20]}".utf8)
+        for path in ["/items/01", "/items/+1", "/items/-0"] {
+            let patch = Data("[{\"op\":\"replace\",\"path\":\"\(path)\",\"value\":99}]".utf8)
+            XCTAssertThrowsError(try PatchApplicator().apply(patch: patch, to: state), path)
+        }
+    }
+
+    func testNumericallyEquivalentValuesPassTestWithoutPrecisionLoss() throws {
+        let huge = "1234567890123456789012345678901234567891234567890123456789"
+        let state = Data("{\"n\":1,\"huge\":\(huge)}".utf8)
+        let patch = Data("""
+        [{"op":"test","path":"/n","value":1.0},
+         {"op":"test","path":"/huge","value":\(huge).0},
+         {"op":"replace","path":"/n","value":2}]
+        """.utf8)
+        let result = try PatchApplicator().apply(patch: patch, to: state)
+        XCTAssertEqual(try AGUIJSON.parse(result).object?["n"], .number("2"))
+        XCTAssertTrue(String(decoding: result, as: UTF8.self).contains(huge))
     }
 }

@@ -31,6 +31,7 @@ private final class EventVerifier {
     var activeToolCalls: [String: Bool] = [:]
     var activeSteps: [String: Bool] = [:]
     var activeReasoningMessages: Set<String> = []
+    var activeReasoningSpans: Set<String> = []
     var activeSubagents: Set<String> = []
     var activeAttribution: [String: String] = [:]
 
@@ -48,13 +49,16 @@ private final class EventVerifier {
             if runStarted && !runFinished && !runError {
                 throw AGUIProtocolError(message: "Cannot send 'RUN_STARTED' while a run is still active")
             }
-            if runFinished {
-                // Multi-run: reset state for new run
-                activeMessages.removeAll()
-                activeToolCalls.removeAll()
-                activeSteps.removeAll()
-                runFinished = false
-            }
+            // A terminal RUN_ERROR may leave open event scopes. A subsequent
+            // RUN_STARTED begins a fresh run regardless of how the prior one ended.
+            activeMessages.removeAll()
+            activeToolCalls.removeAll()
+            activeSteps.removeAll()
+            activeReasoningMessages.removeAll()
+            activeReasoningSpans.removeAll()
+            activeSubagents.removeAll()
+            activeAttribution.removeAll()
+            runFinished = false
             runError = false
             runStarted = true
             firstEventReceived = true
@@ -151,9 +155,21 @@ private final class EventVerifier {
             }
             activeSteps.removeValue(forKey: name)
 
+        case let e as ReasoningStartEvent:
+            guard activeReasoningSpans.insert(e.messageId).inserted else {
+                throw AGUIProtocolError(message: "Reasoning span '\(e.messageId)' is already open")
+            }
+
+        case let e as ReasoningEndEvent:
+            guard activeReasoningSpans.remove(e.messageId) != nil else {
+                throw AGUIProtocolError(message: "No active reasoning span found with ID '\(e.messageId)'")
+            }
+
         case let e as ReasoningMessageStartEvent:
             guard e.role == "reasoning" else { throw AGUIProtocolError(message: #"REASONING_MESSAGE_START expected \"reasoning\" role"#) }
-            activeReasoningMessages.insert(e.messageId)
+            guard activeReasoningMessages.insert(e.messageId).inserted else {
+                throw AGUIProtocolError(message: "Reasoning message '\(e.messageId)' is already open")
+            }
 
         case let e as ReasoningMessageContentEvent:
             guard activeReasoningMessages.contains(e.messageId) else {
@@ -196,6 +212,12 @@ private final class EventVerifier {
             }
             if let id = activeSubagents.first {
                 throw AGUIProtocolError(message: "Cannot send 'RUN_FINISHED' while subagent \(id) is active")
+            }
+            if let id = activeReasoningSpans.first {
+                throw AGUIProtocolError(message: "Cannot send 'RUN_FINISHED' while reasoning span \(id) is active")
+            }
+            if let id = activeReasoningMessages.first {
+                throw AGUIProtocolError(message: "Cannot send 'RUN_FINISHED' while reasoning message \(id) is active")
             }
             runFinished = true
 

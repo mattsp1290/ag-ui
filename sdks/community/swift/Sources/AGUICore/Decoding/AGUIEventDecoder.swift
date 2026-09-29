@@ -263,6 +263,13 @@ public struct AGUIEventDecoder: Sendable {
     private func sanitize(_ data: Data, type: EventType) throws -> Data {
         guard var object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return data }
         switch type {
+        case .runStarted:
+            if let parent = object["parentRunId"], !(parent is String), !(parent is NSNull) {
+                throw EventDecodingError.decodingFailed("Type mismatch 'String' at parentRunId")
+            }
+            let allowed: Set<String> = ["type", "threadId", "runId", "parentRunId", "input",
+                                        "protocolVersion", "timestamp", "metadata"]
+            object = object.filter { allowed.contains($0.key) }
         case .textMessageContent:
             let allowed: Set<String> = ["type", "messageId", "delta", "timestamp", "metadata", "subagentRunId"]
             object = object.filter { allowed.contains($0.key) }

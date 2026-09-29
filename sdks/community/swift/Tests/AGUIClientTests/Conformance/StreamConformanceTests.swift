@@ -7,11 +7,14 @@ import XCTest
 final class StreamConformanceTests: XCTestCase {
     // Exact pending application assertions. A new fixture must fail until it is
     // implemented or deliberately added here with its own observed failure.
-    private let pendingFixtures: Set<String> = [
-        "activity-replace-false-preserves", "activity-snapshot-then-delta",
-        "state-delta-unappliable-warns-and-keeps", "state-delta-unknown-op-dropped",
-        "tool-call-metadata-lands-on-the-call", "tool-result-file-source-passes-through",
-        "tool-result-parts-mint-tool-message"
+    private let pendingAssertions: [String: Set<String>] = [
+        "activity-replace-false-preserves": ["messageCount", "messages"],
+        "activity-snapshot-then-delta": ["messageCount", "messages"],
+        "state-delta-unappliable-warns-and-keeps": ["state"],
+        "state-delta-unknown-op-dropped": ["state"],
+        "tool-call-metadata-lands-on-the-call": ["messages"],
+        "tool-result-file-source-passes-through": ["messages"],
+        "tool-result-parts-mint-tool-message": ["messages"]
     ]
     private let expectationKeys: Set<String> = [
         "outcome", "errorContains", "runError", "eventTypes", "eventTypesAbsent",
@@ -33,7 +36,7 @@ final class StreamConformanceTests: XCTestCase {
             let name = try string(fixture["name"])
             XCTAssertEqual(filename, "\(name).json")
             _ = try string(fixture["area"])
-            let expect = try object(fixture["expect"])
+            let expect = try resolvedExpectation(fixture)
             let unknown = Set(expect.keys).subtracting(expectationKeys)
             XCTAssertTrue(unknown.isEmpty, "\(name): unknown expectation keys \(unknown)")
             guard unknown.isEmpty else { continue }
@@ -55,11 +58,11 @@ final class StreamConformanceTests: XCTestCase {
             let failures = check(expect: expect, result: result)
             if failures.isEmpty {
                 print("PASS \(name)")
-            } else if pendingFixtures.contains(name) {
-                let reason = failures.joined(separator: "; ").replacingOccurrences(of: "\n", with: " ")
+            } else if isExpectedApplicationFailure(name: name, failures: failures) {
+                let reason = failures.map(\.description).joined(separator: "; ").replacingOccurrences(of: "\n", with: " ")
                 print("XFAIL \(name): application coverage pending: \(reason.prefix(240))")
             } else {
-                XCTFail("\(name): \(failures.joined(separator: "; "))")
+                XCTFail("\(name): \(failures.map(\.description).joined(separator: "; "))")
             }
         }
     }
@@ -115,9 +118,123 @@ final class StreamConformanceTests: XCTestCase {
         return ReplayResult(events: events, messages: messages, state: state, request: request, error: failure)
     }
 
-    private func check(expect: [String: Any], result: ReplayResult) -> [String] {
-        var failures: [String] = []
-        func fail(_ key: String, _ detail: String) { failures.append("\(key) \(detail)") }
+    private func resolvedExpectation(_ fixture: [String: Any]) throws -> [String: Any] {
+        var resolved = try object(fixture["expect"])
+        if let overrides = fixture["expectOverrides"] as? [String: Any],
+           let typescript = overrides["typescript"] {
+            let values = try object(typescript)
+            guard values["intentional"] as? String != nil else {
+                throw HarnessError("TypeScript override must explain its divergence")
+            }
+            for (key, value) in values where key != "intentional" { resolved[key] = value }
+        }
+        return resolved
+    }
+
+    private func isExpectedApplicationFailure(name: String, failures: [ExpectationFailure]) -> Bool {
+        guard let allowed = pendingAssertions[name], !failures.isEmpty else { return false }
+        return failures.allSatisfy { allowed.contains($0.key) }
+    }
+
+    func testPendingFixtureCannotHideProtocolRegression() {
+        let result = ReplayResult(events: [], messages: [], state: nil, request: nil, error: "regressed")
+        let failures = check(expect: ["outcome": "completed", "messages": [["id": "expected"]]], result: result)
+        XCTAssertEqual(Set(failures.map(\.key)), ["outcome", "messages"])
+        XCTAssertFalse(isExpectedApplicationFailure(name: "tool-result-parts-mint-tool-message", failures: failures))
+        XCTAssertFalse(isExpectedApplicationFailure(name: "tool-result-parts-mint-tool-message", failures: [
+            ExpectationFailure(key: "request", detail: "regressed")
+        ]))
+    }
+
+    func testTypeScriptOverrideAddsSubagentTerminalOrderAssertion() throws {
+        let url = try corpusDirectory().appendingPathComponent("subagent-terminal-closes-open-chunk-stream.json")
+        let fixture = try object(JSONSerialization.jsonObject(with: Data(contentsOf: url)))
+        let resolved = try resolvedExpectation(fixture)
+        let types = try XCTUnwrap(resolved["eventTypes"] as? [String])
+        let end = try XCTUnwrap(types.firstIndex(of: "TEXT_MESSAGE_END"))
+        let terminal = try XCTUnwrap(types.firstIndex(of: "SUBAGENT_FINISHED"))
+        XCTAssertLessThan(end, terminal)
+        let wrong = types.enumerated().map { index, type -> [String: Any] in
+            ["type": types[index == end ? terminal : index == terminal ? end : index]]
+        }
+        let failures = check(expect: resolved, result: ReplayResult(events: wrong, messages: [], state: nil, request: nil, error: nil))
+        XCTAssertTrue(failures.contains { $0.key == "eventTypes" })
+        XCTAssertFalse(isExpectedApplicationFailure(name: "subagent-terminal-closes-open-chunk-stream", failures: failures))
+    }
+
+    func testReasoningScopesRejectOrphansDuplicatesAndOpenTerminals() async {
+        let started: [String: Any] = ["type": "RUN_STARTED", "threadId": "t", "runId": "r"]
+        let finished: [String: Any] = ["type": "RUN_FINISHED", "threadId": "t", "runId": "r"]
+        let spanStart: [String: Any] = ["type": "REASONING_START", "messageId": "span"]
+        let spanEnd: [String: Any] = ["type": "REASONING_END", "messageId": "span"]
+        let messageStart: [String: Any] = ["type": "REASONING_MESSAGE_START", "messageId": "message", "role": "reasoning"]
+        let messageEnd: [String: Any] = ["type": "REASONING_MESSAGE_END", "messageId": "message"]
+        let cases: [([[String: Any]], String)] = [
+            ([started, spanEnd], "No active reasoning span"),
+            ([started, spanStart, spanStart], "already open"),
+            ([started, messageStart, messageStart], "already open"),
+            ([started, spanStart, finished], "reasoning span"),
+            ([started, messageStart, finished], "reasoning message"),
+            ([started, spanStart, messageStart, messageEnd, spanEnd, finished], "")
+        ]
+        for (stream, needle) in cases {
+            let result = await replay(fixture: [:], stream: stream)
+            if needle.isEmpty { XCTAssertNil(result.error) }
+            else { XCTAssertTrue(result.error?.contains(needle) == true, "\(stream): \(result.error ?? "no error")") }
+        }
+    }
+
+    func testRunErrorRestartClearsOpenVerifierScopes() async {
+        let stream: [[String: Any]] = [
+            ["type": "RUN_STARTED", "threadId": "t", "runId": "r1"],
+            ["type": "TEXT_MESSAGE_START", "messageId": "open", "role": "assistant"],
+            ["type": "RUN_ERROR", "message": "first run failed"],
+            ["type": "RUN_STARTED", "threadId": "t", "runId": "r2"],
+            ["type": "RUN_FINISHED", "threadId": "t", "runId": "r2"]
+        ]
+        let result = await replay(fixture: [:], stream: stream)
+        XCTAssertNil(result.error)
+        XCTAssertEqual(result.events.compactMap { $0["type"] as? String },
+            ["RUN_STARTED", "TEXT_MESSAGE_START", "RUN_ERROR", "RUN_STARTED", "RUN_FINISHED"])
+    }
+
+    func testRunStartedStripsFutureFieldAndRejectsMalformedKnownField() async {
+        let terminal: [String: Any] = ["type": "RUN_FINISHED", "threadId": "t", "runId": "r"]
+        let valid = await replay(fixture: [:], stream: [
+            ["type": "RUN_STARTED", "threadId": "t", "runId": "r", "futureProp": 42], terminal
+        ])
+        XCTAssertNil(valid.error)
+        XCTAssertNil(valid.events.first?["futureProp"])
+
+        let malformed = await replay(fixture: [:], stream: [
+            ["type": "RUN_STARTED", "threadId": "t", "runId": "r", "parentRunId": 42], terminal
+        ])
+        XCTAssertTrue(malformed.error?.contains("parentRunId") == true)
+        XCTAssertTrue(malformed.events.isEmpty)
+    }
+
+    func testEventSubscriberMutationStopsDefaultApplication() async throws {
+        let first = StoppingEventSubscriber()
+        let second = CountingEventSubscriber()
+        let input = RunAgentInput(threadId: "t", runId: "r")
+        let source = AsyncThrowingStream<any AGUIEvent, Error> { continuation in
+            continuation.yield(TextMessageStartEvent(messageId: "assistant", role: "assistant"))
+            continuation.finish()
+        }
+        var finalMessages: [any Message] = []
+        for try await state in source.applyEvents(input: input, subscribers: [first, second]) {
+            if let messages = state.messages { finalMessages = messages }
+        }
+        XCTAssertEqual(finalMessages.map(\.id), ["substituted"])
+        let firstCalls = await first.calls
+        let secondCalls = await second.calls
+        XCTAssertEqual(firstCalls, 1)
+        XCTAssertEqual(secondCalls, 0)
+    }
+
+    private func check(expect: [String: Any], result: ReplayResult) -> [ExpectationFailure] {
+        var failures: [ExpectationFailure] = []
+        func fail(_ key: String, _ detail: String) { failures.append(ExpectationFailure(key: key, detail: detail)) }
         if let value = expect["outcome"] as? String {
             let actual = result.error == nil ? "completed" : "failed"
             if value != actual { fail("outcome", "expected \(value), got \(actual): \(result.error ?? "")") }
@@ -198,6 +315,11 @@ final class StreamConformanceTests: XCTestCase {
 }
 
 private struct HarnessError: Error { let detail: String; init(_ detail: String) { self.detail = detail } }
+private struct ExpectationFailure: CustomStringConvertible {
+    let key: String
+    let detail: String
+    var description: String { "\(key) \(detail)" }
+}
 private struct ReplayResult {
     let events: [[String: Any]]
     let messages: Any
@@ -233,6 +355,23 @@ private actor FixtureRecorder: AgentSubscriber {
         object["type"] = event.eventType.rawValue
         if let runError = event as? RunErrorEvent { object["message"] = runError.message; object["code"] = runError.code }
         events.append(object)
+        return nil
+    }
+}
+
+private actor StoppingEventSubscriber: AgentSubscriber {
+    private(set) var calls = 0
+    func onEvent(params: AgentEventParams) async -> AgentStateMutation? {
+        calls += 1
+        return AgentStateMutation(messages: [UserMessage(id: "substituted", content: "replacement")],
+                                  stopPropagation: true)
+    }
+}
+
+private actor CountingEventSubscriber: AgentSubscriber {
+    private(set) var calls = 0
+    func onEvent(params: AgentEventParams) async -> AgentStateMutation? {
+        calls += 1
         return nil
     }
 }

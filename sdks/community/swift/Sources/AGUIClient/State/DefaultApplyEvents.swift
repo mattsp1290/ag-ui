@@ -47,13 +47,25 @@ extension AsyncSequence where Element == any AGUIEvent {
 
                 do {
                     for try await event in self {
-                        for subscriber in subscribers {
-                            _ = await subscriber.onEvent(params: AgentEventParams(
+                        let mutation = await runSubscribersWithMutation(
+                            subscribers: subscribers,
+                            messages: messages,
+                            state: currentState
+                        ) { subscriber, currentMessages, currentState in
+                            await subscriber.onEvent(params: AgentEventParams(
                                 event: event,
-                                messages: messages,
+                                messages: currentMessages,
                                 state: currentState,
                                 input: input
                             ))
+                        }
+                        if let changed = mutation.messages {
+                            messages = changed
+                            continuation.yield(AgentState(messages: messages))
+                        }
+                        if let changed = mutation.state {
+                            currentState = changed
+                            continuation.yield(AgentState(state: currentState))
                         }
                         // Emit initial messages on first event if present
                         if !initialMessagesEmitted {
@@ -62,6 +74,7 @@ extension AsyncSequence where Element == any AGUIEvent {
                                 continuation.yield(AgentState(messages: messages))
                             }
                         }
+                        if mutation.stopPropagation { continue }
 
                         switch event {
                         case is RunStartedEvent:
@@ -164,8 +177,17 @@ extension AsyncSequence where Element == any AGUIEvent {
 
                         case let e as StateDeltaEvent:
                             let applicator = PatchApplicator()
-                            currentState = try applicator.apply(patch: e.delta, to: currentState)
-                            continuation.yield(AgentState(state: currentState))
+                            // A valid patch document may still be inapplicable to the
+                            // current state; retain the last usable snapshot.
+                            do {
+                                let updated = try applicator.apply(patch: e.delta, to: currentState)
+                                currentState = updated
+                                continuation.yield(AgentState(state: currentState))
+                            } catch PatchApplicator.PatchError.pathNotFound,
+                                    PatchApplicator.PatchError.invalidOperation,
+                                    PatchApplicator.PatchError.testFailed {
+                                break
+                            }
 
                         case let e as RawEvent:
                             rawEvents.append(e)

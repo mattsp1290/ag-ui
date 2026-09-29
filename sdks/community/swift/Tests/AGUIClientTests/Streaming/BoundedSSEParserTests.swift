@@ -1,0 +1,64 @@
+import XCTest
+@testable import AGUIClient
+
+final class BoundedSSEParserTests: XCTestCase {
+    private func parse(_ bytes: [UInt8], limit: Int = 4096) throws -> [SseEvent] {
+        var parser = try BoundedSSEParser(maximumFrameBytes: limit)
+        var events: [SseEvent] = []
+        for byte in bytes {
+            if let event = try parser.feed(byte) { events.append(event) }
+        }
+        try parser.finish()
+        return events
+    }
+
+    func testEveryByteBoundaryWithBOMUnicodeAndMixedLineEndings() throws {
+        let input = Array("\u{FEFF}event: control\r\nid: 7\rdata: café\ndata: two\r\nretry: 100\r\n\r\n".utf8)
+        let event = try XCTUnwrap(parse(input).first)
+        XCTAssertEqual(event.event, "control")
+        XCTAssertEqual(event.id, "7")
+        XCTAssertEqual(event.retry, 100)
+        XCTAssertEqual(event.data, "café\ntwo")
+    }
+
+    func testExactLimitAndLimitPlusOne() throws {
+        let bytes = Array("data: x\n\n".utf8)
+        XCTAssertEqual(try parse(bytes, limit: bytes.count).first?.data, "x")
+        XCTAssertThrowsError(try parse(bytes, limit: bytes.count - 1)) { error in
+            XCTAssertEqual(error as? BoundedSSEParser.Failure, .frameTooLarge)
+        }
+    }
+
+    func testLargeSingleChunkAndSmallChunksBothFailClosed() throws {
+        for prefix in [":", "data: ", "unknown: "] {
+            let bytes = Array((prefix + String(repeating: "x", count: 200) + "\n\n").utf8)
+            XCTAssertThrowsError(try parse(bytes, limit: 32)) { error in
+                XCTAssertEqual(error as? BoundedSSEParser.Failure, .frameTooLarge)
+            }
+        }
+        XCTAssertThrowsError(try parse(Array("data: x\n".utf8))) { error in
+            XCTAssertEqual(error as? BoundedSSEParser.Failure, .truncatedFrame)
+        }
+        XCTAssertThrowsError(try parse([0xff, 10, 10])) { error in
+            XCTAssertEqual(error as? BoundedSSEParser.Failure, .invalidUTF8)
+        }
+    }
+
+    func testAgentcraftFixturesStayRawAndPreserveSnapshotNumbers() throws {
+        let directory = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Fixtures")
+        for name in ["agentcraft-preadmission", "agentcraft-sample-session"] {
+            let bytes = try [UInt8](Data(contentsOf: directory.appendingPathComponent("\(name).sse")))
+            let events = try parse(bytes, limit: 4096)
+            XCTAssertFalse(events.isEmpty)
+            XCTAssertTrue(events.allSatisfy { $0.id != nil && $0.event == "message" })
+            let types = try events.map { event -> String in
+                let json = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(event.data.utf8)) as? [String: Any])
+                return try XCTUnwrap(json["type"] as? String)
+            }
+            XCTAssertEqual(types.count % 2, 0)
+            XCTAssertEqual(types.first, "MESSAGES_SNAPSHOT")
+            XCTAssertEqual(types.last, "STATE_SNAPSHOT")
+        }
+    }
+}

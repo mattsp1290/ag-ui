@@ -151,44 +151,47 @@ impl ChunkExpander {
                     &chunk.base.subagent_run_id,
                 )?;
                 let previous = self.lane(&owner).cloned();
-                let (id, open) =
-                    if let Some(Pending::Text { id, role, name }) = previous.as_ref().filter(|p| {
+                let (id, open) = if let Some(Pending::Text { id, role, name }) =
+                    previous.as_ref().filter(|p| {
                         chunk
                             .message_id
                             .as_ref()
                             .is_none_or(|new| new.as_ref() == p.id())
                     }) {
-                        if chunk.role.as_ref().is_some_and(|new| new != role)
-                            || chunk
-                                .name
-                                .as_ref()
-                                .is_some_and(|new| Some(new) != name.as_ref())
-                        {
-                            return Err(fail("Conflicting TEXT_MESSAGE_CHUNK opener fields"));
-                        }
-                        (id.clone(), false)
-                    } else {
-                        let id = chunk.message_id.clone().ok_or_else(|| {
-                            fail("First TEXT_MESSAGE_CHUNK must have a messageId")
-                        })?;
-                        output.extend(self.close::<StateT>(&owner));
-                        let role = chunk.role.clone().unwrap_or(Role::Assistant);
-                        self.lanes.push((
-                            owner.clone(),
-                            Pending::Text {
-                                id: id.clone(),
-                                role: role.clone(),
-                                name: chunk.name.clone(),
-                            },
+                    if chunk.role.as_ref().is_some_and(|new| new != role)
+                        || chunk
+                            .name
+                            .as_ref()
+                            .is_some_and(|new| Some(new) != name.as_ref())
+                    {
+                        return Err(fail(
+                            "TEXT_MESSAGE_CHUNK role or name does not match the open stream's role or name",
                         ));
-                        output.push(Event::TextMessageStart(TextMessageStartEvent {
-                            base: base(owner.clone(), chunk.base.metadata.clone(), None),
-                            message_id: id.clone(),
-                            role,
+                    }
+                    (id.clone(), false)
+                } else {
+                    let id = chunk
+                        .message_id
+                        .clone()
+                        .ok_or_else(|| fail("First TEXT_MESSAGE_CHUNK must have a messageId"))?;
+                    output.extend(self.close::<StateT>(&owner));
+                    let role = chunk.role.clone().unwrap_or(Role::Assistant);
+                    self.lanes.push((
+                        owner.clone(),
+                        Pending::Text {
+                            id: id.clone(),
+                            role: role.clone(),
                             name: chunk.name.clone(),
-                        }));
-                        (id, true)
-                    };
+                        },
+                    ));
+                    output.push(Event::TextMessageStart(TextMessageStartEvent {
+                        base: base(owner.clone(), chunk.base.metadata.clone(), None),
+                        message_id: id.clone(),
+                        role,
+                        name: chunk.name.clone(),
+                    }));
+                    (id, true)
+                };
                 if chunk.delta.is_some()
                     || chunk.base.raw_event.is_some()
                     || (!open && chunk.base.metadata.is_some())
@@ -220,7 +223,9 @@ impl ChunkExpander {
                             .as_ref()
                             .is_some_and(|new| Some(new) != parent.as_ref())
                     {
-                        return Err(fail("Conflicting TOOL_CALL_CHUNK opener fields"));
+                        return Err(fail(
+                            "TOOL_CALL_CHUNK toolCallName or parentMessageId does not match the open stream's toolCallName or parentMessageId",
+                        ));
                     }
                     (id.clone(), false)
                 } else {

@@ -127,16 +127,20 @@ where
             && !matches!(event, Event::RunStarted(_))
             && !(matches!(event, Event::RunError(_)) && !self.last_terminal_was_error)
         {
-            return Err(fail("Event after terminal run event".into()));
+            return Err(fail(
+                "The run has already finished with 'RUN_FINISHED' or 'RUN_ERROR'".into(),
+            ));
         }
         if !self.active_run && !matches!(event, Event::RunStarted(_) | Event::RunError(_)) {
             return Err(fail(
-                "Expected RUN_STARTED or RUN_ERROR before run events".into(),
+                "First event must be 'RUN_STARTED' or 'RUN_ERROR'".into(),
             ));
         }
         match event {
             Event::RunStarted(_) if self.active_run => {
-                return Err(fail("Nested RUN_STARTED".into()));
+                return Err(fail(
+                    "Cannot send 'RUN_STARTED' while a run is still active".into(),
+                ));
             }
             Event::RunStarted(_) => {
                 self.active_run = true;
@@ -152,7 +156,10 @@ where
             }
             Event::RunFinished(_) => {
                 if !self.active_subagents.is_empty() {
-                    return Err(fail("RUN_FINISHED with active subagent".into()));
+                    return Err(fail(format!(
+                        "RUN_FINISHED with active subagent {}",
+                        self.active_subagents.iter().next().unwrap()
+                    )));
                 }
                 if !self.active_text.is_empty()
                     || !self.active_reasoning.is_empty()
@@ -160,7 +167,7 @@ where
                     || !self.active_tools.is_empty()
                     || !self.active_steps.is_empty()
                 {
-                    return Err(fail("RUN_FINISHED with an open streamed item".into()));
+                    return Err(fail("Cannot send 'RUN_FINISHED' while text messages are still active or another streamed item is open".into()));
                 }
                 self.active_run = false;
                 self.finished_run = true;
@@ -224,7 +231,9 @@ where
             }
             Event::ReasoningMessageStart(e) => {
                 if e.role != Role::Reasoning {
-                    return Err(fail("Reasoning message role must be reasoning".into()));
+                    return Err(fail(
+                        "Reasoning message role: expected \\\"reasoning\\\"".into(),
+                    ));
                 }
                 if self
                     .active_reasoning
@@ -319,7 +328,7 @@ where
                 let key = (e.base.subagent_run_id.clone(), e.step_name.clone());
                 if !self.active_steps.remove(&key) {
                     return Err(fail(format!(
-                        "STEP_FINISHED without STEP_STARTED in this owner: {}",
+                        "STEP_FINISHED for step that was not started in this owner: {}",
                         e.step_name
                     )));
                 }
@@ -402,16 +411,19 @@ where
         match event {
             Event::TextMessageStart(e) => {
                 // Default behavior
-                let new_message = Message::Assistant {
-                    id: e.message_id.clone(),
-                    content: Some(String::new()),
-                    name: e.name.clone(),
-                    tool_calls: None,
-                    metadata: e.base.metadata.clone(),
-                    encrypted_value: None,
-                    subagent_run_id: e.base.subagent_run_id.clone(),
-                };
-                self.messages.push(new_message);
+                if let Some(existing) = self.messages.iter_mut().find(|m| m.id() == &e.message_id) {
+                    merge_message_metadata(existing, &e.base.metadata);
+                } else {
+                    self.messages.push(Message::Assistant {
+                        id: e.message_id.clone(),
+                        content: Some(String::new()),
+                        name: e.name.clone(),
+                        tool_calls: None,
+                        metadata: e.base.metadata.clone(),
+                        encrypted_value: None,
+                        subagent_run_id: e.base.subagent_run_id.clone(),
+                    });
+                }
                 current_mutation.messages = Some(self.messages.clone());
 
                 for subscriber in &self.subscribers {

@@ -274,14 +274,64 @@ fn parse_event_data<StateT: AgentState>(
         return Some(Err(error.into()));
     }
     thinking.translate(&mut raw);
-    let kind = raw.get("type").and_then(|v| v.as_str());
-    if let Some(kind) = kind
+    let kind = raw.get("type").and_then(|v| v.as_str()).map(str::to_owned);
+    if let Some(kind) = kind.as_deref()
         && !known_event_type(kind)
     {
         log::warn!("Dropping unknown AG-UI event type: {kind}");
         return None;
     }
-    if kind == Some("RUN_FINISHED")
+    if kind.as_deref() == Some("STATE_DELTA")
+        && let Some(delta) = raw
+            .get_mut("delta")
+            .and_then(serde_json::Value::as_array_mut)
+    {
+        let mut index = 0;
+        delta.retain(|operation| {
+            let known = operation
+                .get("op")
+                .and_then(serde_json::Value::as_str)
+                .is_none_or(|op| {
+                    matches!(op, "add" | "remove" | "replace" | "move" | "copy" | "test")
+                });
+            if !known {
+                log::warn!("Dropping unknown patch operation at /delta/{index}");
+            }
+            index += 1;
+            known
+        });
+    }
+    if kind.as_deref() == Some("MESSAGES_SNAPSHOT")
+        && let Some(messages) = raw
+            .get_mut("messages")
+            .and_then(serde_json::Value::as_array_mut)
+    {
+        for (message_index, message) in messages.iter_mut().enumerate() {
+            if let Some(parts) = message
+                .get_mut("content")
+                .and_then(serde_json::Value::as_array_mut)
+            {
+                let mut part_index = 0;
+                parts.retain(|part| {
+                    let known = part.get("type").and_then(serde_json::Value::as_str)
+                        .is_none_or(|kind| matches!(kind, "text" | "image" | "audio" | "video" | "document"));
+                    if !known {
+                        log::warn!("Dropping unknown content part at /messages/{message_index}/content/{part_index}");
+                    }
+                    part_index += 1;
+                    known
+                });
+            }
+        }
+    }
+    if kind.as_deref() == Some("RUN_FINISHED")
+        && raw.get("outcome").is_some_and(serde_json::Value::is_array)
+    {
+        return Some(Err(AgentError::exec(
+            "outcome: expected object, received array",
+        )));
+    }
+    if kind.as_deref() == Some("RUN_FINISHED")
         && let Some(outcome) = raw.get("outcome").and_then(|value| value.as_object())
         && let Some(kind) = outcome.get("type").and_then(|value| value.as_str())
         && !matches!(kind, "success" | "interrupt" | "cancelled")
@@ -289,11 +339,23 @@ fn parse_event_data<StateT: AgentState>(
         log::warn!("Dropping unrecognized RUN_FINISHED outcome type: {kind}");
         raw.as_object_mut().unwrap().remove("outcome");
     }
+    let malformed_field = match kind.as_deref() {
+        Some("TEXT_MESSAGE_CONTENT")
+            if raw.get("delta").is_some_and(|value| !value.is_string()) =>
+        {
+            Some("delta")
+        }
+        Some("TEXT_MESSAGE_START") if raw.get("role").is_some() => Some("role"),
+        _ => None,
+    };
     let parsed: Result<Event<StateT>, _> = serde_json::from_value(raw);
     if let Ok(ref event) = parsed {
         debug!("Deserialized event: {event:?}");
     }
-    Some(parsed.map_err(Into::into))
+    Some(parsed.map_err(|error| match malformed_field {
+        Some(field) => AgentError::exec(format!("Invalid {field}: {error}")),
+        None => error.into(),
+    }))
 }
 
 #[cfg(test)]

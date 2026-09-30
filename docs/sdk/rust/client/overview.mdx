@@ -7,14 +7,17 @@ description: "AG-UI 1.0 Rust HTTP client"
 
 `ag-ui-client` 0.2.0 provides `Agent`, `HttpAgent`, and `AgentSubscriber` over the 1.0 model in `ag-ui-core` 0.2.0.
 
-For the unreleased 0.2.0 workspace revision, depend on the checked-out crate by path:
+For the unreleased 0.2.0 workspace revision, depend on the checked-out client by path and patch its core dependency to the same checkout:
 
 ```toml
 [dependencies]
 ag-ui-client = { path = "path/to/ag-ui/sdks/community/rust/crates/ag-ui-client" }
+
+[patch.crates-io]
+ag-ui-core = { path = "path/to/ag-ui/sdks/community/rust/crates/ag-ui-core" }
 ```
 
-After publication, `cargo add ag-ui-client@0.2.0` will select this release.
+The patch is temporary while `ag-ui-core` 0.2.0 is unpublished. After both crates are published, remove it and use `cargo add ag-ui-client@0.2.0`.
 
 Use [Agent](/sdk/rust/client/agent-trait) to run a stream and collect messages, state, result, outcome, and usage. [HttpAgent](/sdk/rust/client/http-agent) sends JSON to an AG-UI endpoint and receives SSE. [AgentSubscriber](/sdk/rust/client/subscriber) exposes lifecycle and typed event hooks for activity, reasoning, subagents, state, messages, and tools.
 

@@ -23,7 +23,7 @@ User and tool messages use `MessageContent::Text(String)` or `MessageContent::Pa
 
 ## State patches
 
-`StateDeltaEvent::delta` and `ActivityDeltaEvent::patch` use `Vec<JsonPatchOperation>`, with add, remove, replace, move, copy, and test operations. `JsonPointer` represents patch paths. `StateSnapshotEvent<StateT>` contains typed state; your `StateT` implements `AgentState` (`Serialize`, `Deserialize`, `Clone`, `Debug`, `Send`, and `Sync`).
+`StateDeltaEvent::delta` and `ActivityDeltaEvent::patch` use `Vec<JsonPatchOperation>`, with add, remove, replace, move, copy, and test operations. `JsonPointer` represents patch paths. `StateSnapshotEvent<StateT>` contains typed state; your `StateT` implements `AgentState` (`Serialize`, `Deserialize`, `Clone`, `Debug`, `Default`, `Send`, `Sync`, and `'static`).
 
 See [events](/sdk/rust/core/events) and [the agent API](/sdk/rust/client/agent-trait).
 

@@ -13,7 +13,7 @@ use ag_ui_client::Agent;
 
 ## Generics
 
-- StateT: the agent state type. Must implement ag_ui_client::core::AgentState (Serialize + Deserialize + Clone + Debug + Send + Sync).
+- StateT: the agent state type. Must implement ag_ui_client::core::AgentState (Serialize + Deserialize + Clone + Debug + Default + Send + Sync + 'static).
 - FwdPropsT: forwarded properties type passed through to downstream systems. Must implement ag_ui_client::core::FwdProps.
 
 Defaults for both are serde_json::Value, which works well for quick starts.

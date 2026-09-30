@@ -5,6 +5,7 @@ use crate::core::types::RunAgentInput;
 use crate::core::{AgentState, FwdProps};
 use crate::sse::SseResponseExt;
 use crate::stream::EventStream;
+use crate::thinking::ThinkingTranslator;
 use ag_ui_core::types::AgentId;
 use async_trait::async_trait;
 use futures::StreamExt;
@@ -184,17 +185,19 @@ where
         }
 
         // Convert the response to an SSE event stream
+        let mut thinking = ThinkingTranslator::default();
         let stream = response
             .event_source()
             .await
-            .filter_map(|result| async move {
-                match result {
+            .filter_map(move |result| {
+                let parsed = match result {
                     Ok(event) => {
                         trace!("Received event: {event:?}");
-                        parse_event_data::<StateT>(&event.data)
+                        parse_event_data::<StateT>(&event.data, &mut thinking)
                     }
                     Err(err) => Some(Err(err)),
-                }
+                };
+                async move { parsed }
             })
             .boxed();
         Ok(stream)
@@ -247,11 +250,15 @@ fn known_event_type(kind: &str) -> bool {
     )
 }
 
-fn parse_event_data<StateT: AgentState>(data: &str) -> Option<Result<Event<StateT>, AgentError>> {
+fn parse_event_data<StateT: AgentState>(
+    data: &str,
+    thinking: &mut ThinkingTranslator,
+) -> Option<Result<Event<StateT>, AgentError>> {
     let mut raw: serde_json::Value = match serde_json::from_str(data) {
         Ok(raw) => raw,
         Err(err) => return Some(Err(err.into())),
     };
+    thinking.translate(&mut raw);
     let kind = raw.get("type").and_then(|v| v.as_str());
     if let Some(kind) = kind
         && !known_event_type(kind)
@@ -279,23 +286,153 @@ mod event_parsing_tests {
     use super::*;
     use serde_json::Value;
 
+    #[tokio::test]
+    async fn legacy_thinking_replays_as_reasoning_and_modern_stream_stays_quiet() {
+        use crate::core::types::{RunAgentInput, RunId, ThreadId};
+        use crate::event_handler::EventHandler;
+        use crate::subscriber::Subscribers;
+        use serde_json::json;
+
+        for name in ["era-0-0-45-thinking-translated", "conformant-run-is-quiet"] {
+            let path = format!(
+                "{}/../../../../../spec/1.0/conformance/streams/{name}.json",
+                env!("CARGO_MANIFEST_DIR")
+            );
+            let fixture: Value =
+                serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+            let mut thinking = ThinkingTranslator::default();
+            let input = RunAgentInput::new(
+                ThreadId::from("t"),
+                RunId::from("r"),
+                json!({}),
+                vec![],
+                vec![],
+                vec![],
+                json!({}),
+            );
+            let mut handler =
+                EventHandler::new(vec![], json!({}), &input, Subscribers::new(vec![]));
+            let mut event_types = Vec::new();
+            for raw in fixture["stream"].as_array().unwrap() {
+                let event = parse_event_data::<Value>(&raw.to_string(), &mut thinking)
+                    .unwrap()
+                    .unwrap();
+                event_types.push(
+                    serde_json::to_value(&event).unwrap()["type"]
+                        .as_str()
+                        .unwrap()
+                        .to_owned(),
+                );
+                let mutation = handler.handle_event(&event).await.unwrap();
+                handler.apply_mutation(mutation).await.unwrap();
+            }
+            let expected = &fixture["expect"];
+            assert_eq!(
+                handler.messages.len(),
+                expected["messages"].as_array().unwrap().len(),
+                "{name}"
+            );
+            for (message, expected) in handler
+                .messages
+                .iter()
+                .zip(expected["messages"].as_array().unwrap())
+            {
+                let message = serde_json::to_value(message).unwrap();
+                assert_eq!(message["role"], expected["role"], "{name}");
+                assert_eq!(message["content"], expected["content"], "{name}");
+            }
+            if name == "era-0-0-45-thinking-translated" {
+                assert!(
+                    thinking
+                        .warnings
+                        .iter()
+                        .any(|warning| warning.contains("THINKING_START"))
+                );
+                assert!(
+                    event_types
+                        .iter()
+                        .any(|kind| kind == "REASONING_MESSAGE_START")
+                );
+                assert!(!event_types.iter().any(|kind| kind.starts_with("THINKING_")));
+            } else {
+                assert!(thinking.warnings.is_empty());
+                assert_eq!(handler.state, expected["state"]);
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn orphan_legacy_continuation_remains_invalid_after_translation() {
+        use crate::core::types::{RunAgentInput, RunId, ThreadId};
+        use crate::event_handler::EventHandler;
+        use crate::subscriber::Subscribers;
+        use serde_json::json;
+
+        let input = RunAgentInput::new(
+            ThreadId::from("t"),
+            RunId::from("r"),
+            json!({}),
+            vec![],
+            vec![],
+            vec![],
+            json!({}),
+        );
+        let mut handler = EventHandler::new(vec![], json!({}), &input, Subscribers::new(vec![]));
+        let mut thinking = ThinkingTranslator::default();
+        let started = parse_event_data::<Value>(
+            r#"{"type":"RUN_STARTED","threadId":"t","runId":"r"}"#,
+            &mut thinking,
+        )
+        .unwrap()
+        .unwrap();
+        handler.handle_event(&started).await.unwrap();
+        let orphan = parse_event_data::<Value>(
+            r#"{"type":"THINKING_TEXT_MESSAGE_CONTENT","delta":"orphan"}"#,
+            &mut thinking,
+        )
+        .unwrap()
+        .unwrap();
+        assert!(handler.handle_event(&orphan).await.is_err());
+        assert!(
+            thinking
+                .warnings
+                .iter()
+                .any(|warning| warning.contains("Minting messageId"))
+        );
+    }
+
     #[test]
     fn unknown_optional_outcome_is_stripped_but_malformed_known_arm_fails() {
         let future = r#"{"type":"RUN_FINISHED","threadId":"t","runId":"r","outcome":{"type":"future","data":1}}"#;
-        let event = parse_event_data::<Value>(future).unwrap().unwrap();
+        let event = parse_event_data::<Value>(future, &mut ThinkingTranslator::default())
+            .unwrap()
+            .unwrap();
         assert!(matches!(event, Event::RunFinished(e) if e.outcome.is_none()));
         let malformed =
             r#"{"type":"RUN_FINISHED","threadId":"t","runId":"r","outcome":{"type":"interrupt"}}"#;
-        assert!(parse_event_data::<Value>(malformed).unwrap().is_err());
+        assert!(
+            parse_event_data::<Value>(malformed, &mut ThinkingTranslator::default())
+                .unwrap()
+                .is_err()
+        );
     }
 
     #[test]
     fn unknown_event_is_dropped_but_malformed_known_event_fails() {
-        assert!(parse_event_data::<Value>(r#"{"type":"FUTURE_EVENT","value":1}"#).is_none());
         assert!(
-            parse_event_data::<Value>(r#"{"type":"TEXT_MESSAGE_CONTENT","messageId":"m"}"#)
-                .unwrap()
-                .is_err()
+            parse_event_data::<Value>(
+                r#"{"type":"FUTURE_EVENT","value":1}"#,
+                &mut ThinkingTranslator::default()
+            )
+            .is_none()
+        );
+        assert!(
+            parse_event_data::<Value>(
+                r#"{"type":"TEXT_MESSAGE_CONTENT","messageId":"m"}"#,
+                &mut ThinkingTranslator::default()
+            )
+            .unwrap()
+            .is_err()
         );
     }
 }

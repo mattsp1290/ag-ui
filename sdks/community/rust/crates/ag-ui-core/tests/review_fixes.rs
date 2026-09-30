@@ -135,5 +135,40 @@ fn all_usage_counts_enforce_json_safe_integer_boundary() {
             );
         }
         assert!(serde_json::from_value::<TokenUsage>(json!({key:MAX+1})).is_err());
+
+        let mut constructed = TokenUsage::default();
+        set_usage_count(&mut constructed, key, MAX);
+        assert_eq!(serde_json::to_value(&constructed).unwrap(), valid);
+        let mut finished: Event = serde_json::from_value(json!({
+            "type":"RUN_FINISHED","threadId":"t","runId":"r","usage":[valid]
+        }))
+        .unwrap();
+        assert!(serde_json::to_value(&finished).is_ok());
+        set_usage_count(&mut constructed, key, MAX + 1);
+        assert!(
+            serde_json::to_value(&constructed).is_err(),
+            "{key} serialized over max"
+        );
+        if let Event::RunFinished(run) = &mut finished {
+            run.usage = Some(vec![constructed]);
+        } else {
+            unreachable!();
+        }
+        assert!(
+            serde_json::to_value(&finished).is_err(),
+            "{key} serialized in RUN_FINISHED over max"
+        );
+    }
+}
+
+fn set_usage_count(usage: &mut TokenUsage, key: &str, value: u64) {
+    match key {
+        "inputTokens" => usage.input_tokens = Some(value),
+        "outputTokens" => usage.output_tokens = Some(value),
+        "totalTokens" => usage.total_tokens = Some(value),
+        "reasoningTokens" => usage.reasoning_tokens = Some(value),
+        "cachedInputTokens" => usage.cached_input_tokens = Some(value),
+        "cacheWriteInputTokens" => usage.cache_write_input_tokens = Some(value),
+        _ => unreachable!(),
     }
 }

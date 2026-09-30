@@ -304,36 +304,42 @@ pub struct TokenUsage {
     #[serde(
         skip_serializing_if = "Option::is_none",
         deserialize_with = "safe_unsigned",
+        serialize_with = "serialize_safe_unsigned",
         default
     )]
     pub input_tokens: Option<u64>,
     #[serde(
         skip_serializing_if = "Option::is_none",
         deserialize_with = "safe_unsigned",
+        serialize_with = "serialize_safe_unsigned",
         default
     )]
     pub output_tokens: Option<u64>,
     #[serde(
         skip_serializing_if = "Option::is_none",
         deserialize_with = "safe_unsigned",
+        serialize_with = "serialize_safe_unsigned",
         default
     )]
     pub total_tokens: Option<u64>,
     #[serde(
         skip_serializing_if = "Option::is_none",
         deserialize_with = "safe_unsigned",
+        serialize_with = "serialize_safe_unsigned",
         default
     )]
     pub reasoning_tokens: Option<u64>,
     #[serde(
         skip_serializing_if = "Option::is_none",
         deserialize_with = "safe_unsigned",
+        serialize_with = "serialize_safe_unsigned",
         default
     )]
     pub cached_input_tokens: Option<u64>,
     #[serde(
         skip_serializing_if = "Option::is_none",
         deserialize_with = "safe_unsigned",
+        serialize_with = "serialize_safe_unsigned",
         default
     )]
     pub cache_write_input_tokens: Option<u64>,
@@ -446,9 +452,21 @@ pub struct ExecutionCapabilities {
     )]
     pub max_execution_time: Option<u64>,
 }
+const MAX_SAFE_JSON_INTEGER: u64 = 9_007_199_254_740_991;
+
+fn serialize_safe_unsigned<S: serde::Serializer>(
+    value: &Option<u64>,
+    serializer: S,
+) -> Result<S::Ok, S::Error> {
+    if value.is_some_and(|count| count > MAX_SAFE_JSON_INTEGER) {
+        return Err(serde::ser::Error::custom("outside JSON safe integer range"));
+    }
+    value.serialize(serializer)
+}
+
 fn safe_unsigned<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<u64>, D::Error> {
     let n = u64::deserialize(d)?;
-    if n > 9007199254740991 {
+    if n > MAX_SAFE_JSON_INTEGER {
         return Err(serde::de::Error::custom("outside JSON safe integer range"));
     }
     Ok(Some(n))

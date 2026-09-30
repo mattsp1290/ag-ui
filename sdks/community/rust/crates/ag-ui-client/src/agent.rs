@@ -4,7 +4,7 @@ use std::collections::HashSet;
 use crate::chunk::ChunkExpander;
 use crate::core::JsonValue;
 use crate::core::types::{
-    AgentId, Context, Message, MessageId, RunAgentInput, RunId, ThreadId, Tool,
+    AgentId, Context, Message, MessageId, ResumeEntry, RunAgentInput, RunId, ThreadId, Tool,
 };
 use crate::core::{AgentState, FwdProps};
 use crate::event_handler::EventHandler;
@@ -42,6 +42,7 @@ where
 #[derive(Debug, Clone, Default)]
 pub struct RunAgentParams<StateT: AgentState = JsonValue, FwdPropsT: FwdProps = JsonValue> {
     pub run_id: Option<RunId>,
+    pub resume: Option<Vec<ResumeEntry>>,
     pub tools: Vec<Tool>,
     pub context: Vec<Context>,
     pub forwarded_props: FwdPropsT,
@@ -61,6 +62,7 @@ where
     pub fn new_typed() -> Self {
         Self {
             run_id: None,
+            resume: None,
             tools: Vec::new(),
             context: Vec::new(),
             forwarded_props: FwdPropsT::default(),
@@ -71,6 +73,10 @@ where
 
     pub fn with_run_id(mut self, run_id: RunId) -> Self {
         self.run_id = Some(run_id);
+        self
+    }
+    pub fn with_resume(mut self, resume: Vec<ResumeEntry>) -> Self {
+        self.resume = Some(resume);
         self
     }
     pub fn add_tool(mut self, tool: Tool) -> Self {
@@ -205,7 +211,7 @@ where
             forwarded_props: params.forwarded_props.clone(),
             protocol_version: Some("1.0".to_owned()),
             parent_run_id: None,
-            resume: None,
+            resume: params.resume.clone(),
         };
         let current_message_ids: HashSet<&MessageId> =
             params.messages.iter().map(|m| m.id()).collect();
@@ -229,6 +235,7 @@ where
                         Ok(events) => events,
                         Err(error) => {
                             event_handler.on_error(&error).await?;
+                            event_handler.on_finalize().await?;
                             return Err(error);
                         }
                     };
@@ -237,6 +244,7 @@ where
                             Ok(mutation) => mutation,
                             Err(error) => {
                                 event_handler.on_error(&error).await?;
+                                event_handler.on_finalize().await?;
                                 return Err(error);
                             }
                         };
@@ -245,9 +253,17 @@ where
                 }
                 Err(e) => {
                     event_handler.on_error(&e).await?;
+                    event_handler.on_finalize().await?;
                     return Err(e);
                 }
             }
+        }
+
+        if !event_handler.terminal_received() {
+            let error = AgentError::exec("AG-UI stream ended before RUN_FINISHED or RUN_ERROR");
+            event_handler.on_error(&error).await?;
+            event_handler.on_finalize().await?;
+            return Err(error);
         }
 
         // Finalize the run
@@ -304,6 +320,189 @@ mod result_tests {
                 .collect();
             Ok(Box::pin(stream::iter(events)))
         }
+    }
+
+    struct ScriptedAgent(Vec<serde_json::Value>);
+    #[async_trait::async_trait]
+    impl Agent for ScriptedAgent {
+        async fn run(
+            &self,
+            _input: &RunAgentInput<JsonValue, JsonValue>,
+        ) -> Result<EventStream<'async_trait, JsonValue>, AgentError> {
+            let events: Vec<_> = self
+                .0
+                .iter()
+                .cloned()
+                .map(|value| Ok(serde_json::from_value::<Event>(value).unwrap()))
+                .collect();
+            Ok(Box::pin(stream::iter(events)))
+        }
+    }
+    #[derive(Default)]
+    struct Observations {
+        args: Vec<(String, String, String)>,
+        failed: usize,
+        finalized: usize,
+    }
+    struct Observer(std::sync::Arc<std::sync::Mutex<Observations>>);
+    #[async_trait::async_trait]
+    impl crate::subscriber::AgentSubscriber for Observer {
+        async fn on_tool_call_args_event(
+            &self,
+            event: &crate::core::event::ToolCallArgsEvent,
+            buffer: &str,
+            name: &str,
+            _args: &std::collections::HashMap<String, JsonValue>,
+            _params: crate::subscriber::AgentSubscriberParams<'async_trait, JsonValue, JsonValue>,
+        ) -> Result<AgentStateMutation<JsonValue>, AgentError> {
+            self.0.lock().unwrap().args.push((
+                event.tool_call_id.to_string(),
+                buffer.to_owned(),
+                name.to_owned(),
+            ));
+            Ok(AgentStateMutation::default())
+        }
+        async fn on_run_failed(
+            &self,
+            _error: &AgentError,
+            _params: crate::subscriber::AgentSubscriberParams<'async_trait, JsonValue, JsonValue>,
+        ) -> Result<AgentStateMutation<JsonValue>, AgentError> {
+            self.0.lock().unwrap().failed += 1;
+            Ok(AgentStateMutation::default())
+        }
+        async fn on_run_finalized(
+            &self,
+            _params: crate::subscriber::AgentSubscriberParams<'async_trait, JsonValue, JsonValue>,
+        ) -> Result<AgentStateMutation<JsonValue>, AgentError> {
+            self.0.lock().unwrap().finalized += 1;
+            Ok(AgentStateMutation::default())
+        }
+    }
+
+    #[tokio::test]
+    async fn interleaved_owner_lanes_and_tool_callbacks_follow_ids() {
+        let script = ScriptedAgent(vec![
+            json!({"type":"RUN_STARTED","threadId":"t","runId":"r"}),
+            json!({"type":"TEXT_MESSAGE_CHUNK","messageId":"m1","delta":"A"}),
+            json!({"type":"SUBAGENT_STARTED","subagentRunId":"s","name":"worker"}),
+            json!({"type":"TEXT_MESSAGE_CHUNK","messageId":"m2","delta":"B","subagentRunId":"s"}),
+            json!({"type":"TEXT_MESSAGE_CHUNK","messageId":"m1","delta":"C"}),
+            json!({"type":"REASONING_MESSAGE_CHUNK","messageId":"r1","delta":"a"}),
+            json!({"type":"REASONING_MESSAGE_CHUNK","messageId":"r2","delta":"b","subagentRunId":"s"}),
+            json!({"type":"REASONING_MESSAGE_CHUNK","messageId":"r1","delta":"c"}),
+            json!({"type":"TOOL_CALL_CHUNK","toolCallId":"tc1","toolCallName":"first","parentMessageId":"m1","delta":"{"}),
+            json!({"type":"TOOL_CALL_CHUNK","toolCallId":"tc2","toolCallName":"second","parentMessageId":"m2","delta":"{}","subagentRunId":"s"}),
+            json!({"type":"TOOL_CALL_CHUNK","toolCallId":"tc1","delta":"}"}),
+            json!({"type":"SUBAGENT_FINISHED","subagentRunId":"s"}),
+            json!({"type":"RUN_FINISHED","threadId":"t","runId":"r"}),
+        ]);
+        let seen = std::sync::Arc::new(std::sync::Mutex::new(Observations::default()));
+        let result = script
+            .run_agent(&RunAgentParams::new(), (Observer(seen.clone()),))
+            .await
+            .unwrap();
+        let messages: Vec<_> = result
+            .new_messages
+            .iter()
+            .map(|m| serde_json::to_value(m).unwrap())
+            .collect();
+        assert_eq!(messages[0]["content"], "AC");
+        assert_eq!(messages[1]["content"], "B");
+        assert_eq!(messages[2]["content"], "ac");
+        assert_eq!(messages[3]["content"], "b");
+        assert_eq!(messages[0]["toolCalls"][0]["function"]["arguments"], "{}");
+        assert_eq!(messages[1]["toolCalls"][0]["function"]["arguments"], "{}");
+        assert_eq!(
+            seen.lock().unwrap().args,
+            [
+                ("tc1".into(), "{".into(), "first".into()),
+                ("tc2".into(), "{}".into(), "second".into()),
+                ("tc1".into(), "{}".into(), "first".into()),
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn run_error_first_and_late_run_error_remain_delivered_streams() {
+        for values in [
+            vec![json!({"type":"RUN_ERROR","message":"offline"})],
+            vec![
+                json!({"type":"RUN_STARTED","threadId":"t","runId":"r1"}),
+                json!({"type":"RUN_ERROR","message":"first failed"}),
+                json!({"type":"RUN_STARTED","threadId":"t","runId":"r2"}),
+                json!({"type":"RUN_FINISHED","threadId":"t","runId":"r2"}),
+                json!({"type":"RUN_ERROR","message":"late transport failure"}),
+            ],
+        ] {
+            let seen = std::sync::Arc::new(std::sync::Mutex::new(Observations::default()));
+            assert!(
+                ScriptedAgent(values)
+                    .run_agent(&RunAgentParams::new(), (Observer(seen.clone()),))
+                    .await
+                    .is_ok()
+            );
+            let seen = seen.lock().unwrap();
+            assert_eq!(seen.failed, 0);
+            assert_eq!(seen.finalized, 1);
+        }
+    }
+
+    #[tokio::test]
+    async fn truncated_and_invalid_opening_streams_fail_and_finalize() {
+        for values in [
+            vec![json!({"type":"RUN_STARTED","threadId":"t","runId":"r"})],
+            vec![json!({"type":"TEXT_MESSAGE_START","messageId":"m","role":"assistant"})],
+            vec![json!({"type":"RUN_FINISHED","threadId":"t","runId":"r"})],
+        ] {
+            let seen = std::sync::Arc::new(std::sync::Mutex::new(Observations::default()));
+            assert!(
+                ScriptedAgent(values)
+                    .run_agent(&RunAgentParams::new(), (Observer(seen.clone()),))
+                    .await
+                    .is_err()
+            );
+            let seen = seen.lock().unwrap();
+            assert_eq!(seen.failed, 1);
+            assert_eq!(seen.finalized, 1);
+        }
+    }
+
+    struct CaptureAgent(std::sync::Arc<std::sync::Mutex<Option<JsonValue>>>);
+    #[async_trait::async_trait]
+    impl Agent for CaptureAgent {
+        async fn run(
+            &self,
+            input: &RunAgentInput<JsonValue, JsonValue>,
+        ) -> Result<EventStream<'async_trait, JsonValue>, AgentError> {
+            *self.0.lock().unwrap() = Some(serde_json::to_value(input)?);
+            let event: Event =
+                serde_json::from_value(json!({"type":"RUN_ERROR","message":"producer failed"}))?;
+            Ok(Box::pin(stream::iter(vec![Ok(event)])))
+        }
+    }
+    #[tokio::test]
+    async fn resume_answers_are_forwarded_and_run_error_is_delivered() {
+        let captured = std::sync::Arc::new(std::sync::Mutex::new(None));
+        let resume = serde_json::from_value(
+            json!({"interruptId":"approval-1","status":"resolved","payload":{"approved":true}}),
+        )
+        .unwrap();
+        let result = CaptureAgent(captured.clone())
+            .run_agent(&RunAgentParams::new().with_resume(vec![resume]), ())
+            .await;
+        assert!(
+            result.is_ok(),
+            "a delivered RUN_ERROR is a successful stream consumption"
+        );
+        let input = captured.lock().unwrap();
+        assert_eq!(
+            input.as_ref().unwrap()["resume"][0]["interruptId"],
+            "approval-1"
+        );
+        assert_eq!(
+            input.as_ref().unwrap()["resume"][0]["payload"]["approved"],
+            true
+        );
     }
 
     struct ChunkAgent;

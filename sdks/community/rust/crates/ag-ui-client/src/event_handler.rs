@@ -2,7 +2,7 @@ use crate::agent::{AgentError, AgentStateMutation};
 use crate::core::event::Event;
 use crate::core::types::{
     FunctionCall, Message, MessageId, ReasoningEncryptedValueSubtype, Role, RunAgentInput,
-    RunFinishedOutcome, TokenUsage, ToolCall,
+    RunFinishedOutcome, TokenUsage, ToolCall, ToolCallId,
 };
 use crate::core::{AgentState, FwdProps, JsonValue};
 use crate::subscriber::{AgentSubscriberParams, Subscribers};
@@ -26,10 +26,13 @@ where
     pub usage: Option<Vec<TokenUsage>>,
     active_run: bool,
     finished_run: bool,
-    active_text: Option<MessageId>,
-    active_reasoning: Option<MessageId>,
-    active_span: Option<MessageId>,
-    active_steps: HashSet<String>,
+    active_text: HashMap<MessageId, Option<String>>,
+    active_reasoning: HashMap<MessageId, Option<String>>,
+    active_span: HashMap<MessageId, Option<String>>,
+    active_tools: HashMap<ToolCallId, Option<String>>,
+    active_steps: HashMap<String, Option<String>>,
+    activity_owners: HashMap<MessageId, Option<String>>,
+    pub run_error: Option<String>,
     active_subagents: HashSet<String>,
     text_chunk: Option<(MessageId, Role)>,
     tool_chunk: Option<(crate::core::types::ToolCallId, String)>,
@@ -56,10 +59,13 @@ where
             usage: None,
             active_run: false,
             finished_run: false,
-            active_text: None,
-            active_reasoning: None,
-            active_span: None,
-            active_steps: HashSet::new(),
+            active_text: HashMap::new(),
+            active_reasoning: HashMap::new(),
+            active_span: HashMap::new(),
+            active_tools: HashMap::new(),
+            active_steps: HashMap::new(),
+            activity_owners: HashMap::new(),
+            run_error: None,
             active_subagents: HashSet::new(),
             text_chunk: None,
             tool_chunk: None,
@@ -115,77 +121,185 @@ where
             self.tool_chunk = None;
         }
         let fail = |message: String| AgentError::Execution { message };
-        if self.finished_run {
-            return Err(fail("Event after RUN_FINISHED".into()));
+        if self.finished_run && !matches!(event, Event::RunStarted(_) | Event::RunError(_)) {
+            return Err(fail("Event after terminal run event".into()));
+        }
+        if !self.active_run && !matches!(event, Event::RunStarted(_) | Event::RunError(_)) {
+            return Err(fail(
+                "Expected RUN_STARTED or RUN_ERROR before run events".into(),
+            ));
         }
         match event {
             Event::RunStarted(_) if self.active_run => {
                 return Err(fail("Nested RUN_STARTED".into()));
             }
-            Event::RunStarted(_) => self.active_run = true,
+            Event::RunStarted(_) => {
+                self.active_run = true;
+                self.finished_run = false;
+                self.active_text.clear();
+                self.active_reasoning.clear();
+                self.active_span.clear();
+                self.active_tools.clear();
+                self.active_steps.clear();
+                self.active_subagents.clear();
+                self.activity_owners.clear();
+            }
             Event::RunFinished(_) => {
                 if !self.active_subagents.is_empty() {
                     return Err(fail("RUN_FINISHED with active subagent".into()));
                 }
+                if !self.active_text.is_empty()
+                    || !self.active_reasoning.is_empty()
+                    || !self.active_span.is_empty()
+                    || !self.active_tools.is_empty()
+                    || !self.active_steps.is_empty()
+                {
+                    return Err(fail("RUN_FINISHED with an open streamed item".into()));
+                }
+                self.active_run = false;
                 self.finished_run = true;
             }
-            Event::TextMessageStart(e) => self.active_text = Some(e.message_id.clone()),
-            Event::TextMessageContent(e) => {
-                if self.active_text.as_ref() != Some(&e.message_id) {
+            Event::RunError(e) => {
+                self.active_run = false;
+                self.finished_run = true;
+                self.run_error = Some(e.message.clone());
+                self.active_text.clear();
+                self.active_reasoning.clear();
+                self.active_span.clear();
+                self.active_tools.clear();
+                self.active_steps.clear();
+                self.active_subagents.clear();
+                self.activity_owners.clear();
+            }
+            Event::TextMessageStart(e) => {
+                if self
+                    .active_text
+                    .insert(e.message_id.clone(), e.base.subagent_run_id.clone())
+                    .is_some()
+                {
                     return Err(fail(format!(
-                        "No active text message found with ID '{}'",
+                        "TEXT_MESSAGE_START for open message '{}'",
                         e.message_id
                     )));
                 }
+            }
+            Event::TextMessageContent(e) => {
+                let owner = self.active_text.get(&e.message_id).ok_or_else(|| {
+                    fail(format!(
+                        "No active text message found with ID '{}'",
+                        e.message_id
+                    ))
+                })?;
+                check_owner(owner, &e.base.subagent_run_id, e.message_id.as_ref())?;
             }
             Event::TextMessageEnd(e) => {
-                if self.active_text.as_ref() != Some(&e.message_id) {
-                    return Err(fail(format!(
+                let owner = self.active_text.get(&e.message_id).ok_or_else(|| {
+                    fail(format!(
                         "No active text message found with ID '{}'",
                         e.message_id
-                    )));
-                }
-                self.active_text = None;
+                    ))
+                })?;
+                check_owner(owner, &e.base.subagent_run_id, e.message_id.as_ref())?;
+                self.active_text.remove(&e.message_id);
             }
-            Event::ReasoningStart(e) => self.active_span = Some(e.message_id.clone()),
+            Event::ReasoningStart(e) => {
+                self.active_span
+                    .insert(e.message_id.clone(), e.base.subagent_run_id.clone());
+            }
             Event::ReasoningEnd(e) => {
-                if self.active_span.as_ref() != Some(&e.message_id) {
-                    return Err(fail("No active reasoning span".into()));
-                }
-                self.active_span = None;
+                let owner = self
+                    .active_span
+                    .get(&e.message_id)
+                    .ok_or_else(|| fail("No active reasoning span".into()))?;
+                check_owner(owner, &e.base.subagent_run_id, e.message_id.as_ref())?;
+                self.active_span.remove(&e.message_id);
             }
             Event::ReasoningMessageStart(e) => {
                 if e.role != Role::Reasoning {
                     return Err(fail("Reasoning message role must be reasoning".into()));
                 }
-                self.active_reasoning = Some(e.message_id.clone());
+                if self
+                    .active_reasoning
+                    .insert(e.message_id.clone(), e.base.subagent_run_id.clone())
+                    .is_some()
+                {
+                    return Err(fail(format!(
+                        "REASONING_MESSAGE_START for open message '{}'",
+                        e.message_id
+                    )));
+                }
             }
             Event::ReasoningMessageContent(e) => {
-                if self.active_reasoning.as_ref() != Some(&e.message_id) {
-                    return Err(fail(format!(
+                let owner = self.active_reasoning.get(&e.message_id).ok_or_else(|| {
+                    fail(format!(
                         "No active reasoning message found with ID '{}'",
                         e.message_id
-                    )));
-                }
+                    ))
+                })?;
+                check_owner(owner, &e.base.subagent_run_id, e.message_id.as_ref())?;
             }
             Event::ReasoningMessageEnd(e) => {
-                if self.active_reasoning.as_ref() != Some(&e.message_id) {
-                    return Err(fail(format!(
+                let owner = self.active_reasoning.get(&e.message_id).ok_or_else(|| {
+                    fail(format!(
                         "No active reasoning message found with ID '{}'",
                         e.message_id
+                    ))
+                })?;
+                check_owner(owner, &e.base.subagent_run_id, e.message_id.as_ref())?;
+                self.active_reasoning.remove(&e.message_id);
+            }
+            Event::ToolCallStart(e) => {
+                if self
+                    .active_tools
+                    .insert(e.tool_call_id.clone(), e.base.subagent_run_id.clone())
+                    .is_some()
+                {
+                    return Err(fail(format!(
+                        "TOOL_CALL_START for open call '{}'",
+                        e.tool_call_id
                     )));
                 }
-                self.active_reasoning = None;
+            }
+            Event::ToolCallArgs(e) => {
+                let owner = self.active_tools.get(&e.tool_call_id).ok_or_else(|| {
+                    fail(format!(
+                        "No active tool call found with ID '{}'",
+                        e.tool_call_id
+                    ))
+                })?;
+                check_owner(owner, &e.base.subagent_run_id, e.tool_call_id.as_ref())?;
+            }
+            Event::ToolCallEnd(e) => {
+                let owner = self.active_tools.get(&e.tool_call_id).ok_or_else(|| {
+                    fail(format!(
+                        "No active tool call found with ID '{}'",
+                        e.tool_call_id
+                    ))
+                })?;
+                check_owner(owner, &e.base.subagent_run_id, e.tool_call_id.as_ref())?;
+                self.active_tools.remove(&e.tool_call_id);
             }
             Event::StepStarted(e) => {
-                self.active_steps.insert(e.step_name.clone());
+                self.active_steps
+                    .insert(e.step_name.clone(), e.base.subagent_run_id.clone());
             }
             Event::StepFinished(e) => {
-                if !self.active_steps.remove(&e.step_name) {
-                    return Err(fail(format!(
+                let owner = self.active_steps.get(&e.step_name).ok_or_else(|| {
+                    fail(format!(
                         "STEP_FINISHED without STEP_STARTED: {}",
                         e.step_name
-                    )));
+                    ))
+                })?;
+                check_owner(owner, &e.base.subagent_run_id, &e.step_name)?;
+                self.active_steps.remove(&e.step_name);
+            }
+            Event::ActivitySnapshot(e) => {
+                self.activity_owners
+                    .insert(e.message_id.clone(), e.base.subagent_run_id.clone());
+            }
+            Event::ActivityDelta(e) => {
+                if let Some(owner) = self.activity_owners.get(&e.message_id) {
+                    check_owner(owner, &e.base.subagent_run_id, e.message_id.as_ref())?;
                 }
             }
             Event::SubagentStarted(e) => {
@@ -379,12 +493,9 @@ where
                     encrypted_value: None,
                 };
 
-                if let Some(last_message) = self
-                    .messages
-                    .iter_mut()
-                    .rev()
-                    .find(|m| Some(m.id()) == e.parent_message_id.as_ref())
-                {
+                if let Some(last_message) = self.messages.iter_mut().rev().find(|m| {
+                    m.role() == Role::Assistant && Some(m.id()) == e.parent_message_id.as_ref()
+                }) {
                     if let Message::Assistant { tool_calls, .. } = last_message {
                         tool_calls.get_or_insert_with(Vec::new).push(new_tool_call);
                     }
@@ -415,40 +526,27 @@ where
                 }
             }
             Event::ToolCallArgs(e) => {
-                // Default behavior
-                if let Some(last_message) = self.messages.last_mut()
-                    && let Some(tool_calls) = last_message.tool_calls_mut()
-                    && let Some(last_tool_call) = tool_calls.last_mut()
-                {
-                    last_tool_call.function.arguments.push_str(&e.delta);
-                    current_mutation.messages = Some(self.messages.clone());
+                let call = self
+                    .messages
+                    .iter_mut()
+                    .filter_map(|message| message.tool_calls_mut())
+                    .flatten()
+                    .find(|call| call.id == e.tool_call_id)
+                    .ok_or_else(|| {
+                        AgentError::exec(format!("No tool call with ID '{}'", e.tool_call_id))
+                    })?;
+                call.function.arguments.push_str(&e.delta);
+                if let Some(metadata) = &e.base.metadata {
+                    call.metadata
+                        .get_or_insert_with(Default::default)
+                        .extend(metadata.clone());
                 }
-
-                // Get the current tool call buffer and name
-                let (tool_call_buffer, tool_call_name, partial_args) = if let Some(last_message) =
-                    self.messages.last()
-                {
-                    if let Some(tool_calls) = last_message.tool_calls() {
-                        if let Some(last_tool_call) = tool_calls.last() {
-                            // Try to parse the arguments as JSON to get partial args
-                            let partial_args = serde_json::from_str::<HashMap<String, JsonValue>>(
-                                &last_tool_call.function.arguments,
-                            )
-                            .unwrap_or_default();
-                            (
-                                last_tool_call.function.arguments.clone(),
-                                last_tool_call.function.name.clone(),
-                                partial_args,
-                            )
-                        } else {
-                            (String::new(), String::new(), HashMap::new())
-                        }
-                    } else {
-                        (String::new(), String::new(), HashMap::new())
-                    }
-                } else {
-                    (String::new(), String::new(), HashMap::new())
-                };
+                let tool_call_buffer = call.function.arguments.clone();
+                let tool_call_name = call.function.name.clone();
+                let partial_args =
+                    serde_json::from_str::<HashMap<String, JsonValue>>(&tool_call_buffer)
+                        .unwrap_or_default();
+                current_mutation.messages = Some(self.messages.clone());
 
                 for subscriber in &self.subscribers {
                     let params = self.to_subscriber_params();
@@ -465,26 +563,27 @@ where
                 }
             }
             Event::ToolCallEnd(e) => {
-                // Get the current tool call buffer and name
-                let (tool_call_name, tool_call_args) =
-                    if let Some(last_message) = self.messages.last() {
-                        if let Some(tool_calls) = last_message.tool_calls() {
-                            if let Some(last_tool_call) = tool_calls.last() {
-                                // Try to parse the arguments as JSON
-                                let args = serde_json::from_str::<HashMap<String, JsonValue>>(
-                                    &last_tool_call.function.arguments,
-                                )
-                                .unwrap_or_default();
-                                (last_tool_call.function.name.clone(), args)
-                            } else {
-                                (String::new(), HashMap::new())
-                            }
-                        } else {
-                            (String::new(), HashMap::new())
-                        }
-                    } else {
-                        (String::new(), HashMap::new())
-                    };
+                let call = self
+                    .messages
+                    .iter_mut()
+                    .filter_map(|message| message.tool_calls_mut())
+                    .flatten()
+                    .find(|call| call.id == e.tool_call_id)
+                    .ok_or_else(|| {
+                        AgentError::exec(format!("No tool call with ID '{}'", e.tool_call_id))
+                    })?;
+                if let Some(metadata) = &e.base.metadata {
+                    call.metadata
+                        .get_or_insert_with(Default::default)
+                        .extend(metadata.clone());
+                }
+                let tool_call_name = call.function.name.clone();
+                let tool_call_args =
+                    serde_json::from_str::<HashMap<String, JsonValue>>(&call.function.arguments)
+                        .unwrap_or_default();
+                if e.base.metadata.is_some() {
+                    current_mutation.messages = Some(self.messages.clone());
+                }
 
                 for subscriber in &self.subscribers {
                     let params = self.to_subscriber_params();
@@ -608,7 +707,7 @@ where
                 }
             }
             Event::MessagesSnapshot(e) => {
-                self.messages = e.messages.clone();
+                reconcile_messages(&mut self.messages, &e.messages);
                 current_mutation.messages = Some(self.messages.clone());
                 for subscriber in &self.subscribers {
                     let params = self.to_subscriber_params();
@@ -767,7 +866,7 @@ where
                 let id = e
                     .message_id
                     .clone()
-                    .or_else(|| self.active_reasoning.clone());
+                    .or_else(|| self.active_reasoning.keys().next().cloned());
                 if let Some(id) = id {
                     if let Some(Message::Reasoning { content, .. }) =
                         self.messages.iter_mut().find(|m| m.id() == &id)
@@ -961,6 +1060,10 @@ where
         Ok(())
     }
 
+    pub fn terminal_received(&self) -> bool {
+        self.finished_run
+    }
+
     pub async fn on_finalize(&self) -> Result<(), AgentError> {
         for subscriber in &self.subscribers {
             let _mutation = subscriber
@@ -969,6 +1072,50 @@ where
         }
         Ok(())
     }
+}
+
+fn reconcile_messages(current: &mut Vec<Message>, snapshot: &[Message]) {
+    let declares_activity = snapshot
+        .iter()
+        .any(|message| message.role() == Role::Activity);
+    let declares_reasoning = snapshot
+        .iter()
+        .any(|message| message.role() == Role::Reasoning);
+    let by_id: HashMap<_, _> = snapshot
+        .iter()
+        .map(|message| (message.id().clone(), message))
+        .collect();
+    current.retain_mut(|message| {
+        if let Some(replacement) = by_id.get(message.id()) {
+            *message = (*replacement).clone();
+            true
+        } else {
+            matches!(message.role(), Role::Activity if !declares_activity)
+                || matches!(message.role(), Role::Reasoning if !declares_reasoning)
+        }
+    });
+    let mut seen: HashSet<_> = current.iter().map(|message| message.id().clone()).collect();
+    for message in snapshot {
+        if seen.insert(message.id().clone()) {
+            current.push(message.clone());
+        }
+    }
+}
+
+fn check_owner(
+    expected: &Option<String>,
+    incoming: &Option<String>,
+    entity: &str,
+) -> Result<(), AgentError> {
+    if incoming
+        .as_ref()
+        .is_some_and(|tag| Some(tag) != expected.as_ref())
+    {
+        return Err(AgentError::Execution {
+            message: format!("Subagent attribution for '{entity}' does not match the opener"),
+        });
+    }
+    Ok(())
 }
 
 fn merge_message_metadata(
@@ -1010,6 +1157,10 @@ mod name_tests {
             json!({}),
         );
         let mut handler = EventHandler::new(vec![], json!({}), &input, Subscribers::new(vec![]));
+        let run_start: Event =
+            serde_json::from_value(json!({"type":"RUN_STARTED","threadId":"t","runId":"r"}))
+                .unwrap();
+        handler.handle_event(&run_start).await.unwrap();
         let start: Event = serde_json::from_value(
             json!({"type":"TEXT_MESSAGE_START","messageId":"m","role":"assistant","name":"Ada"}),
         )
@@ -1082,6 +1233,42 @@ mod conformance_tests {
         }
     }
 
+    #[test]
+    fn snapshots_preserve_client_roles_and_existing_positions() {
+        let message = |value: Value| serde_json::from_value::<Message>(value).unwrap();
+        let mut current = vec![
+            message(json!({"id":"a","role":"assistant","content":"old"})),
+            message(json!({"id":"act","role":"activity","activityType":"search","content":{}})),
+            message(json!({"id":"r","role":"reasoning","content":"thought"})),
+            message(json!({"id":"drop","role":"assistant","content":"obsolete"})),
+        ];
+        let snapshot = vec![
+            message(json!({"id":"new","role":"assistant","content":"appended"})),
+            message(json!({"id":"a","role":"assistant","content":"updated"})),
+        ];
+        reconcile_messages(&mut current, &snapshot);
+        let values: Vec<_> = current
+            .iter()
+            .map(|m| serde_json::to_value(m).unwrap())
+            .collect();
+        assert_eq!(
+            values
+                .iter()
+                .map(|m| m["id"].as_str().unwrap())
+                .collect::<Vec<_>>(),
+            ["a", "act", "r", "new"]
+        );
+        assert_eq!(values[0]["content"], "updated");
+        let snapshot = vec![
+            message(json!({"id":"a","role":"assistant","content":"updated"})),
+            message(json!({"id":"act2","role":"activity","activityType":"search","content":{}})),
+            message(json!({"id":"r2","role":"reasoning","content":"new thought"})),
+        ];
+        reconcile_messages(&mut current, &snapshot);
+        let ids: Vec<_> = current.iter().map(|m| m.id().as_ref()).collect();
+        assert_eq!(ids, ["a", "act2", "r2"]);
+    }
+
     #[tokio::test]
     async fn activity_reasoning_and_subagent_hooks_are_delivered() {
         let calls = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
@@ -1131,6 +1318,10 @@ mod conformance_tests {
             "run-finished-interrupt-outcome-accepted",
             "state-delta-unappliable-warns-and-keeps",
             "metadata-merges-last-write-wins",
+            "subagent-attribution-mismatch-fatal",
+            "run-error-first-run-continues",
+            "run-error-then-new-run-continues",
+            "late-run-error-after-finished-run-continues",
             "subagent-unannounced-attribution-accepted",
             "subagent-terminal-closes-open-chunk-stream",
             "subagent-finished-unstarted-fatal",

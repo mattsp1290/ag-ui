@@ -248,7 +248,7 @@ fn known_event_type(kind: &str) -> bool {
 }
 
 fn parse_event_data<StateT: AgentState>(data: &str) -> Option<Result<Event<StateT>, AgentError>> {
-    let raw: serde_json::Value = match serde_json::from_str(data) {
+    let mut raw: serde_json::Value = match serde_json::from_str(data) {
         Ok(raw) => raw,
         Err(err) => return Some(Err(err.into())),
     };
@@ -258,6 +258,14 @@ fn parse_event_data<StateT: AgentState>(data: &str) -> Option<Result<Event<State
     {
         log::warn!("Dropping unknown AG-UI event type: {kind}");
         return None;
+    }
+    if kind == Some("RUN_FINISHED")
+        && let Some(outcome) = raw.get("outcome").and_then(|value| value.as_object())
+        && let Some(kind) = outcome.get("type").and_then(|value| value.as_str())
+        && !matches!(kind, "success" | "interrupt" | "cancelled")
+    {
+        log::warn!("Dropping unrecognized RUN_FINISHED outcome type: {kind}");
+        raw.as_object_mut().unwrap().remove("outcome");
     }
     let parsed: Result<Event<StateT>, _> = serde_json::from_value(raw);
     if let Ok(ref event) = parsed {
@@ -270,6 +278,16 @@ fn parse_event_data<StateT: AgentState>(data: &str) -> Option<Result<Event<State
 mod event_parsing_tests {
     use super::*;
     use serde_json::Value;
+
+    #[test]
+    fn unknown_optional_outcome_is_stripped_but_malformed_known_arm_fails() {
+        let future = r#"{"type":"RUN_FINISHED","threadId":"t","runId":"r","outcome":{"type":"future","data":1}}"#;
+        let event = parse_event_data::<Value>(future).unwrap().unwrap();
+        assert!(matches!(event, Event::RunFinished(e) if e.outcome.is_none()));
+        let malformed =
+            r#"{"type":"RUN_FINISHED","threadId":"t","runId":"r","outcome":{"type":"interrupt"}}"#;
+        assert!(parse_event_data::<Value>(malformed).unwrap().is_err());
+    }
 
     #[test]
     fn unknown_event_is_dropped_but_malformed_known_event_fails() {

@@ -5,6 +5,7 @@ use std::error::Error;
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "lowercase")]
+#[allow(dead_code)]
 enum EventType {
     Ping,
     Update,

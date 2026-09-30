@@ -178,12 +178,6 @@ mod tests {
     use super::*;
     use serde::Deserialize;
 
-    #[derive(Deserialize, Debug, PartialEq)]
-    struct TestEvent {
-        event_type: String,
-        data: String,
-    }
-
     #[tokio::test]
     async fn test_process_raw_sse_events() {
         // Test with a single complete event

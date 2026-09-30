@@ -102,6 +102,7 @@ pub struct RecipeSnapshot {
 
 impl AgentState for RecipeSnapshot {}
 
+#[derive(Default)]
 pub struct RecipeSubscriber;
 
 impl RecipeSubscriber {

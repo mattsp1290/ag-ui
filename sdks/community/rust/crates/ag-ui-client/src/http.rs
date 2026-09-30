@@ -187,16 +187,14 @@ where
         let stream = response
             .event_source()
             .await
-            .map(|result| match result {
-                Ok(event) => {
-                    trace!("Received event: {event:?}");
-
-                    let event_data: Event<StateT> = serde_json::from_str(&event.data)?;
-                    debug!("Deserialized event: {event_data:?}");
-
-                    Ok(event_data)
+            .filter_map(|result| async move {
+                match result {
+                    Ok(event) => {
+                        trace!("Received event: {event:?}");
+                        parse_event_data::<StateT>(&event.data)
+                    }
+                    Err(err) => Some(Err(err)),
                 }
-                Err(err) => Err(err),
             })
             .boxed();
         Ok(stream)
@@ -204,5 +202,82 @@ where
 
     fn agent_id(&self) -> Option<&AgentId> {
         self.agent_id.as_ref()
+    }
+}
+
+fn known_event_type(kind: &str) -> bool {
+    matches!(
+        kind,
+        "ACTIVITY_SNAPSHOT"
+            | "ACTIVITY_DELTA"
+            | "REASONING_START"
+            | "REASONING_MESSAGE_START"
+            | "REASONING_MESSAGE_CONTENT"
+            | "REASONING_MESSAGE_END"
+            | "REASONING_MESSAGE_CHUNK"
+            | "REASONING_END"
+            | "REASONING_ENCRYPTED_VALUE"
+            | "SUBAGENT_STARTED"
+            | "SUBAGENT_FINISHED"
+            | "SUBAGENT_ERROR"
+            | "TEXT_MESSAGE_START"
+            | "TEXT_MESSAGE_CONTENT"
+            | "TEXT_MESSAGE_END"
+            | "TEXT_MESSAGE_CHUNK"
+            | "THINKING_TEXT_MESSAGE_START"
+            | "THINKING_TEXT_MESSAGE_CONTENT"
+            | "THINKING_TEXT_MESSAGE_END"
+            | "TOOL_CALL_START"
+            | "TOOL_CALL_ARGS"
+            | "TOOL_CALL_END"
+            | "TOOL_CALL_CHUNK"
+            | "TOOL_CALL_RESULT"
+            | "THINKING_START"
+            | "THINKING_END"
+            | "STATE_SNAPSHOT"
+            | "STATE_DELTA"
+            | "MESSAGES_SNAPSHOT"
+            | "RAW"
+            | "CUSTOM"
+            | "RUN_STARTED"
+            | "RUN_FINISHED"
+            | "RUN_ERROR"
+            | "STEP_STARTED"
+            | "STEP_FINISHED"
+    )
+}
+
+fn parse_event_data<StateT: AgentState>(data: &str) -> Option<Result<Event<StateT>, AgentError>> {
+    let raw: serde_json::Value = match serde_json::from_str(data) {
+        Ok(raw) => raw,
+        Err(err) => return Some(Err(err.into())),
+    };
+    let kind = raw.get("type").and_then(|v| v.as_str());
+    if let Some(kind) = kind
+        && !known_event_type(kind)
+    {
+        log::warn!("Dropping unknown AG-UI event type: {kind}");
+        return None;
+    }
+    let parsed: Result<Event<StateT>, _> = serde_json::from_value(raw);
+    if let Ok(ref event) = parsed {
+        debug!("Deserialized event: {event:?}");
+    }
+    Some(parsed.map_err(Into::into))
+}
+
+#[cfg(test)]
+mod event_parsing_tests {
+    use super::*;
+    use serde_json::Value;
+
+    #[test]
+    fn unknown_event_is_dropped_but_malformed_known_event_fails() {
+        assert!(parse_event_data::<Value>(r#"{"type":"FUTURE_EVENT","value":1}"#).is_none());
+        assert!(
+            parse_event_data::<Value>(r#"{"type":"TEXT_MESSAGE_CONTENT","messageId":"m"}"#)
+                .unwrap()
+                .is_err()
+        );
     }
 }

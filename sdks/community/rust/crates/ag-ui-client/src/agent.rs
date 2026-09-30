@@ -117,6 +117,8 @@ impl RunAgentParams<JsonValue, JsonValue> {
 #[derive(Debug, Clone)]
 pub struct RunAgentResult<StateT: AgentState> {
     pub result: JsonValue,
+    pub outcome: Option<crate::core::types::RunFinishedOutcome>,
+    pub usage: Option<Vec<crate::core::types::TokenUsage>>,
     pub new_messages: Vec<Message>,
     pub new_state: StateT,
 }
@@ -244,6 +246,8 @@ where
 
         Ok(RunAgentResult {
             result: event_handler.result,
+            outcome: event_handler.outcome,
+            usage: event_handler.usage,
             new_messages,
             new_state: event_handler.state,
         })
@@ -251,5 +255,54 @@ where
 
     fn agent_id(&self) -> Option<&AgentId> {
         None
+    }
+}
+
+#[cfg(test)]
+mod result_tests {
+    use super::*;
+    use crate::core::event::Event;
+    use crate::core::types::RunFinishedOutcome;
+    use futures::stream;
+    use serde_json::json;
+
+    struct OfflineAgent;
+    #[async_trait::async_trait]
+    impl Agent for OfflineAgent {
+        async fn run(
+            &self,
+            _input: &RunAgentInput<JsonValue, JsonValue>,
+        ) -> Result<EventStream<'async_trait, JsonValue>, AgentError> {
+            let values = [
+                json!({"type":"RUN_STARTED","threadId":"t","runId":"r"}),
+                json!({"type":"TEXT_MESSAGE_START","messageId":"m","role":"assistant"}),
+                json!({"type":"TEXT_MESSAGE_CONTENT","messageId":"m","delta":"done"}),
+                json!({"type":"TEXT_MESSAGE_END","messageId":"m"}),
+                json!({"type":"STATE_SNAPSHOT","snapshot":{"done":true}}),
+                json!({"type":"RUN_FINISHED","threadId":"t","runId":"r","result":{"ok":true},"outcome":{"type":"success"},"usage":[{"inputTokens":3,"outputTokens":1}]}),
+            ];
+            let events: Vec<_> = values
+                .into_iter()
+                .map(|v| Ok(serde_json::from_value::<Event>(v).unwrap()))
+                .collect();
+            Ok(Box::pin(stream::iter(events)))
+        }
+    }
+
+    #[tokio::test]
+    async fn run_result_exposes_messages_state_result_outcome_and_usage() {
+        let result = OfflineAgent
+            .run_agent(&RunAgentParams::new(), ())
+            .await
+            .unwrap();
+        assert_eq!(result.result, json!({"ok":true}));
+        assert_eq!(result.new_state, json!({"done":true}));
+        assert_eq!(result.new_messages.len(), 1);
+        assert_eq!(result.new_messages[0].content(), Some("done"));
+        assert!(matches!(
+            result.outcome,
+            Some(RunFinishedOutcome::Success { .. })
+        ));
+        assert_eq!(result.usage.unwrap()[0].input_tokens, Some(3));
     }
 }

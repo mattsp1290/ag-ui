@@ -258,6 +258,21 @@ fn parse_event_data<StateT: AgentState>(
         Ok(raw) => raw,
         Err(err) => return Some(Err(err.into())),
     };
+    // Validate the known legacy shape before replacing or dropping its fields.
+    // In particular, THINKING_START.title must be a string when present.
+    if matches!(
+        raw.get("type").and_then(|value| value.as_str()),
+        Some(
+            "THINKING_START"
+                | "THINKING_END"
+                | "THINKING_TEXT_MESSAGE_START"
+                | "THINKING_TEXT_MESSAGE_CONTENT"
+                | "THINKING_TEXT_MESSAGE_END"
+        )
+    ) && let Err(error) = serde_json::from_value::<Event<StateT>>(raw.clone())
+    {
+        return Some(Err(error.into()));
+    }
     thinking.translate(&mut raw);
     let kind = raw.get("type").and_then(|v| v.as_str());
     if let Some(kind) = kind
@@ -285,6 +300,50 @@ fn parse_event_data<StateT: AgentState>(
 mod event_parsing_tests {
     use super::*;
     use serde_json::Value;
+
+    #[test]
+    fn malformed_legacy_title_fails_before_translation() {
+        for title in [
+            serde_json::json!(42),
+            serde_json::json!({"unexpected":"object"}),
+        ] {
+            let wire = serde_json::json!({"type":"THINKING_START","title":title});
+            let mut thinking = ThinkingTranslator::default();
+            assert!(
+                parse_event_data::<Value>(&wire.to_string(), &mut thinking)
+                    .unwrap()
+                    .is_err()
+            );
+            assert!(thinking.warnings.is_empty());
+        }
+        let mut thinking = ThinkingTranslator::default();
+        let valid = parse_event_data::<Value>(
+            r#"{"type":"THINKING_START","title":"Working"}"#,
+            &mut thinking,
+        )
+        .unwrap()
+        .unwrap();
+        assert!(matches!(valid, Event::ReasoningStart(_)));
+        assert!(
+            thinking
+                .warnings
+                .iter()
+                .any(|warning| warning.contains("Dropping THINKING_START.title"))
+        );
+        let mut thinking = ThinkingTranslator::default();
+        assert!(matches!(
+            parse_event_data::<Value>(r#"{"type":"THINKING_START"}"#, &mut thinking)
+                .unwrap()
+                .unwrap(),
+            Event::ReasoningStart(_)
+        ));
+        assert!(
+            !thinking
+                .warnings
+                .iter()
+                .any(|warning| warning.contains("Dropping THINKING_START.title"))
+        );
+    }
 
     #[tokio::test]
     async fn legacy_thinking_replays_as_reasoning_and_modern_stream_stays_quiet() {

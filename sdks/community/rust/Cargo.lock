@@ -19,7 +19,7 @@ checksum = "320119579fcad9c21884f5c4861d16174d0e06250625266f50fe6898340abefa"
 
 [[package]]
 name = "ag-ui-client"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "ag-ui-core",
  "async-trait",
@@ -38,7 +38,7 @@ dependencies = [
 
 [[package]]
 name = "ag-ui-core"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "json-patch",
  "serde",

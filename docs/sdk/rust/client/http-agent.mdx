@@ -8,14 +8,12 @@ description: "HTTP-based Agent implementation for connecting to remote AI agents
 The HttpAgent implements the Agent trait to provide HTTP-based connectivity to remote AI agents. It sends a POST request with a RunAgentInput payload and consumes a Server-Sent Events (SSE) stream of core events.
 
 ```rust
-use ag_ui_client::HttpAgent
+use ag_ui_client::HttpAgent;
 ```
 
 ## Installation
 
-```bash
-cargo add ag-ui-client
-```
+Use a path dependency on the checked-out 0.2.0 crate until publication; see the [client overview](/sdk/rust/client/overview).
 
 ## Creating an HttpAgent
 
@@ -63,14 +61,22 @@ Use Agent::run_agent with your parameters (messages, tools, state, etc.). The Ht
 ```rust
 use ag_ui_client::{Agent, HttpAgent};
 use ag_ui_client::agent::RunAgentParams;
-use ag_ui_client::core::types::Message;
+use std::error::Error;
 
-let params = RunAgentParams::new()
-    .user("Tell me a short joke about Rust.");
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn Error>> {
+    let agent = HttpAgent::builder()
+        .with_url_str("http://127.0.0.1:3001/agentic_chat")?
+        .build()?;
+    let params = RunAgentParams::new()
+        .user("Tell me a short joke about Rust.");
 
-let result = agent.run_agent(&params, None).await?;
-println!("Final result: {}", result.result);
-println!("New messages: {}", result.new_messages.len());
+    let result = agent.run_agent(&params, ()).await?;
+    println!("Final result: {}", result.result);
+    println!("New messages: {}", result.new_messages.len());
+    println!("Outcome: {:?}, usage: {:?}", result.outcome, result.usage);
+    Ok(())
+}
 ```
 
 ## Errors
@@ -88,3 +94,7 @@ Use AgUiClientError::is_retryable() to determine if an error can be retried (tim
 - Requests are sent as JSON with Content-Type: application/json; responses are handled as text/event-stream SSE.
 - The response stream is decoded into Event<StateT> items defined in ag-ui-core.
 - Agent::agent_id() returns the optional AgentId configured on the builder.
+
+## AG-UI 1.0 compatibility
+
+The client decodes current reasoning, activity, subagent, and multimodal message events. For older producers, it translates five `THINKING_*` event shapes to `REASONING_*` before event validation and warns through `log`. The old `THINKING_START.title` is dropped.

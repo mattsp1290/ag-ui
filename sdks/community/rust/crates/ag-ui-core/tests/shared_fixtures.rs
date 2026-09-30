@@ -78,3 +78,27 @@ fn run_input_keeps_absent_and_explicitly_empty_collections_distinct() {
         assert_eq!(parsed.context, input.context);
     }
 }
+
+#[test]
+fn run_input_requires_arrays_when_tools_or_context_are_present() {
+    let base = serde_json::json!({"threadId":"thread_1","runId":"run_1","messages":[]});
+    for field in ["tools", "context"] {
+        let mut wire = base.clone();
+        wire[field] = Value::Null;
+        assert!(
+            serde_json::from_value::<ag_ui_core::types::RunAgentInput>(wire).is_err(),
+            "{field}: explicit null must be rejected"
+        );
+    }
+
+    let populated = serde_json::json!({
+        "threadId":"thread_1",
+        "runId":"run_1",
+        "messages":[],
+        "tools":[{"name":"search","description":"Search the web"}],
+        "context":[{"description":"locale","value":"en-US"}]
+    });
+    let input: ag_ui_core::types::RunAgentInput =
+        serde_json::from_value(populated.clone()).unwrap();
+    assert_eq!(serde_json::to_value(input).unwrap(), populated);
+}

@@ -15,9 +15,17 @@ pub struct RunAgentInput<StateT = JsonValue, FwdPropsT = JsonValue> {
     #[serde(default, skip_serializing_if = "is_null_json")]
     pub state: StateT,
     pub messages: Vec<Message>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "crate::types::non_null_option",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub tools: Option<Vec<Tool>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "crate::types::non_null_option",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub context: Option<Vec<Context>>,
     #[serde(rename = "forwardedProps")]
     #[serde(default, skip_serializing_if = "is_null_json")]

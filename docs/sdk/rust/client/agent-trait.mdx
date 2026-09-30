@@ -80,6 +80,7 @@ let params_typed = RunAgentParams::<MyState, MyProps>::new_typed()
 Builder helpers include:
 
 - with_run_id(run_id)
+- with_resume(Vec<ResumeEntry>) to answer interrupts
 - add_tool(tool)
 - add_context(ctx)
 - with_forwarded_props(props)
@@ -89,11 +90,13 @@ Builder helpers include:
 
 ## RunAgentResult
 
-Returned by run_agent:
+Returned by run_agent. `outcome` describes success, interruption, or cancellation; `usage` carries optional per-model token counts:
 
 ```rust
 pub struct RunAgentResult<StateT: AgentState> {
     pub result: serde_json::Value,
+    pub outcome: Option<RunFinishedOutcome>,
+    pub usage: Option<Vec<TokenUsage>>,
     pub new_messages: Vec<Message>,
     pub new_state: StateT,
 }

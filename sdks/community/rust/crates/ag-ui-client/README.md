@@ -1,38 +1,24 @@
-# AG-UI Rust Client
+# AG-UI Rust Client 0.2.0
 
-Rust client for working with the AG-UI protocol. The client API has been designed to mimic the Typescript client as 
-close as possible. However, a key difference is that state & messages are not yet an attribute of an implementation of 
-[`Agent`](src/agent.rs) because it would require `&mut self` for straightforward implementations. This is a work in 
-progress.
+`ag-ui-client` connects to AG-UI 1.0 agents over HTTP SSE. It depends on `ag-ui-core` 0.2.0. This is a breaking upgrade from 0.1.0; see [CHANGELOG.md](CHANGELOG.md).
 
-## Example
+`Agent::run_agent` returns `RunAgentResult` with `new_messages`, `new_state`, a JSON `result` (null when absent), and optional `outcome` and `usage`. `RunAgentParams::with_resume` supplies interrupt responses. Subscribers can observe lifecycle, text, tool, state, activity, reasoning, and subagent events. Legacy `THINKING_*` wire events are translated to reasoning events with warnings.
 
-For each example make sure to read the instructions on starting the associated AG-UI server.
+## Live examples
 
-### Basic 
+From `integrations/server-starter-all-features/python/examples`, install dependencies and start the Python starter at port 3001:
 
-```rust,no_run
-// no_run: this example connects to a live AG-UI backend (127.0.0.1:3001),
-// which is not available during `cargo test`. It is still compiled/type-checked.
-use std::error::Error;
-use ag_ui_client::{core::types::Message, Agent, HttpAgent, RunAgentParams};
-
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn Error>>{
-	let agent = HttpAgent::builder()
-		.with_url_str("http://127.0.0.1:3001/")?
-		.build()?;
-
-	let message = Message::new_user("Can you give me the current temperature in New York?");
-	// Create run parameters
-	let params = RunAgentParams::new().add_message(message);
-
-	// Run the agent with the subscriber
-	let result = agent.run_agent(&params, ()).await?;
-
-    println!("{:#?}", result);
-    Ok(())
-}
+```bash
+PORT=3001 uv run --no-sync dev
 ```
 
-For more examples check the [examples folder](examples). 
+Then, from `sdks/community/rust`:
+
+```bash
+cargo run --example basic_agent
+cargo run --example shared_state
+```
+
+`basic_agent` posts to `/agentic_chat` and prints the assistant message and its string ID. `shared_state` posts to `/shared_state` and prints its state snapshot, JSON Patch delta, and final patched recipe. Both examples default to `http://127.0.0.1:3001`; set `AG_UI_BASE_URL` to use another host or port.
+
+See [examples](examples) and the [Rust SDK reference](/sdk/rust/overview).

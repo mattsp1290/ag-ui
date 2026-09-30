@@ -266,8 +266,8 @@ mod tests {
 
         let input: RunAgentInput = serde_json::from_str(json_str).unwrap();
         assert_eq!(input.messages.len(), 1);
-        assert_eq!(input.tools.len(), 1);
-        assert_eq!(input.context.len(), 1);
+        assert_eq!(input.tools.as_ref().unwrap().len(), 1);
+        assert_eq!(input.context.as_ref().unwrap().len(), 1);
     }
 
     #[test]
@@ -316,8 +316,8 @@ mod tests {
 
         let input: RunAgentInput<CustomState> = serde_json::from_str(json_str).unwrap();
         assert_eq!(input.messages.len(), 1);
-        assert_eq!(input.tools.len(), 1);
-        assert_eq!(input.context.len(), 1);
+        assert_eq!(input.tools.as_ref().unwrap().len(), 1);
+        assert_eq!(input.context.as_ref().unwrap().len(), 1);
 
         let wrong_input: serde_json::Result<RunAgentInput<OtherState>> =
             serde_json::from_str(json_str);

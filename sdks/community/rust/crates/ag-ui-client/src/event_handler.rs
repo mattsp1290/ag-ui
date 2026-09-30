@@ -430,6 +430,7 @@ where
                     mutations.push(mutation);
                 }
             }
+            _ => {}
         }
 
         for mutation in mutations {

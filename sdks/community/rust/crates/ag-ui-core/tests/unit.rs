@@ -46,7 +46,7 @@ mod tests {
     fn test_message_serialization() {
         let user_msg = Message::User {
             id: MessageId::random(),
-            content: "Hello".to_string(),
+            content: "Hello".to_string().into(),
             name: None,
         };
 
@@ -217,7 +217,7 @@ mod tests {
         match &messages[0] {
             Message::User { id, content, name } => {
                 assert_eq!(id.to_string(), "00000000-0000-0000-0000-000000000000");
-                assert_eq!(content, "Hello!");
+                assert_eq!(content.as_text(), Some("Hello!"));
                 assert_eq!(*name, Some("Alice".to_string()));
             }
             _ => panic!("Wrong message type"),
@@ -266,12 +266,12 @@ mod tests {
 
     #[test]
     fn test_complex_run_agent_input_deserialization_custom_state() {
-        #[derive(Debug, Deserialize, Serialize)]
+        #[derive(Debug, Default, Deserialize, Serialize)]
         struct CustomState {
             counter: u32,
         }
 
-        #[derive(Debug, Deserialize, Serialize)]
+        #[derive(Debug, Default, Deserialize, Serialize)]
         struct OtherState {
             document: String,
         }

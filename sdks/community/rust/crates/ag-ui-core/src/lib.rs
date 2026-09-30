@@ -2,10 +2,12 @@
 
 pub mod error;
 pub mod event;
+pub mod replay;
 mod state;
 pub mod types;
 
 pub use error::{AgUiError, Result};
+pub use replay::Replay;
 pub use state::{AgentState, FwdProps};
 
 /// Re-export to ensure the same type is used

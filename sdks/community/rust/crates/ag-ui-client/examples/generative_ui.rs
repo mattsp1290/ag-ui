@@ -85,6 +85,7 @@ impl AgentSubscriber<Plan, ()> for GenerativeUiSubscriber {
     ) -> Result<AgentStateMutation<Plan>, AgentError> {
         info!("State delta received:");
         for patch in &event.delta {
+            let patch = serde_json::to_value(patch)?;
             match patch.get("op").and_then(|v| v.as_str()) {
                 Some("replace") => {
                     if let (Some(path), Some(value)) = (

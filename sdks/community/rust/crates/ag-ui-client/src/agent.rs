@@ -95,7 +95,7 @@ where
     pub fn user(mut self, content: impl Into<String>) -> Self {
         self.messages.push(Message::User {
             id: MessageId::random(),
-            content: content.into(),
+            content: content.into().into(),
             name: None,
         });
         self
@@ -197,6 +197,9 @@ where
             tools: params.tools.clone(),
             context: params.context.clone(),
             forwarded_props: params.forwarded_props.clone(),
+            protocol_version: Some("1.0".to_owned()),
+            parent_run_id: None,
+            resume: None,
         };
         let current_message_ids: HashSet<&MessageId> =
             params.messages.iter().map(|m| m.id()).collect();

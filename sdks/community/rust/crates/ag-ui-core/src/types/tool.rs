@@ -29,7 +29,10 @@ pub struct Tool {
     /// The tool description
     pub description: String,
     /// The tool parameters
-    pub parameters: serde_json::Value,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub parameters: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<serde_json::Map<String, serde_json::Value>>,
 }
 
 impl Tool {
@@ -37,7 +40,8 @@ impl Tool {
         Self {
             name,
             description,
-            parameters,
+            parameters: Some(parameters),
+            metadata: None,
         }
     }
 }

@@ -1,3 +1,4 @@
+use crate::types::MessageContent;
 use crate::types::ids::{MessageId, ToolCallId};
 use crate::types::tool::ToolCall;
 use serde::{Deserialize, Serialize};
@@ -19,6 +20,8 @@ pub enum Role {
     Assistant,
     User,
     Tool,
+    Activity,
+    Reasoning,
 }
 
 // Utility methods for serde defaults
@@ -153,7 +156,7 @@ pub struct UserMessage {
     pub id: MessageId,
     #[serde(default = "Role::user")]
     pub role: Role, // Always Role::User
-    pub content: String,
+    pub content: MessageContent,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
 }
@@ -163,7 +166,7 @@ impl UserMessage {
         Self {
             id: id.into(),
             role: Role::User,
-            content,
+            content: content.into(),
             name: None,
         }
     }
@@ -178,7 +181,7 @@ impl UserMessage {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ToolMessage {
     pub id: MessageId,
-    pub content: String,
+    pub content: MessageContent,
     #[serde(default = "Role::tool")]
     pub role: Role, // Always Role::Tool
     #[serde(rename = "toolCallId")]
@@ -195,7 +198,7 @@ impl ToolMessage {
     ) -> Self {
         Self {
             id: id.into(),
-            content,
+            content: content.into(),
             role: Role::Tool,
             tool_call_id: tool_call_id.into(),
             error: None,
@@ -235,13 +238,25 @@ pub enum Message {
     },
     User {
         id: MessageId,
-        content: String,
+        content: MessageContent,
         #[serde(skip_serializing_if = "Option::is_none")]
         name: Option<String>,
     },
-    Tool {
+    Activity {
+        id: MessageId,
+        #[serde(rename = "activityType")]
+        activity_type: String,
+        content: serde_json::Map<String, serde_json::Value>,
+    },
+    Reasoning {
         id: MessageId,
         content: String,
+        #[serde(rename = "encryptedValue", skip_serializing_if = "Option::is_none")]
+        encrypted_value: Option<String>,
+    },
+    Tool {
+        id: MessageId,
+        content: MessageContent,
         #[serde(rename = "toolCallId")]
         tool_call_id: ToolCallId,
         #[serde(skip_serializing_if = "Option::is_none")]
@@ -270,12 +285,22 @@ impl Message {
             },
             Role::User => Self::User {
                 id: id.into(),
-                content: content.as_ref().to_string(),
+                content: content.as_ref().to_string().into(),
                 name: None,
+            },
+            Role::Activity => Self::Activity {
+                id: id.into(),
+                activity_type: String::new(),
+                content: serde_json::Map::new(),
+            },
+            Role::Reasoning => Self::Reasoning {
+                id: id.into(),
+                content: content.as_ref().to_string(),
+                encrypted_value: None,
             },
             Role::Tool => Self::Tool {
                 id: id.into(),
-                content: content.as_ref().to_string(),
+                content: content.as_ref().to_string().into(),
                 tool_call_id: ToolCallId::random(),
                 error: None,
             },
@@ -314,6 +339,8 @@ impl Message {
             Message::Assistant { id, .. } => id,
             Message::User { id, .. } => id,
             Message::Tool { id, .. } => id,
+            Message::Activity { id, .. } => id,
+            Message::Reasoning { id, .. } => id,
         }
     }
 
@@ -324,6 +351,8 @@ impl Message {
             Message::Assistant { id, .. } => id,
             Message::User { id, .. } => id,
             Message::Tool { id, .. } => id,
+            Message::Activity { id, .. } => id,
+            Message::Reasoning { id, .. } => id,
         }
     }
 
@@ -334,14 +363,18 @@ impl Message {
             Message::Assistant { .. } => Role::Assistant,
             Message::User { .. } => Role::User,
             Message::Tool { .. } => Role::Tool,
+            Message::Activity { .. } => Role::Activity,
+            Message::Reasoning { .. } => Role::Reasoning,
         }
     }
     pub fn content(&self) -> Option<&str> {
         match self {
             Message::Developer { content, .. } => Some(content),
             Message::System { content, .. } => Some(content),
-            Message::User { content, .. } => Some(content),
-            Message::Tool { content, .. } => Some(content),
+            Message::User { content, .. } => content.as_text(),
+            Message::Tool { content, .. } => content.as_text(),
+            Message::Reasoning { content, .. } => Some(content),
+            Message::Activity { .. } => None,
             Message::Assistant { content, .. } => content.as_deref(),
         }
     }
@@ -350,8 +383,22 @@ impl Message {
         match self {
             Message::Developer { content, .. }
             | Message::System { content, .. }
-            | Message::User { content, .. }
-            | Message::Tool { content, .. } => Some(content),
+            | Message::Reasoning { content, .. } => Some(content),
+            Message::Tool { content, .. } => {
+                if let MessageContent::Text(text) = content {
+                    Some(text)
+                } else {
+                    None
+                }
+            }
+            Message::User { content, .. } => {
+                if let MessageContent::Text(text) = content {
+                    Some(text)
+                } else {
+                    None
+                }
+            }
+            Message::Activity { .. } => None,
             Message::Assistant { content, .. } => {
                 if content.is_none() {
                     *content = Some(String::new());

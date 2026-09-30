@@ -83,35 +83,55 @@ pub enum ContentPart {
         text: String,
         #[serde(skip_serializing_if = "Option::is_none")]
         id: Option<String>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        metadata: Option<Map<String, Value>>,
+        #[serde(
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "non_null_value",
+            default
+        )]
+        metadata: Option<Value>,
     },
     Image {
         source: PartSource,
         #[serde(skip_serializing_if = "Option::is_none")]
         id: Option<String>,
-        #[serde(skip_serializing_if = "Option::is_none")]
+        #[serde(
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "non_null_value",
+            default
+        )]
         metadata: Option<Value>,
     },
     Audio {
         source: PartSource,
         #[serde(skip_serializing_if = "Option::is_none")]
         id: Option<String>,
-        #[serde(skip_serializing_if = "Option::is_none")]
+        #[serde(
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "non_null_value",
+            default
+        )]
         metadata: Option<Value>,
     },
     Video {
         source: PartSource,
         #[serde(skip_serializing_if = "Option::is_none")]
         id: Option<String>,
-        #[serde(skip_serializing_if = "Option::is_none")]
+        #[serde(
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "non_null_value",
+            default
+        )]
         metadata: Option<Value>,
     },
     Document {
         source: PartSource,
         #[serde(skip_serializing_if = "Option::is_none")]
         id: Option<String>,
-        #[serde(skip_serializing_if = "Option::is_none")]
+        #[serde(
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "non_null_value",
+            default
+        )]
         metadata: Option<Value>,
     },
 }
@@ -281,17 +301,41 @@ pub struct TokenUsage {
     pub provider: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "safe_unsigned",
+        default
+    )]
     pub input_tokens: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "safe_unsigned",
+        default
+    )]
     pub output_tokens: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "safe_unsigned",
+        default
+    )]
     pub total_tokens: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "safe_unsigned",
+        default
+    )]
     pub reasoning_tokens: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "safe_unsigned",
+        default
+    )]
     pub cached_input_tokens: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "safe_unsigned",
+        default
+    )]
     pub cache_write_input_tokens: Option<u64>,
 }
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -415,7 +459,28 @@ pub struct ActivityMessage {
     #[serde(rename = "activityType")]
     pub activity_type: String,
     pub content: Map<String, Value>,
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "non_null_option",
+        default
+    )]
+    pub metadata: Option<Map<String, Value>>,
+    #[serde(
+        rename = "subagentRunId",
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "non_null_option",
+        default
+    )]
+    pub subagent_run_id: Option<String>,
 }
+pub fn non_null_value<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<Value>, D::Error> {
+    let value = Value::deserialize(d)?;
+    if value.is_null() {
+        return Err(serde::de::Error::custom("null is not allowed"));
+    }
+    Ok(Some(value))
+}
+
 pub fn non_null_option<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
 where
     D: serde::Deserializer<'de>,

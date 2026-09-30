@@ -14,15 +14,14 @@ Contained are:
 * [ID (new)types](src/types/ids.rs)
 
 Intended to be used with [`ag-ui-client`](../ag-ui-client).
+
 ### 1.0 fixture tolerances
 
 The fixture test requires every valid 1.0 example to deserialize and every invalid
-example to fail, except these two explicit compatibility tolerances:
+example to fail, except this explicit compatibility tolerance:
 
 - `TextMessageEndEvent/unknown-property.json`: the flattened base event allows
   unrecognized event keys so older Rust clients can consume newer producers.
-- `MessagesSnapshotEvent/message-metadata-null.json`: message metadata is not
-  materialized by the legacy `Message` enum, so its null value is ignored.
 
 The test pins this list exactly. Removing a tolerance requires adding the missing
 wire field or closed-object validation, then deleting its entry from the test.

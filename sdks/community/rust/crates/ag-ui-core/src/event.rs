@@ -128,6 +128,12 @@ pub struct TextMessageStartEvent {
     pub message_id: MessageId,
     #[serde(default = "Role::assistant")]
     pub role: Role, // "assistant"
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::types::non_null_option",
+        default
+    )]
+    pub name: Option<String>,
 }
 
 /// Event containing a piece of text message content.
@@ -164,6 +170,12 @@ pub struct TextMessageChunkEvent {
     pub role: Option<Role>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub delta: Option<String>,
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::types::non_null_option",
+        default
+    )]
+    pub name: Option<String>,
 }
 
 /// Event indicating the start of a thinking text message.
@@ -755,6 +767,7 @@ impl TextMessageStartEvent {
             },
             message_id: message_id.into(),
             role: Role::Assistant,
+            name: None,
         }
     }
 

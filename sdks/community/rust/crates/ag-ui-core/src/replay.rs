@@ -25,8 +25,11 @@ impl Replay {
                 self.messages.push(Message::Assistant {
                     id: e.message_id.clone(),
                     content: Some(String::new()),
-                    name: None,
+                    name: e.name.clone(),
                     tool_calls: None,
+                    metadata: None,
+                    encrypted_value: None,
+                    subagent_run_id: e.base.subagent_run_id.clone(),
                 });
             }
             Event::TextMessageContent(e) => {
@@ -47,9 +50,19 @@ impl Replay {
                         self.messages.push(Message::Assistant {
                             id: id.clone(),
                             content: Some(String::new()),
-                            name: None,
+                            name: e.name.clone(),
                             tool_calls: None,
+                            metadata: None,
+                            encrypted_value: None,
+                            subagent_run_id: e.base.subagent_run_id.clone(),
                         });
+                    }
+                    if let Some(name) = &e.name
+                        && let Some(Message::Assistant {
+                            name: message_name, ..
+                        }) = self.messages.iter_mut().rev().find(|m| m.id() == id)
+                    {
+                        *message_name = Some(name.clone());
                     }
                     if let Some(delta) = &e.delta {
                         let message = self
@@ -68,6 +81,9 @@ impl Replay {
                     content: e.content.clone(),
                     tool_call_id: e.tool_call_id.clone(),
                     error: None,
+                    metadata: None,
+                    encrypted_value: None,
+                    subagent_run_id: e.base.subagent_run_id.clone(),
                 });
             }
             Event::MessagesSnapshot(e) => self.messages = e.messages.clone(),

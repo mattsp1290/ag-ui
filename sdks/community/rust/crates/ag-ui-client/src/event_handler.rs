@@ -101,8 +101,11 @@ where
                 let new_message = Message::Assistant {
                     id: e.message_id.clone(),
                     content: Some(String::new()),
-                    name: None,
+                    name: e.name.clone(),
                     tool_calls: None,
+                    metadata: None,
+                    encrypted_value: None,
+                    subagent_run_id: e.base.subagent_run_id.clone(),
                 };
                 self.messages.push(new_message);
                 current_mutation.messages = Some(self.messages.clone());
@@ -157,6 +160,29 @@ where
                 }
             }
             Event::TextMessageChunk(e) => {
+                if let Some(id) = &e.message_id {
+                    if let Some(Message::Assistant { name, content, .. }) =
+                        self.messages.iter_mut().rev().find(|m| m.id() == id)
+                    {
+                        if let Some(author) = &e.name {
+                            *name = Some(author.clone());
+                        }
+                        if let Some(delta) = &e.delta {
+                            content.get_or_insert_with(String::new).push_str(delta);
+                        }
+                    } else {
+                        self.messages.push(Message::Assistant {
+                            id: id.clone(),
+                            content: Some(e.delta.clone().unwrap_or_default()),
+                            name: e.name.clone(),
+                            tool_calls: None,
+                            metadata: None,
+                            encrypted_value: None,
+                            subagent_run_id: e.base.subagent_run_id.clone(),
+                        });
+                    }
+                    current_mutation.messages = Some(self.messages.clone());
+                }
                 for subscriber in &self.subscribers {
                     let params = self.to_subscriber_params();
                     let mutation = subscriber.on_text_message_chunk_event(e, params).await?;
@@ -199,6 +225,8 @@ where
                         name: e.tool_call_name.clone(),
                         arguments: String::new(),
                     },
+                    metadata: None,
+                    encrypted_value: None,
                 };
 
                 if let Some(last_message) = self.messages.last_mut() {
@@ -218,6 +246,9 @@ where
                         content: None,
                         name: None,
                         tool_calls: None,
+                        metadata: None,
+                        encrypted_value: None,
+                        subagent_run_id: e.base.subagent_run_id.clone(),
                     };
                     self.messages.push(new_message);
                 }
@@ -539,5 +570,41 @@ where
                 .await?;
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod name_tests {
+    use super::*;
+    use crate::core::types::{RunId, ThreadId};
+    use serde_json::json;
+
+    #[tokio::test]
+    async fn named_text_events_materialize_author() {
+        let input = RunAgentInput::new(
+            ThreadId::from("t"),
+            RunId::from("r"),
+            json!({}),
+            vec![],
+            vec![],
+            vec![],
+            json!({}),
+        );
+        let mut handler = EventHandler::new(vec![], json!({}), &input, Subscribers::new(vec![]));
+        let start: Event = serde_json::from_value(
+            json!({"type":"TEXT_MESSAGE_START","messageId":"m","role":"assistant","name":"Ada"}),
+        )
+        .unwrap();
+        handler.handle_event(&start).await.unwrap();
+        assert_eq!(
+            serde_json::to_value(&handler.messages[0]).unwrap()["name"],
+            "Ada"
+        );
+
+        let chunk: Event = serde_json::from_value(json!({"type":"TEXT_MESSAGE_CHUNK","messageId":"other","role":"assistant","name":"Grace","delta":"Hi"})).unwrap();
+        handler.handle_event(&chunk).await.unwrap();
+        let materialized = serde_json::to_value(&handler.messages[1]).unwrap();
+        assert_eq!(materialized["name"], "Grace");
+        assert_eq!(materialized["content"], "Hi");
     }
 }

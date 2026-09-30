@@ -2,6 +2,7 @@ use crate::types::MessageContent;
 use crate::types::ids::{MessageId, ToolCallId};
 use crate::types::tool::ToolCall;
 use serde::{Deserialize, Serialize};
+use serde_json::{Map, Value};
 
 /// A generated function call from a model
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -41,6 +42,9 @@ impl Role {
     pub(crate) fn tool() -> Self {
         Self::Tool
     }
+    pub(crate) fn reasoning() -> Self {
+        Self::Reasoning
+    }
 }
 
 /// A basic message, where the only content should be an optional string.
@@ -52,6 +56,26 @@ pub struct BaseMessage {
     pub content: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "super::non_null_option",
+        default
+    )]
+    pub metadata: Option<Map<String, Value>>,
+    #[serde(
+        rename = "encryptedValue",
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "super::non_null_option",
+        default
+    )]
+    pub encrypted_value: Option<String>,
+    #[serde(
+        rename = "subagentRunId",
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "super::non_null_option",
+        default
+    )]
+    pub subagent_run_id: Option<String>,
 }
 
 /// A developer message.
@@ -64,6 +88,26 @@ pub struct DeveloperMessage {
     pub content: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "super::non_null_option",
+        default
+    )]
+    pub metadata: Option<Map<String, Value>>,
+    #[serde(
+        rename = "encryptedValue",
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "super::non_null_option",
+        default
+    )]
+    pub encrypted_value: Option<String>,
+    #[serde(
+        rename = "subagentRunId",
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "super::non_null_option",
+        default
+    )]
+    pub subagent_run_id: Option<String>,
 }
 
 impl DeveloperMessage {
@@ -73,6 +117,9 @@ impl DeveloperMessage {
             role: Role::Developer,
             content,
             name: None,
+            metadata: None,
+            encrypted_value: None,
+            subagent_run_id: None,
         }
     }
 
@@ -91,6 +138,26 @@ pub struct SystemMessage {
     pub content: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "super::non_null_option",
+        default
+    )]
+    pub metadata: Option<Map<String, Value>>,
+    #[serde(
+        rename = "encryptedValue",
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "super::non_null_option",
+        default
+    )]
+    pub encrypted_value: Option<String>,
+    #[serde(
+        rename = "subagentRunId",
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "super::non_null_option",
+        default
+    )]
+    pub subagent_run_id: Option<String>,
 }
 
 impl SystemMessage {
@@ -100,6 +167,9 @@ impl SystemMessage {
             role: Role::System,
             content,
             name: None,
+            metadata: None,
+            encrypted_value: None,
+            subagent_run_id: None,
         }
     }
 
@@ -121,6 +191,26 @@ pub struct AssistantMessage {
     pub name: Option<String>,
     #[serde(rename = "toolCalls", skip_serializing_if = "Option::is_none")]
     pub tool_calls: Option<Vec<ToolCall>>,
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "super::non_null_option",
+        default
+    )]
+    pub metadata: Option<Map<String, Value>>,
+    #[serde(
+        rename = "encryptedValue",
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "super::non_null_option",
+        default
+    )]
+    pub encrypted_value: Option<String>,
+    #[serde(
+        rename = "subagentRunId",
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "super::non_null_option",
+        default
+    )]
+    pub subagent_run_id: Option<String>,
 }
 
 impl AssistantMessage {
@@ -131,6 +221,9 @@ impl AssistantMessage {
             content: None,
             name: None,
             tool_calls: None,
+            metadata: None,
+            encrypted_value: None,
+            subagent_run_id: None,
         }
     }
 
@@ -159,6 +252,26 @@ pub struct UserMessage {
     pub content: MessageContent,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "super::non_null_option",
+        default
+    )]
+    pub metadata: Option<Map<String, Value>>,
+    #[serde(
+        rename = "encryptedValue",
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "super::non_null_option",
+        default
+    )]
+    pub encrypted_value: Option<String>,
+    #[serde(
+        rename = "subagentRunId",
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "super::non_null_option",
+        default
+    )]
+    pub subagent_run_id: Option<String>,
 }
 
 impl UserMessage {
@@ -168,6 +281,9 @@ impl UserMessage {
             role: Role::User,
             content: content.into(),
             name: None,
+            metadata: None,
+            encrypted_value: None,
+            subagent_run_id: None,
         }
     }
 
@@ -188,6 +304,26 @@ pub struct ToolMessage {
     pub tool_call_id: ToolCallId,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "super::non_null_option",
+        default
+    )]
+    pub metadata: Option<Map<String, Value>>,
+    #[serde(
+        rename = "encryptedValue",
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "super::non_null_option",
+        default
+    )]
+    pub encrypted_value: Option<String>,
+    #[serde(
+        rename = "subagentRunId",
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "super::non_null_option",
+        default
+    )]
+    pub subagent_run_id: Option<String>,
 }
 
 impl ToolMessage {
@@ -202,6 +338,9 @@ impl ToolMessage {
             role: Role::Tool,
             tool_call_id: tool_call_id.into(),
             error: None,
+            metadata: None,
+            encrypted_value: None,
+            subagent_run_id: None,
         }
     }
 
@@ -209,6 +348,35 @@ impl ToolMessage {
         self.error = Some(error);
         self
     }
+}
+
+/// A materialized reasoning message.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ReasoningMessage {
+    pub id: MessageId,
+    #[serde(default = "Role::reasoning")]
+    pub role: Role,
+    pub content: String,
+    #[serde(
+        rename = "encryptedValue",
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "super::non_null_option",
+        default
+    )]
+    pub encrypted_value: Option<String>,
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "super::non_null_option",
+        default
+    )]
+    pub metadata: Option<Map<String, Value>>,
+    #[serde(
+        rename = "subagentRunId",
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "super::non_null_option",
+        default
+    )]
+    pub subagent_run_id: Option<String>,
 }
 
 /// Represents the different type of messages that you might receive, but as an enum.
@@ -220,12 +388,52 @@ pub enum Message {
         content: String,
         #[serde(skip_serializing_if = "Option::is_none")]
         name: Option<String>,
+        #[serde(
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "super::non_null_option",
+            default
+        )]
+        metadata: Option<Map<String, Value>>,
+        #[serde(
+            rename = "subagentRunId",
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "super::non_null_option",
+            default
+        )]
+        subagent_run_id: Option<String>,
+        #[serde(
+            rename = "encryptedValue",
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "super::non_null_option",
+            default
+        )]
+        encrypted_value: Option<String>,
     },
     System {
         id: MessageId,
         content: String,
         #[serde(skip_serializing_if = "Option::is_none")]
         name: Option<String>,
+        #[serde(
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "super::non_null_option",
+            default
+        )]
+        metadata: Option<Map<String, Value>>,
+        #[serde(
+            rename = "subagentRunId",
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "super::non_null_option",
+            default
+        )]
+        subagent_run_id: Option<String>,
+        #[serde(
+            rename = "encryptedValue",
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "super::non_null_option",
+            default
+        )]
+        encrypted_value: Option<String>,
     },
     Assistant {
         id: MessageId,
@@ -235,24 +443,95 @@ pub enum Message {
         name: Option<String>,
         #[serde(rename = "toolCalls", skip_serializing_if = "Option::is_none")]
         tool_calls: Option<Vec<ToolCall>>,
+        #[serde(
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "super::non_null_option",
+            default
+        )]
+        metadata: Option<Map<String, Value>>,
+        #[serde(
+            rename = "subagentRunId",
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "super::non_null_option",
+            default
+        )]
+        subagent_run_id: Option<String>,
+        #[serde(
+            rename = "encryptedValue",
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "super::non_null_option",
+            default
+        )]
+        encrypted_value: Option<String>,
     },
     User {
         id: MessageId,
         content: MessageContent,
         #[serde(skip_serializing_if = "Option::is_none")]
         name: Option<String>,
+        #[serde(
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "super::non_null_option",
+            default
+        )]
+        metadata: Option<Map<String, Value>>,
+        #[serde(
+            rename = "subagentRunId",
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "super::non_null_option",
+            default
+        )]
+        subagent_run_id: Option<String>,
+        #[serde(
+            rename = "encryptedValue",
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "super::non_null_option",
+            default
+        )]
+        encrypted_value: Option<String>,
     },
     Activity {
         id: MessageId,
         #[serde(rename = "activityType")]
         activity_type: String,
         content: serde_json::Map<String, serde_json::Value>,
+        #[serde(
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "super::non_null_option",
+            default
+        )]
+        metadata: Option<Map<String, Value>>,
+        #[serde(
+            rename = "subagentRunId",
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "super::non_null_option",
+            default
+        )]
+        subagent_run_id: Option<String>,
     },
     Reasoning {
         id: MessageId,
         content: String,
-        #[serde(rename = "encryptedValue", skip_serializing_if = "Option::is_none")]
+        #[serde(
+            rename = "encryptedValue",
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "super::non_null_option",
+            default
+        )]
         encrypted_value: Option<String>,
+        #[serde(
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "super::non_null_option",
+            default
+        )]
+        metadata: Option<Map<String, Value>>,
+        #[serde(
+            rename = "subagentRunId",
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "super::non_null_option",
+            default
+        )]
+        subagent_run_id: Option<String>,
     },
     Tool {
         id: MessageId,
@@ -261,6 +540,26 @@ pub enum Message {
         tool_call_id: ToolCallId,
         #[serde(skip_serializing_if = "Option::is_none")]
         error: Option<String>,
+        #[serde(
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "super::non_null_option",
+            default
+        )]
+        metadata: Option<Map<String, Value>>,
+        #[serde(
+            rename = "subagentRunId",
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "super::non_null_option",
+            default
+        )]
+        subagent_run_id: Option<String>,
+        #[serde(
+            rename = "encryptedValue",
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "super::non_null_option",
+            default
+        )]
+        encrypted_value: Option<String>,
     },
 }
 
@@ -271,38 +570,57 @@ impl Message {
                 id: id.into(),
                 content: content.as_ref().to_string(),
                 name: None,
+                metadata: None,
+                subagent_run_id: None,
+                encrypted_value: None,
             },
             Role::System => Self::System {
                 id: id.into(),
                 content: content.as_ref().to_string(),
                 name: None,
+                metadata: None,
+                subagent_run_id: None,
+                encrypted_value: None,
             },
             Role::Assistant => Self::Assistant {
                 id: id.into(),
                 content: Some(content.as_ref().to_string()),
                 name: None,
                 tool_calls: None,
+                metadata: None,
+                subagent_run_id: None,
+                encrypted_value: None,
             },
             Role::User => Self::User {
                 id: id.into(),
                 content: content.as_ref().to_string().into(),
                 name: None,
+                metadata: None,
+                subagent_run_id: None,
+                encrypted_value: None,
             },
             Role::Activity => Self::Activity {
                 id: id.into(),
                 activity_type: String::new(),
                 content: serde_json::Map::new(),
+                metadata: None,
+                subagent_run_id: None,
             },
             Role::Reasoning => Self::Reasoning {
                 id: id.into(),
                 content: content.as_ref().to_string(),
                 encrypted_value: None,
+                metadata: None,
+                subagent_run_id: None,
             },
             Role::Tool => Self::Tool {
                 id: id.into(),
                 content: content.as_ref().to_string().into(),
                 tool_call_id: ToolCallId::random(),
                 error: None,
+                metadata: None,
+                subagent_run_id: None,
+                encrypted_value: None,
             },
         }
     }

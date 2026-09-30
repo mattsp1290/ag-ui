@@ -97,6 +97,9 @@ where
             id: MessageId::random(),
             content: content.into().into(),
             name: None,
+            metadata: None,
+            encrypted_value: None,
+            subagent_run_id: None,
         });
         self
     }

@@ -91,10 +91,7 @@ fn invalid_spec_fixtures_rejected_or_classified() {
     accepted.sort();
     assert_eq!(
         accepted,
-        vec![
-            "MessagesSnapshotEvent/message-metadata-null.json",
-            "TextMessageEndEvent/unknown-property.json",
-        ],
+        vec!["TextMessageEndEvent/unknown-property.json",],
         "new invalid-fixture tolerance among {count} fixtures"
     );
 }

@@ -262,7 +262,7 @@ where
                     content: Some(String::new()),
                     name: e.name.clone(),
                     tool_calls: None,
-                    metadata: None,
+                    metadata: e.base.metadata.clone(),
                     encrypted_value: None,
                     subagent_run_id: e.base.subagent_run_id.clone(),
                 };
@@ -283,8 +283,8 @@ where
                     .rev()
                     .find(|m| m.id() == &e.message_id)
                 {
-                    let content = last_message.content_mut();
-                    if let Some(s) = content {
+                    merge_message_metadata(last_message, &e.base.metadata);
+                    if let Some(s) = last_message.content_mut() {
                         s.push_str(&e.delta)
                     }
                     current_mutation.messages = Some(self.messages.clone());
@@ -309,6 +309,15 @@ where
                 }
             }
             Event::TextMessageEnd(e) => {
+                if let Some(message) = self
+                    .messages
+                    .iter_mut()
+                    .rev()
+                    .find(|m| m.id() == &e.message_id)
+                {
+                    merge_message_metadata(message, &e.base.metadata);
+                    current_mutation.messages = Some(self.messages.clone());
+                }
                 // Get the current text message buffer
                 let text_message_buffer = self
                     .messages
@@ -366,7 +375,7 @@ where
                         name: e.tool_call_name.clone(),
                         arguments: String::new(),
                     },
-                    metadata: None,
+                    metadata: e.base.metadata.clone(),
                     encrypted_value: None,
                 };
 
@@ -732,10 +741,11 @@ where
                 }
             }
             Event::ReasoningMessageContent(e) => {
-                if let Some(Message::Reasoning { content, .. }) =
-                    self.messages.iter_mut().find(|m| m.id() == &e.message_id)
-                {
-                    content.push_str(&e.delta);
+                if let Some(message) = self.messages.iter_mut().find(|m| m.id() == &e.message_id) {
+                    merge_message_metadata(message, &e.base.metadata);
+                    if let Message::Reasoning { content, .. } = message {
+                        content.push_str(&e.delta);
+                    }
                     current_mutation.messages = Some(self.messages.clone());
                 }
                 for subscriber in &self.subscribers {
@@ -961,6 +971,27 @@ where
     }
 }
 
+fn merge_message_metadata(
+    message: &mut Message,
+    extra: &Option<serde_json::Map<String, JsonValue>>,
+) {
+    let Some(extra) = extra else {
+        return;
+    };
+    let metadata = match message {
+        Message::Developer { metadata, .. }
+        | Message::System { metadata, .. }
+        | Message::Assistant { metadata, .. }
+        | Message::User { metadata, .. }
+        | Message::Activity { metadata, .. }
+        | Message::Reasoning { metadata, .. }
+        | Message::Tool { metadata, .. } => metadata,
+    };
+    metadata
+        .get_or_insert_with(Default::default)
+        .extend(extra.clone());
+}
+
 #[cfg(test)]
 mod name_tests {
     use super::*;
@@ -1099,6 +1130,7 @@ mod conformance_tests {
             "tool-call-triad-assembles",
             "run-finished-interrupt-outcome-accepted",
             "state-delta-unappliable-warns-and-keeps",
+            "metadata-merges-last-write-wins",
             "subagent-unannounced-attribution-accepted",
             "subagent-terminal-closes-open-chunk-stream",
             "subagent-finished-unstarted-fatal",
@@ -1122,15 +1154,28 @@ mod conformance_tests {
             let mut handler =
                 EventHandler::new(vec![], json!({}), &input, Subscribers::new(vec![]));
             let mut error = None;
+            let mut chunks = crate::chunk::ChunkExpander::default();
             for raw in fixture["stream"].as_array().unwrap() {
                 let event: Event = serde_json::from_value(raw.clone())
                     .unwrap_or_else(|e| panic!("{name}: {e}: {raw}"));
-                match handler.handle_event(&event).await {
-                    Ok(mutation) => handler.apply_mutation(mutation).await.unwrap(),
+                let expanded = match chunks.expand(event) {
+                    Ok(events) => events,
                     Err(e) => {
                         error = Some(e.to_string());
                         break;
                     }
+                };
+                for event in expanded {
+                    match handler.handle_event(&event).await {
+                        Ok(mutation) => handler.apply_mutation(mutation).await.unwrap(),
+                        Err(e) => {
+                            error = Some(e.to_string());
+                            break;
+                        }
+                    }
+                }
+                if error.is_some() {
+                    break;
                 }
             }
             let expected = &fixture["expect"];

@@ -1,6 +1,7 @@
 use futures::stream::StreamExt;
 use std::collections::HashSet;
 
+use crate::chunk::ChunkExpander;
 use crate::core::JsonValue;
 use crate::core::types::{
     AgentId, Context, Message, MessageId, RunAgentInput, RunId, ThreadId, Tool,
@@ -219,12 +220,28 @@ where
         );
 
         let mut stream = self.run(&input).await?.fuse();
+        let mut chunks = ChunkExpander::default();
 
         while let Some(event_result) = stream.next().await {
             match event_result {
                 Ok(event) => {
-                    let mutation = event_handler.handle_event(&event).await?;
-                    event_handler.apply_mutation(mutation).await?;
+                    let expanded_events = match chunks.expand(event) {
+                        Ok(events) => events,
+                        Err(error) => {
+                            event_handler.on_error(&error).await?;
+                            return Err(error);
+                        }
+                    };
+                    for expanded in expanded_events {
+                        let mutation = match event_handler.handle_event(&expanded).await {
+                            Ok(mutation) => mutation,
+                            Err(error) => {
+                                event_handler.on_error(&error).await?;
+                                return Err(error);
+                            }
+                        };
+                        event_handler.apply_mutation(mutation).await?;
+                    }
                 }
                 Err(e) => {
                     event_handler.on_error(&e).await?;
@@ -287,6 +304,87 @@ mod result_tests {
                 .collect();
             Ok(Box::pin(stream::iter(events)))
         }
+    }
+
+    struct ChunkAgent;
+    #[async_trait::async_trait]
+    impl Agent for ChunkAgent {
+        async fn run(
+            &self,
+            _input: &RunAgentInput<JsonValue, JsonValue>,
+        ) -> Result<EventStream<'async_trait, JsonValue>, AgentError> {
+            let values = [
+                json!({"type":"RUN_STARTED","threadId":"t","runId":"r"}),
+                json!({"type":"TEXT_MESSAGE_CHUNK","messageId":"m","role":"assistant","delta":"A"}),
+                json!({"type":"TEXT_MESSAGE_CHUNK","delta":"B"}),
+                json!({"type":"TOOL_CALL_CHUNK","toolCallId":"tc","toolCallName":"search","parentMessageId":"m","delta":"{"}),
+                json!({"type":"TOOL_CALL_CHUNK","delta":"}"}),
+                json!({"type":"REASONING_MESSAGE_CHUNK","messageId":"rm","delta":"think"}),
+                json!({"type":"REASONING_MESSAGE_CHUNK","delta":" more"}),
+                json!({"type":"SUBAGENT_STARTED","subagentRunId":"s","name":"worker"}),
+                json!({"type":"TEXT_MESSAGE_CHUNK","messageId":"sm","role":"assistant","subagentRunId":"s","delta":"worker"}),
+                json!({"type":"SUBAGENT_FINISHED","subagentRunId":"s"}),
+                json!({"type":"RUN_FINISHED","threadId":"t","runId":"r"}),
+            ];
+            Ok(Box::pin(stream::iter(
+                values
+                    .into_iter()
+                    .map(|v| Ok(serde_json::from_value::<Event>(v).unwrap())),
+            )))
+        }
+    }
+    struct EventOrder(std::sync::Arc<std::sync::Mutex<Vec<String>>>);
+    #[async_trait::async_trait]
+    impl crate::subscriber::AgentSubscriber for EventOrder {
+        async fn on_event(
+            &self,
+            event: &Event,
+            _params: crate::subscriber::AgentSubscriberParams<'async_trait, JsonValue, JsonValue>,
+        ) -> Result<AgentStateMutation<JsonValue>, AgentError> {
+            self.0.lock().unwrap().push(
+                serde_json::to_value(event)?["type"]
+                    .as_str()
+                    .unwrap()
+                    .to_owned(),
+            );
+            Ok(AgentStateMutation::default())
+        }
+    }
+    #[tokio::test]
+    async fn chunk_callbacks_expand_before_subscribers_and_close_on_terminals() {
+        let seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let result = ChunkAgent
+            .run_agent(&RunAgentParams::new(), (EventOrder(seen.clone()),))
+            .await
+            .unwrap();
+        assert_eq!(
+            *seen.lock().unwrap(),
+            [
+                "RUN_STARTED",
+                "TEXT_MESSAGE_START",
+                "TEXT_MESSAGE_CONTENT",
+                "TEXT_MESSAGE_CONTENT",
+                "TEXT_MESSAGE_END",
+                "TOOL_CALL_START",
+                "TOOL_CALL_ARGS",
+                "TOOL_CALL_ARGS",
+                "TOOL_CALL_END",
+                "REASONING_MESSAGE_START",
+                "REASONING_MESSAGE_CONTENT",
+                "REASONING_MESSAGE_CONTENT",
+                "SUBAGENT_STARTED",
+                "TEXT_MESSAGE_START",
+                "TEXT_MESSAGE_CONTENT",
+                "TEXT_MESSAGE_END",
+                "SUBAGENT_FINISHED",
+                "REASONING_MESSAGE_END",
+                "RUN_FINISHED",
+            ]
+        );
+        assert_eq!(result.new_messages.len(), 3);
+        assert_eq!(result.new_messages[0].content(), Some("AB"));
+        assert_eq!(result.new_messages[1].content(), Some("think more"));
+        assert_eq!(result.new_messages[2].content(), Some("worker"));
     }
 
     #[tokio::test]

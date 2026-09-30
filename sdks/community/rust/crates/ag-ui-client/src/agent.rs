@@ -423,6 +423,103 @@ mod result_tests {
     }
 
     #[tokio::test]
+    async fn same_name_steps_are_independent_per_owner() {
+        for subagent_closes_first in [true, false] {
+            let mut values = vec![
+                json!({"type":"RUN_STARTED","threadId":"t","runId":"r"}),
+                json!({"type":"STEP_STARTED","stepName":"search"}),
+                json!({"type":"SUBAGENT_STARTED","subagentRunId":"s","name":"worker"}),
+                json!({"type":"STEP_STARTED","stepName":"search","subagentRunId":"s"}),
+            ];
+            let parent_end = json!({"type":"STEP_FINISHED","stepName":"search"});
+            let subagent_end =
+                json!({"type":"STEP_FINISHED","stepName":"search","subagentRunId":"s"});
+            if subagent_closes_first {
+                values.extend([subagent_end, parent_end]);
+            } else {
+                values.extend([parent_end, subagent_end]);
+            }
+            values.extend([
+                json!({"type":"SUBAGENT_FINISHED","subagentRunId":"s"}),
+                json!({"type":"RUN_FINISHED","threadId":"t","runId":"r"}),
+            ]);
+            assert!(
+                ScriptedAgent(values)
+                    .run_agent(&RunAgentParams::new(), ())
+                    .await
+                    .is_ok()
+            );
+        }
+        for values in [
+            vec![
+                json!({"type":"RUN_STARTED","threadId":"t","runId":"r"}),
+                json!({"type":"STEP_STARTED","stepName":"search"}),
+                json!({"type":"STEP_STARTED","stepName":"search"}),
+            ],
+            vec![
+                json!({"type":"RUN_STARTED","threadId":"t","runId":"r"}),
+                json!({"type":"SUBAGENT_STARTED","subagentRunId":"s","name":"worker"}),
+                json!({"type":"STEP_STARTED","stepName":"search","subagentRunId":"s"}),
+                json!({"type":"STEP_FINISHED","stepName":"search"}),
+            ],
+        ] {
+            assert!(
+                ScriptedAgent(values)
+                    .run_agent(&RunAgentParams::new(), ())
+                    .await
+                    .is_err()
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn tool_call_owner_must_match_its_parent_message() {
+        for tool_owner in [None, Some("other"), Some("s")] {
+            let mut values = vec![
+                json!({"type":"RUN_STARTED","threadId":"t","runId":"r"}),
+                json!({"type":"SUBAGENT_STARTED","subagentRunId":"s","name":"worker"}),
+                json!({"type":"TEXT_MESSAGE_START","messageId":"m","role":"assistant","subagentRunId":"s"}),
+                json!({"type":"TEXT_MESSAGE_END","messageId":"m","subagentRunId":"s"}),
+            ];
+            let mut tool_start = json!({"type":"TOOL_CALL_START","toolCallId":"c","toolCallName":"search","parentMessageId":"m"});
+            if let Some(owner) = tool_owner {
+                tool_start["subagentRunId"] = json!(owner);
+            }
+            values.push(tool_start);
+            values.extend([
+                json!({"type":"TOOL_CALL_END","toolCallId":"c","subagentRunId":"s"}),
+                json!({"type":"SUBAGENT_FINISHED","subagentRunId":"s"}),
+                json!({"type":"RUN_FINISHED","threadId":"t","runId":"r"}),
+            ]);
+            let result = ScriptedAgent(values)
+                .run_agent(&RunAgentParams::new(), ())
+                .await;
+            assert_eq!(
+                result.is_ok(),
+                tool_owner == Some("s"),
+                "tool owner {tool_owner:?}: {result:?}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn second_run_error_after_run_error_is_rejected() {
+        let values = vec![
+            json!({"type":"RUN_ERROR","message":"first"}),
+            json!({"type":"RUN_ERROR","message":"second"}),
+        ];
+        let seen = std::sync::Arc::new(std::sync::Mutex::new(Observations::default()));
+        assert!(
+            ScriptedAgent(values)
+                .run_agent(&RunAgentParams::new(), (Observer(seen.clone()),))
+                .await
+                .is_err()
+        );
+        let seen = seen.lock().unwrap();
+        assert_eq!((seen.failed, seen.finalized), (1, 1));
+    }
+
+    #[tokio::test]
     async fn run_error_first_and_late_run_error_remain_delivered_streams() {
         for values in [
             vec![json!({"type":"RUN_ERROR","message":"offline"})],

@@ -26,11 +26,12 @@ where
     pub usage: Option<Vec<TokenUsage>>,
     active_run: bool,
     finished_run: bool,
+    last_terminal_was_error: bool,
     active_text: HashMap<MessageId, Option<String>>,
     active_reasoning: HashMap<MessageId, Option<String>>,
     active_span: HashMap<MessageId, Option<String>>,
     active_tools: HashMap<ToolCallId, Option<String>>,
-    active_steps: HashMap<String, Option<String>>,
+    active_steps: HashSet<(Option<String>, String)>,
     activity_owners: HashMap<MessageId, Option<String>>,
     pub run_error: Option<String>,
     active_subagents: HashSet<String>,
@@ -59,11 +60,12 @@ where
             usage: None,
             active_run: false,
             finished_run: false,
+            last_terminal_was_error: false,
             active_text: HashMap::new(),
             active_reasoning: HashMap::new(),
             active_span: HashMap::new(),
             active_tools: HashMap::new(),
-            active_steps: HashMap::new(),
+            active_steps: HashSet::new(),
             activity_owners: HashMap::new(),
             run_error: None,
             active_subagents: HashSet::new(),
@@ -121,7 +123,10 @@ where
             self.tool_chunk = None;
         }
         let fail = |message: String| AgentError::Execution { message };
-        if self.finished_run && !matches!(event, Event::RunStarted(_) | Event::RunError(_)) {
+        if self.finished_run
+            && !matches!(event, Event::RunStarted(_))
+            && !(matches!(event, Event::RunError(_)) && !self.last_terminal_was_error)
+        {
             return Err(fail("Event after terminal run event".into()));
         }
         if !self.active_run && !matches!(event, Event::RunStarted(_) | Event::RunError(_)) {
@@ -136,6 +141,7 @@ where
             Event::RunStarted(_) => {
                 self.active_run = true;
                 self.finished_run = false;
+                self.last_terminal_was_error = false;
                 self.active_text.clear();
                 self.active_reasoning.clear();
                 self.active_span.clear();
@@ -158,10 +164,12 @@ where
                 }
                 self.active_run = false;
                 self.finished_run = true;
+                self.last_terminal_was_error = false;
             }
             Event::RunError(e) => {
                 self.active_run = false;
                 self.finished_run = true;
+                self.last_terminal_was_error = true;
                 self.run_error = Some(e.message.clone());
                 self.active_text.clear();
                 self.active_reasoning.clear();
@@ -249,6 +257,25 @@ where
                 self.active_reasoning.remove(&e.message_id);
             }
             Event::ToolCallStart(e) => {
+                if let Some(parent_id) = &e.parent_message_id
+                    && let Some(parent) = self
+                        .messages
+                        .iter()
+                        .find(|message| message.id() == parent_id)
+                {
+                    if parent.role() != Role::Assistant {
+                        return Err(fail(format!(
+                            "Tool call '{}' parent message is not assistant",
+                            e.tool_call_id
+                        )));
+                    }
+                    if message_owner(parent) != e.base.subagent_run_id.as_ref() {
+                        return Err(fail(format!(
+                            "Tool call '{}' owner does not match parent message '{}'",
+                            e.tool_call_id, parent_id
+                        )));
+                    }
+                }
                 if self
                     .active_tools
                     .insert(e.tool_call_id.clone(), e.base.subagent_run_id.clone())
@@ -280,18 +307,22 @@ where
                 self.active_tools.remove(&e.tool_call_id);
             }
             Event::StepStarted(e) => {
-                self.active_steps
-                    .insert(e.step_name.clone(), e.base.subagent_run_id.clone());
+                let key = (e.base.subagent_run_id.clone(), e.step_name.clone());
+                if !self.active_steps.insert(key) {
+                    return Err(fail(format!(
+                        "STEP_STARTED for already open step '{}' in this owner",
+                        e.step_name
+                    )));
+                }
             }
             Event::StepFinished(e) => {
-                let owner = self.active_steps.get(&e.step_name).ok_or_else(|| {
-                    fail(format!(
-                        "STEP_FINISHED without STEP_STARTED: {}",
+                let key = (e.base.subagent_run_id.clone(), e.step_name.clone());
+                if !self.active_steps.remove(&key) {
+                    return Err(fail(format!(
+                        "STEP_FINISHED without STEP_STARTED in this owner: {}",
                         e.step_name
-                    ))
-                })?;
-                check_owner(owner, &e.base.subagent_run_id, &e.step_name)?;
-                self.active_steps.remove(&e.step_name);
+                    )));
+                }
             }
             Event::ActivitySnapshot(e) => {
                 self.activity_owners
@@ -1071,6 +1102,32 @@ where
                 .await?;
         }
         Ok(())
+    }
+}
+
+fn message_owner(message: &Message) -> Option<&String> {
+    match message {
+        Message::Developer {
+            subagent_run_id, ..
+        }
+        | Message::System {
+            subagent_run_id, ..
+        }
+        | Message::Assistant {
+            subagent_run_id, ..
+        }
+        | Message::User {
+            subagent_run_id, ..
+        }
+        | Message::Activity {
+            subagent_run_id, ..
+        }
+        | Message::Reasoning {
+            subagent_run_id, ..
+        }
+        | Message::Tool {
+            subagent_run_id, ..
+        } => subagent_run_id.as_ref(),
     }
 }
 

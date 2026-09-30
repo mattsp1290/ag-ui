@@ -1,55 +1,27 @@
 ---
 title: "Events"
-description: "Streaming events emitted by agents"
+description: "AG-UI 1.0 events in ag-ui-core"
 ---
 
 # Events
 
-Agents emit a stream of events during execution. The Rust client decodes an SSE stream into Event<StateT> values.
+`ag_ui_core::event::Event<StateT>` is the tagged stream event enum. Its 31 AG-UI 1.0 variants are listed below; each has a corresponding `EventType` value and a typed event struct. Common optional fields on `BaseEvent` include `timestamp`, `rawEvent`, `metadata`, and `subagentRunId`.
 
-```rust
-use ag_ui_core::event::Event;
-```
+| Group | Event variants |
+| --- | --- |
+| Run and step | `RunStarted`, `RunFinished`, `RunError`, `StepStarted`, `StepFinished` |
+| Text | `TextMessageStart`, `TextMessageContent`, `TextMessageEnd`, `TextMessageChunk` |
+| Tool calls | `ToolCallStart`, `ToolCallArgs`, `ToolCallEnd`, `ToolCallChunk`, `ToolCallResult` |
+| State and messages | `StateSnapshot`, `StateDelta`, `MessagesSnapshot` |
+| Activity | `ActivitySnapshot`, `ActivityDelta` |
+| Reasoning | `ReasoningStart`, `ReasoningMessageStart`, `ReasoningMessageContent`, `ReasoningMessageEnd`, `ReasoningMessageChunk`, `ReasoningEnd`, `ReasoningEncryptedValue` |
+| Subagents | `SubagentStarted`, `SubagentFinished`, `SubagentError` |
+| Passthrough | `Raw`, `Custom` |
 
-## Top-level enum
+`StateSnapshot<StateT>` replaces the state; `StateDelta` carries typed `JsonPatchOperation` values (RFC 6902). `MessagesSnapshot` supplies a message list; the client reconciles by ID and preserves locally streamed activity or reasoning messages when the snapshot does not declare those roles. Chunk events combine optional start, delta, and end data; `Agent::run_agent` expands chunks before delivering callbacks.
 
-```rust
-pub enum Event<StateT> {
-    RunStarted(RunStartedEvent),
-    RunFinished(RunFinishedEvent),
-    RunError(RunErrorEvent),
-    StepStarted(StepStartedEvent),
-    StepFinished(StepFinishedEvent),
-    TextMessageStart(TextMessageStartEvent),
-    TextMessageContent(TextMessageContentEvent),
-    TextMessageEnd(TextMessageEndEvent),
-    TextMessageChunk(TextMessageChunkEvent),
-    ThinkingTextMessageStart(ThinkingTextMessageStartEvent),
-    ToolCallStart(ToolCallStartEvent),
-    ToolCallArgs(ToolCallArgsEvent),
-    ToolCallEnd(ToolCallEndEvent),
-    ToolCallResult(ToolCallResultEvent),
-    StateSnapshot(StateSnapshotEvent<StateT>),
-    StateDelta(StateDeltaEvent),
-    MessagesSnapshot(MessagesSnapshotEvent),
-    Raw(RawEvent),
-    Custom(CustomEvent),
-}
-```
+`RunFinished` can carry `result`, `outcome`, and `usage`. `RunError` can carry `usage`. `outcome` is `RunFinishedOutcome::Success { pending_tool_call_ids }`, `Interrupt { interrupts }`, or `Cancelled`. `TokenUsage` includes provider, model, input, output, total, reasoning, cached input, and cache write input token counts. An interrupt has an ID and reason, with optional message, tool call ID, response schema, expiry, metadata, and subagent run ID. Resume with `RunAgentParams::with_resume` and `ResumeEntry` values.
 
-## Frequently used events
+The core enum also retains five deprecated pre-1.0 variants: `ThinkingStart`, `ThinkingTextMessageStart`, `ThinkingTextMessageContent`, `ThinkingTextMessageEnd`, and `ThinkingEnd`. The HTTP client translates their wire forms to reasoning events before parsing and logs a warning. New producers should emit reasoning events.
 
-- RunStartedEvent – signals the beginning of a run
-- RunFinishedEvent – contains an optional result payload
-- RunErrorEvent – reports an error with message/context
-- TextMessageStart/Content/End – streaming assistant message text
-- ToolCall* – tool call lifecycle and argument streaming
-- StateSnapshotEvent<StateT> – full state replacement
-- StateDeltaEvent – JSON-Patch style deltas (Vec<Value>)
-- MessagesSnapshotEvent – full replacement of the message history
-
-## Handling in subscribers
-
-Every concrete event has a corresponding callback in AgentSubscriber. You can also implement on_event(&Event<StateT>, …) to observe all events.
-
-See: /sdk/rust/client/subscriber
+Implement `AgentSubscriber::on_event` for all events, or a typed `on_*_event` callback for a specific variant. See [AgentSubscriber](/sdk/rust/client/subscriber).

@@ -13,17 +13,12 @@ use ag_ui_client::core::types::Message;
 use ag_ui_client::subscriber::{AgentSubscriber, AgentSubscriberParams};
 use ag_ui_client::{Agent, HttpAgent};
 
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum StepStatus {
+    #[default]
     Pending,
     Completed,
-}
-
-impl Default for StepStatus {
-    fn default() -> Self {
-        StepStatus::Pending
-    }
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -50,6 +45,7 @@ pub struct Plan {
 
 impl AgentState for Plan {}
 
+#[derive(Default)]
 pub struct GenerativeUiSubscriber;
 
 impl GenerativeUiSubscriber {
@@ -85,6 +81,7 @@ impl AgentSubscriber<Plan, ()> for GenerativeUiSubscriber {
     ) -> Result<AgentStateMutation<Plan>, AgentError> {
         info!("State delta received:");
         for patch in &event.delta {
+            let patch = serde_json::to_value(patch)?;
             match patch.get("op").and_then(|v| v.as_str()) {
                 Some("replace") => {
                     if let (Some(path), Some(value)) = (

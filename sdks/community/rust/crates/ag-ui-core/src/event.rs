@@ -9,6 +9,18 @@ use serde::{Deserialize, Serialize};
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum EventType {
     /// Event indicating the start of a text message
+    ActivitySnapshot,
+    ActivityDelta,
+    ReasoningStart,
+    ReasoningMessageStart,
+    ReasoningMessageContent,
+    ReasoningMessageEnd,
+    ReasoningMessageChunk,
+    ReasoningEnd,
+    ReasoningEncryptedValue,
+    SubagentStarted,
+    SubagentFinished,
+    SubagentError,
     TextMessageStart,
     /// Event containing a piece of text message content
     TextMessageContent,
@@ -63,9 +75,37 @@ pub enum EventType {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct BaseEvent {
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub timestamp: Option<f64>,
+    #[serde(deserialize_with = "deserialize_timestamp", default)]
+    pub timestamp: Option<i64>,
     #[serde(rename = "rawEvent", skip_serializing_if = "Option::is_none")]
     pub raw_event: Option<JsonValue>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "crate::types::non_null_option", default)]
+    pub metadata: Option<serde_json::Map<String, JsonValue>>,
+    #[serde(
+        rename = "subagentRunId",
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::types::non_null_option",
+        default
+    )]
+    pub subagent_run_id: Option<String>,
+}
+
+fn deserialize_tool_role<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<Role>, D::Error> {
+    let role = Role::deserialize(d)?;
+    if role != Role::Tool {
+        return Err(serde::de::Error::custom("tool result role must be tool"));
+    }
+    Ok(Some(role))
+}
+fn deserialize_timestamp<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<i64>, D::Error> {
+    let n = i64::deserialize(d)?;
+    if !(-9007199254740991..=9007199254740991).contains(&n) {
+        return Err(serde::de::Error::custom(
+            "timestamp outside safe integer range",
+        ));
+    }
+    Ok(Some(n))
 }
 
 /// Event indicating the start of a text message.
@@ -76,7 +116,14 @@ pub struct TextMessageStartEvent {
     pub base: BaseEvent,
     #[serde(rename = "messageId")]
     pub message_id: MessageId,
+    #[serde(default = "Role::assistant")]
     pub role: Role, // "assistant"
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::types::non_null_option",
+        default
+    )]
+    pub name: Option<String>,
 }
 
 /// Event containing a piece of text message content.
@@ -109,9 +156,16 @@ pub struct TextMessageChunkEvent {
     pub base: BaseEvent,
     #[serde(rename = "messageId", skip_serializing_if = "Option::is_none")]
     pub message_id: Option<MessageId>,
-    pub role: Role,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub role: Option<Role>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub delta: Option<String>,
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::types::non_null_option",
+        default
+    )]
+    pub name: Option<String>,
 }
 
 /// Event indicating the start of a thinking text message.
@@ -150,6 +204,7 @@ pub struct ToolCallStartEvent {
     #[serde(rename = "toolCallName")]
     pub tool_call_name: String,
     #[serde(rename = "parentMessageId", skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "crate::types::non_null_option", default)]
     pub parent_message_id: Option<MessageId>,
 }
 
@@ -184,9 +239,13 @@ pub struct ToolCallResultEvent {
     pub message_id: MessageId,
     #[serde(rename = "toolCallId")]
     pub tool_call_id: ToolCallId,
-    pub content: String,
-    #[serde(default = "Role::tool")]
-    pub role: Role, // "tool"
+    pub content: crate::types::MessageContent,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_tool_role"
+    )]
+    pub role: Option<Role>, // If present, always "tool".
 }
 
 /// Event containing a chunk of tool call content.
@@ -201,6 +260,7 @@ pub struct ToolCallChunkEvent {
     #[serde(rename = "toolCallName", skip_serializing_if = "Option::is_none")]
     pub tool_call_name: Option<String>,
     #[serde(rename = "parentMessageId", skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "crate::types::non_null_option", default)]
     pub parent_message_id: Option<MessageId>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub delta: Option<String>,
@@ -240,7 +300,7 @@ pub struct StateSnapshotEvent<StateT: AgentState = JsonValue> {
 pub struct StateDeltaEvent {
     #[serde(flatten)]
     pub base: BaseEvent,
-    pub delta: Vec<JsonValue>,
+    pub delta: Vec<crate::types::JsonPatchOperation>,
 }
 
 /// Event containing a snapshot of the messages.
@@ -283,6 +343,12 @@ pub struct RunStartedEvent {
     pub thread_id: ThreadId,
     #[serde(rename = "runId")]
     pub run_id: RunId,
+    #[serde(rename = "protocolVersion", skip_serializing_if = "Option::is_none")]
+    pub protocol_version: Option<String>,
+    #[serde(rename = "parentRunId", skip_serializing_if = "Option::is_none")]
+    pub parent_run_id: Option<RunId>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub input: Option<crate::types::RunAgentInput>,
 }
 
 /// Event indicating that a run has finished.
@@ -297,6 +363,11 @@ pub struct RunFinishedEvent {
     pub run_id: RunId,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub result: Option<JsonValue>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "crate::types::non_null_option", default)]
+    pub outcome: Option<crate::types::RunFinishedOutcome>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub usage: Option<Vec<crate::types::TokenUsage>>,
 }
 
 /// Event indicating that a run has encountered an error.
@@ -308,6 +379,8 @@ pub struct RunErrorEvent {
     pub message: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub code: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub usage: Option<Vec<crate::types::TokenUsage>>,
 }
 
 /// Event indicating that a step has started.
@@ -330,6 +403,129 @@ pub struct StepFinishedEvent {
     pub step_name: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ActivitySnapshotEvent {
+    #[serde(flatten)]
+    pub base: BaseEvent,
+    #[serde(rename = "messageId")]
+    pub message_id: MessageId,
+    #[serde(rename = "activityType")]
+    pub activity_type: String,
+    pub content: serde_json::Map<String, JsonValue>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub replace: Option<bool>,
+}
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ActivityDeltaEvent {
+    #[serde(flatten)]
+    pub base: BaseEvent,
+    #[serde(rename = "messageId")]
+    pub message_id: MessageId,
+    #[serde(rename = "activityType")]
+    pub activity_type: String,
+    pub patch: Vec<crate::types::JsonPatchOperation>,
+}
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ReasoningStartEvent {
+    #[serde(flatten)]
+    pub base: BaseEvent,
+    #[serde(rename = "messageId")]
+    pub message_id: MessageId,
+}
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ReasoningMessageStartEvent {
+    #[serde(flatten)]
+    pub base: BaseEvent,
+    #[serde(rename = "messageId")]
+    pub message_id: MessageId,
+    pub role: Role,
+}
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ReasoningMessageContentEvent {
+    #[serde(flatten)]
+    pub base: BaseEvent,
+    #[serde(rename = "messageId")]
+    pub message_id: MessageId,
+    pub delta: String,
+}
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ReasoningMessageEndEvent {
+    #[serde(flatten)]
+    pub base: BaseEvent,
+    #[serde(rename = "messageId")]
+    pub message_id: MessageId,
+}
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ReasoningMessageChunkEvent {
+    #[serde(flatten)]
+    pub base: BaseEvent,
+    #[serde(rename = "messageId", skip_serializing_if = "Option::is_none")]
+    pub message_id: Option<MessageId>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub delta: Option<String>,
+}
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ReasoningEndEvent {
+    #[serde(flatten)]
+    pub base: BaseEvent,
+    #[serde(rename = "messageId")]
+    pub message_id: MessageId,
+}
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ReasoningEncryptedValueEvent {
+    #[serde(flatten)]
+    pub base: BaseEvent,
+    pub subtype: crate::types::ReasoningEncryptedValueSubtype,
+    #[serde(rename = "entityId")]
+    pub entity_id: String,
+    #[serde(rename = "encryptedValue")]
+    pub encrypted_value: String,
+}
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SubagentStartedEvent {
+    #[serde(flatten)]
+    pub base: BaseEvent,
+    #[serde(rename = "subagentRunId")]
+    pub subagent_run_id: String,
+    pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "crate::types::non_null_option", default)]
+    pub description: Option<String>,
+    #[serde(
+        rename = "parentSubagentRunId",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub parent_subagent_run_id: Option<String>,
+    #[serde(rename = "parentMessageId", skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "crate::types::non_null_option", default)]
+    pub parent_message_id: Option<MessageId>,
+    #[serde(rename = "parentToolCallId", skip_serializing_if = "Option::is_none")]
+    pub parent_tool_call_id: Option<ToolCallId>,
+}
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SubagentFinishedEvent {
+    #[serde(flatten)]
+    pub base: BaseEvent,
+    #[serde(rename = "subagentRunId")]
+    pub subagent_run_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "crate::types::non_null_option", default)]
+    pub outcome: Option<crate::types::SubagentFinishedOutcome>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub result: Option<JsonValue>,
+}
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SubagentErrorEvent {
+    #[serde(flatten)]
+    pub base: BaseEvent,
+    #[serde(rename = "subagentRunId")]
+    pub subagent_run_id: String,
+    pub message: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "crate::types::non_null_option", default)]
+    pub code: Option<String>,
+}
+
 /// Union of all possible events in the Agent User Interaction Protocol.
 /// This enum represents the full set of events that can be exchanged
 /// between the agent and the client.
@@ -340,6 +536,18 @@ pub struct StepFinishedEvent {
     bound(deserialize = "")
 )]
 pub enum Event<StateT: AgentState = JsonValue> {
+    ActivitySnapshot(ActivitySnapshotEvent),
+    ActivityDelta(ActivityDeltaEvent),
+    ReasoningStart(ReasoningStartEvent),
+    ReasoningMessageStart(ReasoningMessageStartEvent),
+    ReasoningMessageContent(ReasoningMessageContentEvent),
+    ReasoningMessageEnd(ReasoningMessageEndEvent),
+    ReasoningMessageChunk(ReasoningMessageChunkEvent),
+    ReasoningEnd(ReasoningEndEvent),
+    ReasoningEncryptedValue(ReasoningEncryptedValueEvent),
+    SubagentStarted(SubagentStartedEvent),
+    SubagentFinished(SubagentFinishedEvent),
+    SubagentError(SubagentErrorEvent),
     /// Signals the start of a text message from an agent.
     /// Contains the message ID and role information.
     TextMessageStart(TextMessageStartEvent),
@@ -416,7 +624,7 @@ pub enum Event<StateT: AgentState = JsonValue> {
 
     /// Signals the start of an agent run.
     /// Contains thread ID and run ID to identify the run.
-    RunStarted(RunStartedEvent),
+    RunStarted(Box<RunStartedEvent>),
 
     /// Signals the completion of an agent run.
     /// Contains thread ID, run ID, and optional result data.
@@ -439,6 +647,18 @@ impl Event {
     /// Get the event type
     pub fn event_type(&self) -> EventType {
         match self {
+            Event::ActivitySnapshot(_) => EventType::ActivitySnapshot,
+            Event::ActivityDelta(_) => EventType::ActivityDelta,
+            Event::ReasoningStart(_) => EventType::ReasoningStart,
+            Event::ReasoningMessageStart(_) => EventType::ReasoningMessageStart,
+            Event::ReasoningMessageContent(_) => EventType::ReasoningMessageContent,
+            Event::ReasoningMessageEnd(_) => EventType::ReasoningMessageEnd,
+            Event::ReasoningMessageChunk(_) => EventType::ReasoningMessageChunk,
+            Event::ReasoningEnd(_) => EventType::ReasoningEnd,
+            Event::ReasoningEncryptedValue(_) => EventType::ReasoningEncryptedValue,
+            Event::SubagentStarted(_) => EventType::SubagentStarted,
+            Event::SubagentFinished(_) => EventType::SubagentFinished,
+            Event::SubagentError(_) => EventType::SubagentError,
             Event::TextMessageStart(_) => EventType::TextMessageStart,
             Event::TextMessageContent(_) => EventType::TextMessageContent,
             Event::TextMessageEnd(_) => EventType::TextMessageEnd,
@@ -467,8 +687,20 @@ impl Event {
     }
 
     /// Get the timestamp if available
-    pub fn timestamp(&self) -> Option<f64> {
+    pub fn timestamp(&self) -> Option<i64> {
         match self {
+            Event::ActivitySnapshot(e) => e.base.timestamp,
+            Event::ActivityDelta(e) => e.base.timestamp,
+            Event::ReasoningStart(e) => e.base.timestamp,
+            Event::ReasoningMessageStart(e) => e.base.timestamp,
+            Event::ReasoningMessageContent(e) => e.base.timestamp,
+            Event::ReasoningMessageEnd(e) => e.base.timestamp,
+            Event::ReasoningMessageChunk(e) => e.base.timestamp,
+            Event::ReasoningEnd(e) => e.base.timestamp,
+            Event::ReasoningEncryptedValue(e) => e.base.timestamp,
+            Event::SubagentStarted(e) => e.base.timestamp,
+            Event::SubagentFinished(e) => e.base.timestamp,
+            Event::SubagentError(e) => e.base.timestamp,
             Event::TextMessageStart(e) => e.base.timestamp,
             Event::TextMessageContent(e) => e.base.timestamp,
             Event::TextMessageEnd(e) => e.base.timestamp,
@@ -524,13 +756,16 @@ impl TextMessageStartEvent {
             base: BaseEvent {
                 timestamp: None,
                 raw_event: None,
+                metadata: None,
+                subagent_run_id: None,
             },
             message_id: message_id.into(),
             role: Role::Assistant,
+            name: None,
         }
     }
 
-    pub fn with_timestamp(mut self, timestamp: f64) -> Self {
+    pub fn with_timestamp(mut self, timestamp: i64) -> Self {
         self.base.timestamp = Some(timestamp);
         self
     }
@@ -550,6 +785,8 @@ impl TextMessageContentEvent {
             base: BaseEvent {
                 timestamp: None,
                 raw_event: None,
+                metadata: None,
+                subagent_run_id: None,
             },
             message_id: message_id.into(),
             delta,
@@ -558,7 +795,7 @@ impl TextMessageContentEvent {
         Ok(event)
     }
 
-    pub fn with_timestamp(mut self, timestamp: f64) -> Self {
+    pub fn with_timestamp(mut self, timestamp: i64) -> Self {
         self.base.timestamp = Some(timestamp);
         self
     }

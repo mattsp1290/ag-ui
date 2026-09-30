@@ -1,6 +1,6 @@
 [package]
 name = "ag-ui-core"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 description = "Core type library for the AG-UI protocol."
 license = "MIT"
@@ -10,3 +10,4 @@ thiserror = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 uuid = { workspace = true }
+json-patch = "4"

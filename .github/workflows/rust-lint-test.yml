@@ -8,6 +8,8 @@ on:
       - "sdks/community/rust/**/tests/**"
       - "sdks/community/rust/Cargo.toml"
       - "sdks/community/rust/.cargo/**"
+      - "sdks/fixtures/**"
+      - "spec/1.0/**"
       - ".github/workflows/rust-lint-test.yml"
   pull_request:
     branches: [ "main" ]
@@ -16,6 +18,8 @@ on:
       - "sdks/community/rust/**/tests/**"
       - "sdks/community/rust/Cargo.toml"
       - "sdks/community/rust/.cargo/**"
+      - "sdks/fixtures/**"
+      - "spec/1.0/**"
       - ".github/workflows/rust-lint-test.yml"
 
 defaults:

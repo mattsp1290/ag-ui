@@ -91,7 +91,11 @@ fn invalid_spec_fixtures_rejected_or_classified() {
     accepted.sort();
     assert_eq!(
         accepted,
-        vec!["TextMessageEndEvent/unknown-property.json",],
+        vec![
+            // Producers omit a whole optional null; consumers accept and normalize it.
+            "TextMessageEndEvent/raw-event-null.json",
+            "TextMessageEndEvent/unknown-property.json",
+        ],
         "new invalid-fixture tolerance among {count} fixtures"
     );
 }

@@ -78,7 +78,6 @@ pub struct BaseEvent {
     #[serde(deserialize_with = "deserialize_timestamp", default)]
     pub timestamp: Option<i64>,
     #[serde(rename = "rawEvent", skip_serializing_if = "Option::is_none")]
-    #[serde(deserialize_with = "deserialize_non_null_value", default)]
     pub raw_event: Option<JsonValue>,
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(deserialize_with = "crate::types::non_null_option", default)]
@@ -92,21 +91,12 @@ pub struct BaseEvent {
     pub subagent_run_id: Option<String>,
 }
 
-fn deserialize_non_null_value<'de, D: serde::Deserializer<'de>>(
-    d: D,
-) -> Result<Option<JsonValue>, D::Error> {
-    let value = JsonValue::deserialize(d)?;
-    if value.is_null() {
-        return Err(serde::de::Error::custom("null is not allowed"));
-    }
-    Ok(Some(value))
-}
-fn deserialize_tool_role<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Role, D::Error> {
+fn deserialize_tool_role<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<Role>, D::Error> {
     let role = Role::deserialize(d)?;
     if role != Role::Tool {
         return Err(serde::de::Error::custom("tool result role must be tool"));
     }
-    Ok(role)
+    Ok(Some(role))
 }
 fn deserialize_timestamp<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<i64>, D::Error> {
     let n = i64::deserialize(d)?;
@@ -250,8 +240,12 @@ pub struct ToolCallResultEvent {
     #[serde(rename = "toolCallId")]
     pub tool_call_id: ToolCallId,
     pub content: crate::types::MessageContent,
-    #[serde(default = "Role::tool", deserialize_with = "deserialize_tool_role")]
-    pub role: Role, // "tool"
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_tool_role"
+    )]
+    pub role: Option<Role>, // If present, always "tool".
 }
 
 /// Event containing a chunk of tool call content.

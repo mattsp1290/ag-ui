@@ -34,7 +34,9 @@ Example usage in a chat node::
 from __future__ import annotations
 
 import asyncio
+import contextvars
 import logging
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Optional
 
 from langchain.tools import tool, ToolRuntime
@@ -54,6 +56,10 @@ from ag_ui_a2ui_toolkit import (
 )
 
 logger = logging.getLogger("ag_ui_langgraph")
+
+# Recovery waits for model streams on the caller loop. Keep these blocking
+# workers separate from the loop's default pool, which models can also use.
+_recovery_executor = ThreadPoolExecutor(thread_name_prefix="ag-ui-a2ui-recovery")
 
 #: Name of the render tool the A2UI middleware injects (and the subagent binds).
 RENDER_A2UI_TOOL_NAME: str = RENDER_A2UI_TOOL_DEF["function"]["name"]
@@ -208,14 +214,21 @@ def get_a2ui_tools(params: A2UIToolParams):
             )
             return future.result()
 
-        result = await asyncio.to_thread(
-            run_a2ui_generation_with_recovery,
-            base_prompt=prep["prompt"],
-            catalog=catalog,
-            config=recovery,
-            invoke_subagent=_invoke_on_caller_loop,
-            build_envelope=_build_envelope,
-            on_attempt=on_a2ui_attempt,
+        def _run_recovery():
+            return run_a2ui_generation_with_recovery(
+                base_prompt=prep["prompt"],
+                catalog=catalog,
+                config=recovery,
+                invoke_subagent=_invoke_on_caller_loop,
+                build_envelope=_build_envelope,
+                on_attempt=on_a2ui_attempt,
+            )
+
+        # Match asyncio.to_thread's context propagation for tracing and
+        # callbacks while selecting a separate worker pool.
+        context = contextvars.copy_context()
+        result = await caller_loop.run_in_executor(
+            _recovery_executor, context.run, _run_recovery
         )
         return result["envelope"]
 

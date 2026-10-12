@@ -225,6 +225,16 @@ const REQUIRED_PROTOCOL_MAJOR = { "ag-ui-protocol": 1, "@ag-ui/core": 1, "@ag-ui
 // Every lane also exercises the dojo app and its core protocol packages.
 const DOJO_NPM_ROOT = "apps/dojo";
 const DOJO_CORE_PACKAGES = ["@ag-ui/core", "@ag-ui/client"];
+// The protocol packages every lane runs on their published releases. Every
+// other @ag-ui/* package switches only for the lane that lists it in `npm`, so
+// one broken release fails its own lane instead of the Dojo build for all of
+// them (the Dojo app imports every integration).
+const PROTOCOL_NPM_PACKAGES = ["@ag-ui/core", "@ag-ui/client", "@ag-ui/encoder", "@ag-ui/proto"];
+
+/** The @ag-ui/* npm packages published mode switches to their releases for these lanes. */
+function npmPackagesToPublish(lanes) {
+  return new Set([...PROTOCOL_NPM_PACKAGES, ...lanes.flatMap((lane) => LANES[lane].npm || [])]);
+}
 const STATE_DIR = ".published-mode";
 const NPM_DEP_FIELDS = ["dependencies", "devDependencies", "peerDependencies", "optionalDependencies"];
 
@@ -373,7 +383,8 @@ async function apply(root, args) {
   // npm: the dojo app plus each lane's own example packages, rewritten once.
   const npmRoots = new Set([DOJO_NPM_ROOT]);
   for (const lane of lanes) for (const r of LANES[lane].npmRoots || []) npmRoots.add(r);
-  const npmResult = await rewriteNpm(root, [...npmRoots], writer);
+  const npmResult = await rewriteNpm(root, [...npmRoots], npmPackagesToPublish(lanes), writer);
+  await pinProtocolOverrides(root, writer);
   const pythonDone = new Map();
 
   for (const lane of lanes) {
@@ -477,7 +488,46 @@ function expandGlob(base, segments) {
  * recursively, so their own `@ag-ui/*` deps also come from npm.
  * Returns name -> { latest, mode } where mode is "npm" or "source (not on npm)".
  */
-async function rewriteNpm(root, rootDirs, writer) {
+/**
+ * Pins the protocol packages workspace-wide, through the root pnpm overrides,
+ * to the release the Dojo now uses. CopilotKit and other npm dependencies
+ * otherwise resolve their own @ag-ui/client, and two copies of its classes are
+ * not assignable to each other (the Dojo's agents stop type-checking against
+ * CopilotRuntime).
+ */
+async function pinProtocolOverrides(root, writer) {
+  const file = path.join(root, "pnpm-workspace.yaml");
+  const versions = new Map();
+  for (const name of PROTOCOL_NPM_PACKAGES) {
+    const latest = await npmLatest(name);
+    if (latest) versions.set(name, latest);
+  }
+  const { text, edits } = withProtocolOverrides(fs.readFileSync(file, "utf8"), versions);
+  if (edits.length) writer.write(file, text, `override ${edits.join(", ")}`);
+}
+
+/**
+ * pnpm-workspace.yaml text with each package in `versions` overridden to its
+ * version: existing entries (the unversioned key and selectors such as
+ * "@ag-ui/client@0.0.59") are updated in place, and the unversioned key is
+ * added only when absent, so applying twice gives the same file.
+ */
+function withProtocolOverrides(text, versions) {
+  const header = text.match(/^overrides:\n/m);
+  if (!header) throw new Error("pnpm-workspace.yaml has no overrides block");
+  const edits = [];
+  for (const [name, version] of versions) {
+    const key = name.replace(/[/.]/g, "\\$&");
+    text = text.replace(new RegExp(`^(\\s+"${key}(?:@[^"]+)?":\\s*)\\S+$`, "gm"), `$1${version}`);
+    if (!new RegExp(`^\\s+"${key}":`, "m").test(text)) {
+      text = text.replace(header[0], `${header[0]}  "${name}": ${version}\n`);
+    }
+    edits.push(`${name} -> ${version}`);
+  }
+  return { text, edits };
+}
+
+async function rewriteNpm(root, rootDirs, publish, writer) {
   const workspace = workspacePackages(root);
   const result = new Map();
   const queue = rootDirs.map((d) => path.join(root, d));
@@ -496,6 +546,12 @@ async function rewriteNpm(root, rootDirs, writer) {
     for (const field of NPM_DEP_FIELDS) {
       for (const [name, spec] of Object.entries(pkg[field] || {})) {
         if (!name.startsWith("@ag-ui/")) continue;
+        if (!publish.has(name)) {
+          // Another lane's package: stays on repo source, but its own protocol
+          // dependencies switch too, so the Dojo runs one published core.
+          if (spec.startsWith("workspace:") && workspace.has(name)) queue.push(workspace.get(name));
+          continue;
+        }
         const latest = await npmLatest(name);
         if (latest) {
           result.set(name, { latest, mode: "npm" });
@@ -1045,5 +1101,7 @@ module.exports = {
   withMissingLanes,
   laneStatus,
   serverModules,
+  npmPackagesToPublish,
+  withProtocolOverrides,
   LANES,
 };

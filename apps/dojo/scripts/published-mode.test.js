@@ -12,6 +12,8 @@ const {
   withMissingLanes,
   laneStatus,
   serverModules,
+  npmPackagesToPublish,
+  withProtocolOverrides,
   LANES,
 } = require("./published-mode.js");
 
@@ -131,4 +133,22 @@ test("every Python lane names server modules that verify-sources can import", ()
       );
     }
   }
+});
+
+test("a lane switches only its own and the protocol packages to their releases", () => {
+  const publish = npmPackagesToPublish(["agno"]);
+  for (const name of ["@ag-ui/core", "@ag-ui/client", "@ag-ui/agno"]) assert.ok(publish.has(name), name);
+  // Another lane's package stays on repo source, so its release can't break this lane.
+  assert.ok(!publish.has("@ag-ui/adk"));
+  assert.ok(!publish.has("@ag-ui/mastra"));
+});
+
+test("protocol overrides update existing entries and survive a second apply", () => {
+  const input = ["overrides:", "  langium: 3.2.0", '  "@ag-ui/client@0.0.59": 1.0.1', "  zod: 3.25.76", ""].join("\n");
+  const versions = new Map([["@ag-ui/client", "1.0.2"]]);
+  const once = withProtocolOverrides(input, versions).text;
+  assert.match(once, /^  "@ag-ui\/client": 1\.0\.2$/m);
+  assert.match(once, /^  "@ag-ui\/client@0\.0\.59": 1\.0\.2$/m);
+  // A second apply (e.g. after a failed install) must not add the key again.
+  assert.equal(withProtocolOverrides(once, versions).text, once);
 });

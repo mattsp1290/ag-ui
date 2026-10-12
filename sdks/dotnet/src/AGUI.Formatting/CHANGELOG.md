@@ -2,7 +2,7 @@
 
 ## 1.0.1 — 2026-10-12
 
-- Maintenance release; no consumer-facing changes identified.
+- Released alongside `AGUI.Abstractions` and `AGUI.Server` 1.0.1; no changes in this package.
 
 ### Breaking changes
 

@@ -2,12 +2,11 @@
 
 ## 1.0.1 — 2026-10-12
 
-- Null optional fields are now omitted even when the serializer context is inserted into host-owned `JsonSerializerOptions`, fixing stray `null` fields (e.g. `parentRunId`, `input`) under Microsoft Agent Framework on .NET 10.
-- Clarified serializer context remarks documenting the per-property null rule.
+- Optional fields without a value are now left out of the JSON even when a host inserts the serializer context into its own `JsonSerializerOptions`, as AG-UI 1.0 requires. Under Microsoft Agent Framework on .NET 10, events were sent with `null` optional fields (e.g. `parentRunId`, `input`, `subagentRunId`). Snapshot or baseline tests that recorded those `null` keys need updating.
 
 ### Breaking changes
 
-- Serialized output no longer includes null optional fields in host-owned JSON options scenarios; re-verify any consumers that relied on those keys being present.
+None.
 
 ## 1.0.0 — 2026-09-17
 

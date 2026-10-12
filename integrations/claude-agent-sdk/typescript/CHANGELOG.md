@@ -2,14 +2,13 @@
 
 ## 0.0.5 — 2026-10-12
 
-- Declares `protocolVersion` and now skips audio/video content.
-- Fixed empty-prompt resume after display-only frontend tools; the adapter now sends placeholder text instead of an empty user turn, so `followUp: false` is no longer required as a workaround.
-- Updated validators to source from `@ag-ui/core/schemas`, follows part renames, flattens tool result content to text, and drops file sources with a warning.
+- Requires AG-UI 1.0 (`@ag-ui/core` / `@ag-ui/client` `>=1.0.0`). `RUN_STARTED` declares `protocolVersion`.
+- Audio and video parts are skipped with a warning; tool-result content parts are flattened to text, and file sources are dropped with a warning.
+- After a display-only frontend tool, the adapter no longer resumes with an empty prompt, so the `followUp: false` workaround is no longer needed.
 
 ### Breaking changes
 
-- Requires `@ag-ui` 1.0 peer dependencies.
-- Message part renames and content flattening change wire behavior; re-verify tool results and file-source handling against the 1.0 models.
+None.
 
 ## 0.0.4
 

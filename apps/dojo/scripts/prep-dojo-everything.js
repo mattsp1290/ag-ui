@@ -175,7 +175,9 @@ const ALL_TARGETS = {
   "cloudflare-agents": {
     // Standalone install (own lockfile, keeps wrangler/workerd out of the root
     // lockfile); the linked @ag-ui packages are then built from the repo root.
-    command: `pnpm install --frozen-lockfile && pnpm --dir "${gitRoot}" exec nx run @ag-ui/cloudflare-agents:build`,
+    // No --frozen-lockfile flag: CI freezes plain installs by default, and
+    // published mode turns that off after rewriting this example's manifest.
+    command: `pnpm install && pnpm --dir "${gitRoot}" exec nx run @ag-ui/cloudflare-agents:build`,
     name: "Cloudflare Agents",
     cwd: path.join(integrationsRoot, "community/cloudflare-agents/typescript/examples"),
   },

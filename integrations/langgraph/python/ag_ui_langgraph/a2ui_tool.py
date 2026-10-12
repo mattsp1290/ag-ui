@@ -195,19 +195,25 @@ def get_a2ui_tools(params: A2UIToolParams):
         # unvalidated attempt, so a rejected one never paints). Returns a structured
         # hard-failure envelope once the attempt cap is hit.
         #
-        # The recovery loop is synchronous and calls ``invoke_subagent`` (here the
-        # async streaming subagent) per attempt. Run it in a worker thread so its
-        # blocking ``asyncio.run`` doesn't collide with THIS running event loop.
-        # The subagent's astream still emits OnChatModelStream on the run, so the
-        # surface paints progressively without this adapter emitting anything.
+        # The recovery loop is synchronous, so run it in a worker thread. Send
+        # each async model stream back to the caller's event loop: the model may
+        # hold async connections already bound to that loop. The subagent's
+        # astream still emits OnChatModelStream on the run, so the surface paints
+        # progressively without this adapter emitting anything.
+        caller_loop = asyncio.get_running_loop()
+
+        def _invoke_on_caller_loop(prompt, attempt):
+            future = asyncio.run_coroutine_threadsafe(
+                _invoke_subagent(prompt, attempt), caller_loop
+            )
+            return future.result()
+
         result = await asyncio.to_thread(
             run_a2ui_generation_with_recovery,
             base_prompt=prep["prompt"],
             catalog=catalog,
             config=recovery,
-            invoke_subagent=lambda prompt, attempt: asyncio.run(
-                _invoke_subagent(prompt, attempt)
-            ),
+            invoke_subagent=_invoke_on_caller_loop,
             build_envelope=_build_envelope,
             on_attempt=on_a2ui_attempt,
         )

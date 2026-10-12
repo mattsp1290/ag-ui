@@ -99,6 +99,41 @@ class FakeModel:
         return _StreamingBoundModel(self)
 
 
+class LoopBoundModel(FakeModel):
+    """Fail if the render stream runs outside the tool caller's event loop."""
+
+    def __init__(self, args_by_attempt):
+        super().__init__(args_by_attempt[0])
+        self.args_by_attempt = args_by_attempt
+        self.call_count = 0
+
+    def bind_tools(self, tools, tool_choice=None):
+        caller_loop = asyncio.get_running_loop()
+        parent = self
+
+        class BoundModel:
+            async def astream(self, messages):
+                if asyncio.get_running_loop() is not caller_loop:
+                    raise RuntimeError("model stream ran on a different event loop")
+                parent.captured_prompts.append(messages[0].content)
+                args = parent.args_by_attempt[parent.call_count]
+                parent.call_count += 1
+                for index, fragment in enumerate(_arg_chunks(args)):
+                    yield AIMessageChunk(
+                        content="",
+                        tool_call_chunks=[
+                            tool_call_chunk(
+                                name="render_a2ui" if index == 0 else None,
+                                args=fragment,
+                                id="call-1" if index == 0 else None,
+                                index=0,
+                            )
+                        ],
+                    )
+
+        return BoundModel()
+
+
 class FakeRuntime:
     """Stand-in for LangGraph's ``ToolRuntime`` — the tool reads ``state`` and
     ``config`` (the latter forwarded to ``adispatch_custom_event``)."""
@@ -169,6 +204,17 @@ class TestGetA2UITools(unittest.TestCase):
         self.assertEqual(default_tool.name, "generate_a2ui")
         custom_tool, _ = self._make(tool_name="render_ui")
         self.assertEqual(custom_tool.name, "render_ui")
+
+    def test_recovery_streams_on_caller_loop_across_retries(self):
+        model = LoopBoundModel([{"components": []}, VALID_ARGS])
+        attempts = []
+        tool = get_a2ui_tools({"model": model, "on_a2ui_attempt": attempts.append})
+
+        envelope = _invoke_tool(tool, FakeRuntime({"messages": []}), intent="create")
+
+        self.assertEqual(model.call_count, 2)
+        self.assertEqual([attempt["ok"] for attempt in attempts], [False, True])
+        self.assertIn(A2UI_OPERATIONS_KEY, json.loads(envelope))
 
 
 class TestStreamRenderSubagent(unittest.TestCase):

@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.0.1 — 2026-10-12
+
+- Maintenance release; no consumer-facing changes identified.
+
+### Breaking changes
+
+None.
+
 ## 1.0.0 — 2026-09-17
 
 - Client now declares the protocol version it speaks: every `RunAgentInput` carries "1.0", read from the generated `AGUIProtocol.Version`.

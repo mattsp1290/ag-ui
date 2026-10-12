@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.0.1 — 2026-10-12
+
+- Maintenance release; no consumer-facing changes identified.
+
+### Breaking changes
+
+None.
+
 ## 1.0.0 — 2026-09-17
 
 - Updated to the generated 1.0 models, aligning content parts, tool result parts, capabilities, run outcomes, and token usage.

@@ -1,5 +1,4 @@
-﻿using AGUI.Abstractions;
-using AGUIDojoServer;
+﻿using AGUIDojoServer;
 using Microsoft.Agents.AI.Hosting.AGUI.AspNetCore;
 using Microsoft.AspNetCore.HttpLogging;
 using Microsoft.Extensions.Options;
@@ -15,11 +14,6 @@ builder.Services.AddHttpLogging(logging =>
 });
 
 builder.Services.AddHttpClient().AddLogging();
-builder.Services.ConfigureHttpJsonOptions(options =>
-{
-    // The demos' own state and tool types.
-    options.SerializerOptions.TypeInfoResolverChain.Add(AGUIDojoServerSerializerContext.Default);
-});
 builder.Services.AddAGUIServer();
 
 WebApplication app = builder.Build();

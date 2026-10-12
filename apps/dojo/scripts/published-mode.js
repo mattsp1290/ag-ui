@@ -384,6 +384,7 @@ async function apply(root, args) {
   const npmRoots = new Set([DOJO_NPM_ROOT]);
   for (const lane of lanes) for (const r of LANES[lane].npmRoots || []) npmRoots.add(r);
   const npmResult = await rewriteNpm(root, [...npmRoots], npmPackagesToPublish(lanes), writer);
+  await pinProtocolOverrides(root, writer);
   const pythonDone = new Map();
 
   for (const lane of lanes) {
@@ -487,6 +488,31 @@ function expandGlob(base, segments) {
  * recursively, so their own `@ag-ui/*` deps also come from npm.
  * Returns name -> { latest, mode } where mode is "npm" or "source (not on npm)".
  */
+/**
+ * Pins the protocol packages workspace-wide, through the root pnpm overrides,
+ * to the release the Dojo now uses. CopilotKit and other npm dependencies
+ * otherwise resolve their own @ag-ui/client, and two copies of its classes are
+ * not assignable to each other (the Dojo's agents stop type-checking against
+ * CopilotRuntime).
+ */
+async function pinProtocolOverrides(root, writer) {
+  const file = path.join(root, "pnpm-workspace.yaml");
+  let text = fs.readFileSync(file, "utf8");
+  const header = text.match(/^overrides:\n/m);
+  if (!header) throw new Error("pnpm-workspace.yaml has no overrides block");
+  const edits = [];
+  for (const name of PROTOCOL_NPM_PACKAGES) {
+    const latest = await npmLatest(name);
+    if (!latest) continue;
+    // Existing selectors for this package (e.g. "@ag-ui/client@0.0.59") follow too.
+    const selector = new RegExp(`^(\\s+"${name.replace(/[/.]/g, "\\$&")}(?:@[^"]+)?":\\s*)\\S+$`, "gm");
+    text = text.replace(selector, `$1${latest}`);
+    text = text.replace(header[0], `${header[0]}  "${name}": ${latest}\n`);
+    edits.push(`${name} -> ${latest}`);
+  }
+  if (edits.length) writer.write(file, text, `override ${edits.join(", ")}`);
+}
+
 async function rewriteNpm(root, rootDirs, publish, writer) {
   const workspace = workspacePackages(root);
   const result = new Map();

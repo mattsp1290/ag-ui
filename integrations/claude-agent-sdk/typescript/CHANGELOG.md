@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.0.6 — 2026-10-12
+
+- `buildOptions` now defaults `settingSources` to `[]`, so runs no longer load the host's `~/.claude` settings or the working directory's `CLAUDE.md`.
+- A caller-provided `settingSources` still takes precedence.
+
+### Breaking changes
+
+- Default `settingSources` changed from loading all sources to `[]`; runs relying on implicit host/filesystem settings must set `settingSources` explicitly.
+
 ## 0.0.5 — 2026-10-12
 
 - Requires AG-UI 1.0 (`@ag-ui/core` / `@ag-ui/client` `>=1.0.0`). `RUN_STARTED` declares `protocolVersion`.

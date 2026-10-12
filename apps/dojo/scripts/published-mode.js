@@ -497,20 +497,34 @@ function expandGlob(base, segments) {
  */
 async function pinProtocolOverrides(root, writer) {
   const file = path.join(root, "pnpm-workspace.yaml");
-  let text = fs.readFileSync(file, "utf8");
+  const versions = new Map();
+  for (const name of PROTOCOL_NPM_PACKAGES) {
+    const latest = await npmLatest(name);
+    if (latest) versions.set(name, latest);
+  }
+  const { text, edits } = withProtocolOverrides(fs.readFileSync(file, "utf8"), versions);
+  if (edits.length) writer.write(file, text, `override ${edits.join(", ")}`);
+}
+
+/**
+ * pnpm-workspace.yaml text with each package in `versions` overridden to its
+ * version: existing entries (the unversioned key and selectors such as
+ * "@ag-ui/client@0.0.59") are updated in place, and the unversioned key is
+ * added only when absent, so applying twice gives the same file.
+ */
+function withProtocolOverrides(text, versions) {
   const header = text.match(/^overrides:\n/m);
   if (!header) throw new Error("pnpm-workspace.yaml has no overrides block");
   const edits = [];
-  for (const name of PROTOCOL_NPM_PACKAGES) {
-    const latest = await npmLatest(name);
-    if (!latest) continue;
-    // Existing selectors for this package (e.g. "@ag-ui/client@0.0.59") follow too.
-    const selector = new RegExp(`^(\\s+"${name.replace(/[/.]/g, "\\$&")}(?:@[^"]+)?":\\s*)\\S+$`, "gm");
-    text = text.replace(selector, `$1${latest}`);
-    text = text.replace(header[0], `${header[0]}  "${name}": ${latest}\n`);
-    edits.push(`${name} -> ${latest}`);
+  for (const [name, version] of versions) {
+    const key = name.replace(/[/.]/g, "\\$&");
+    text = text.replace(new RegExp(`^(\\s+"${key}(?:@[^"]+)?":\\s*)\\S+$`, "gm"), `$1${version}`);
+    if (!new RegExp(`^\\s+"${key}":`, "m").test(text)) {
+      text = text.replace(header[0], `${header[0]}  "${name}": ${version}\n`);
+    }
+    edits.push(`${name} -> ${version}`);
   }
-  if (edits.length) writer.write(file, text, `override ${edits.join(", ")}`);
+  return { text, edits };
 }
 
 async function rewriteNpm(root, rootDirs, publish, writer) {
@@ -1088,5 +1102,6 @@ module.exports = {
   laneStatus,
   serverModules,
   npmPackagesToPublish,
+  withProtocolOverrides,
   LANES,
 };

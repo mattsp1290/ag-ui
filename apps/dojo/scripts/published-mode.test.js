@@ -12,6 +12,7 @@ const {
   withMissingLanes,
   laneStatus,
   serverModules,
+  npmPackagesToPublish,
   LANES,
 } = require("./published-mode.js");
 
@@ -131,4 +132,12 @@ test("every Python lane names server modules that verify-sources can import", ()
       );
     }
   }
+});
+
+test("a lane switches only its own and the protocol packages to their releases", () => {
+  const publish = npmPackagesToPublish(["agno"]);
+  for (const name of ["@ag-ui/core", "@ag-ui/client", "@ag-ui/agno"]) assert.ok(publish.has(name), name);
+  // Another lane's package stays on repo source, so its release can't break this lane.
+  assert.ok(!publish.has("@ag-ui/adk"));
+  assert.ok(!publish.has("@ag-ui/mastra"));
 });

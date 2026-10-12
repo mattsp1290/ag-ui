@@ -2,12 +2,11 @@
 
 ## 0.0.6 — 2026-10-12
 
-- `buildOptions` now defaults `settingSources` to `[]`, so runs no longer load the host's `~/.claude` settings or the working directory's `CLAUDE.md`.
-- A caller-provided `settingSources` still takes precedence.
+- Runs no longer load the host's `~/.claude` settings or the working directory's `CLAUDE.md`. Recent `@anthropic-ai/claude-agent-sdk` 0.2 releases load them when `settingSources` is omitted; the adapter now defaults it to `[]`. Pass `settingSources` to opt back in.
 
 ### Breaking changes
 
-- Default `settingSources` changed from loading all sources to `[]`; runs relying on implicit host/filesystem settings must set `settingSources` explicitly.
+None.
 
 ## 0.0.5 — 2026-10-12
 

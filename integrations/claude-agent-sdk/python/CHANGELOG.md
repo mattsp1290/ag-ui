@@ -2,13 +2,11 @@
 
 ## 0.2.1 — 2026-10-12
 
-- `build_options` now defaults `setting_sources` to `[]`, preventing runs from loading host `~/.claude` settings and the working directory's `CLAUDE.md`.
-- Restores the isolation behavior of claude-agent-sdk 0.1 when running on 0.2.
-- Callers can opt back into filesystem settings by setting `setting_sources` explicitly.
+- Runs no longer load the host's `~/.claude` settings or the working directory's `CLAUDE.md`. `claude-agent-sdk` 0.2 loads them when `setting_sources` is unset; the adapter now defaults it to `[]`, as 0.1 behaved. Pass `setting_sources` to opt back in.
 
 ### Breaking changes
 
-- Runs no longer inherit host filesystem settings (`~/.claude`, `CLAUDE.md`) by default; re-add `setting_sources` if you relied on that.
+None.
 
 ## 0.2.0 — 2026-10-12
 

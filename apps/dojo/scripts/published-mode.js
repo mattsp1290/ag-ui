@@ -209,6 +209,13 @@ const LANES = {
     npmRoots: ["integrations/claude-managed-agents/typescript"],
     note: "adapter runs from source (examples import ../src); @ag-ui/* deps are published",
   },
+  "spring-ai": {
+    npm: ["@ag-ui/spring-ai"],
+    // The Java server is built by prep from this checkout's Spring SDK
+    // (sdks/community/java/spring); published mode has no Maven rewrite yet,
+    // so only the @ag-ui/* npm packages are published releases.
+    note: "Java server builds from this checkout's Spring SDK; only @ag-ui/* npm deps are published",
+  },
   "claude-managed-agents-dotnet": {
     dotnet: {
       csproj: "integrations/claude-managed-agents/dotnet/examples/AGUIDojoServer/AGUIDojoServer.csproj",

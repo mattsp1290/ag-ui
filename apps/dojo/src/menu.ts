@@ -370,6 +370,20 @@ export const menuIntegrations = [
     ],
   },
   {
+    id: "a2a",
+    name: "A2A",
+    features: ["a2a_chat"],
+    // Kept out of the hosted picker (it was removed from it in 61700758);
+    // the routes still serve local runs and the a2a-middleware e2e lane.
+    localOnly: true,
+  },
+  {
+    id: "a2a-basic",
+    name: "A2A (Direct)",
+    features: ["vnext_chat"],
+    localOnly: true,
+  },
+  {
     id: "aws-strands",
     name: "AWS Strands (Python)",
     features: [

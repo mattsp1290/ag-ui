@@ -241,7 +241,7 @@ export class A2AMiddlewareAgent extends AbstractAgent {
                   );
                 }
 
-                if (this.debug) {
+                if (this.debug.enabled) {
                   console.debug("sending message to a2a agent", {
                     agentName,
                     message: task,
@@ -255,7 +255,7 @@ export class A2AMiddlewareAgent extends AbstractAgent {
                       toolCallId: toolCallId,
                       content: a2aResponse,
                     };
-                    if (this.debug) {
+                    if (this.debug.enabled) {
                       console.debug("newMessage From a2a agent", newMessage);
                     }
                     this.addMessage(newMessage);

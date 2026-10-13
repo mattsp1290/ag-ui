@@ -5357,6 +5357,12 @@ class StrandsAgent:
                 else []
             )
 
+            prior_resume_results = {
+                message.tool_call_id: message
+                for message in input_data.messages
+                if resume_entries and getattr(message, "role", None) == "tool"
+            }
+
             # Emit state snapshot if provided
             initial_snapshot = _state_snapshot_payload(
                 getattr(input_data, "state", None)
@@ -6771,11 +6777,48 @@ class StrandsAgent:
 
                             # Emit ToolCallResultEvent WITHOUT role field to complete the tool in UI
                             # but prevent it from being added to conversation history.
-                            # A fresh message ID is used so CopilotKit creates a proper standalone
-                            # ToolMessage and closes the spinner correctly.
-                            tool_result_message_id = str(uuid.uuid4())
+                            # New results receive a standalone ToolMessage ID;
+                            # corrected resume results retain their original ID.
                             tool_result_content = _serialize_tool_result_data(
                                 result_data
+                            )
+                            # A native resume re-emits the entire parked batch,
+                            # including backend results completed before the
+                            # interrupt. Keep the client's existing message (and
+                            # its position/id) when that result is already there.
+                            prior_result_index = next(
+                                (
+                                    index
+                                    for index, message in enumerate(snapshot_messages)
+                                    if resume_entries
+                                    and getattr(message, "role", None) == "tool"
+                                    and getattr(message, "tool_call_id", None)
+                                    == result_tool_id
+                                ),
+                                None,
+                            )
+                            prior_result = prior_resume_results.get(result_tool_id)
+                            if prior_result is not None:
+                                same_result = (
+                                    prior_result.content == tool_result_content
+                                )
+                                if not same_result:
+                                    try:
+                                        same_result = json.dumps(
+                                            json.loads(prior_result.content),
+                                            sort_keys=True,
+                                        ) == json.dumps(
+                                            json.loads(tool_result_content),
+                                            sort_keys=True,
+                                        )
+                                    except (TypeError, ValueError):
+                                        pass  # Plain-text results use exact equality.
+                                if same_result:
+                                    continue
+                            tool_result_message_id = (
+                                prior_result.id
+                                if prior_result is not None
+                                else str(uuid.uuid4())
                             )
                             yield ToolCallResultEvent(
                                 type=EventType.TOOL_CALL_RESULT,
@@ -6797,14 +6840,20 @@ class StrandsAgent:
                                     and behavior.skip_messages_snapshot
                                 )
                             ):
-                                snapshot_messages.append(
-                                    ToolMessage(
-                                        id=tool_result_message_id,
-                                        role="tool",
-                                        content=tool_result_content,
-                                        tool_call_id=result_tool_id,
-                                    )
+                                result_message = ToolMessage(
+                                    id=tool_result_message_id,
+                                    role="tool",
+                                    content=tool_result_content,
+                                    tool_call_id=result_tool_id,
                                 )
+                                if prior_result_index is None:
+                                    snapshot_messages.append(result_message)
+                                else:
+                                    snapshot_messages[prior_result_index] = (
+                                        prior_result.model_copy(
+                                            update={"content": tool_result_content}
+                                        )
+                                    )
                                 yield MessagesSnapshotEvent(
                                     type=EventType.MESSAGES_SNAPSHOT,
                                     messages=list(snapshot_messages),

@@ -2,14 +2,13 @@
 
 ## 0.0.4 — 2026-10-13
 
-- Replaced the deprecated `maxVersion` setting with `maxProtocolVersion`, pinned to `0.0.39`.
-- The `0.0.39` ceiling enables the client's content-flattening shim, so string message content is sent instead of `ContentPart[]`, which the community Java SDK rejects with HTTP 400.
-- Rewrote the README to document Spring AI instead of the copied LlamaIndex content.
+- Requires AG-UI 1.0 (`@ag-ui/core` / `@ag-ui/client` `>=1.0.0`).
+- Caps the protocol at 0.0.39 through `maxProtocolVersion` (was the deprecated `maxVersion`), because the community Java SDK is not on 1.0 yet. The client flattens message content to text before sending; images, audio, video and documents are dropped with a console warning.
+- The README now documents Spring AI (it had been copied from LlamaIndex).
 
 ### Breaking changes
 
-- Requires `@ag-ui/client` 1.0, where `maxProtocolVersion` exists; verify the peer dependency.
-- Protocol version ceiling is now `0.0.39` under the `maxProtocolVersion` name; re-verify if you relied on `maxVersion`.
+None.
 
 ## 0.0.3
 

@@ -83,11 +83,17 @@ public static class RunAgentInputExtensions
 
             var pendingApprovalCalls = CollectPendingApprovalCalls(messages, clientToolNames);
 
+            // Calls already answered by an earlier entry in this batch. A later entry for the same
+            // call, whatever its shape, stays a generic interrupt response so the tool runs once.
+            var claimedCallIds = new HashSet<string>(StringComparer.Ordinal);
+
+            // Entries that name their call (an echo or a toolCallId) are resolved first, so a bare
+            // entry never competes with them whatever order the client sent them in.
             var genericResponses = new List<AIContent>(resumeEntries.Count);
-            foreach (var resume in resumeEntries)
+            foreach (var resume in resumeEntries.OrderBy(r => IsBareApprovalPayload(r) ? 1 : 0))
             {
                 if (TryDecodeToolApprovalResume(resume, jsonSerializerOptions,
-                    originalCallsById, pendingApprovalCalls,
+                    originalCallsById, pendingApprovalCalls, claimedCallIds,
                     out var approvalRequest, out var approvalResponse))
                 {
                     messages.Add(new ChatMessage(ChatRole.Assistant, [approvalRequest!]));
@@ -238,6 +244,7 @@ public static class RunAgentInputExtensions
         JsonSerializerOptions jsonSerializerOptions,
         Dictionary<string, FunctionCallContent> originalCallsById,
         List<FunctionCallContent> pendingApprovalCalls,
+        HashSet<string> claimedCallIds,
         out ToolApprovalRequestContent? request,
         out ToolApprovalResponseContent? response)
     {
@@ -296,6 +303,12 @@ public static class RunAgentInputExtensions
             fcc = resolved;
         }
 
+        // The first entry resolved for a call answers it; any later entry for it approves nothing.
+        if (!claimedCallIds.Add(fcc.CallId))
+        {
+            return false;
+        }
+
         pendingApprovalCalls.RemoveAll(call => string.Equals(call.CallId, fcc.CallId, StringComparison.Ordinal));
 
         // An abandoned interrupt is never an approval, whatever the payload claims.
@@ -306,18 +319,24 @@ public static class RunAgentInputExtensions
         return true;
     }
 
+    private static bool IsBareApprovalPayload(AGUIResume resume) =>
+        resume.Payload is { ValueKind: JsonValueKind.Object } element
+        && !element.TryGetProperty("toolCall", out _)
+        && !element.TryGetProperty("toolCallId", out _);
+
     /// <summary>
     /// Recovers the tool call a <c>toolCall</c>-less approval resume answers from the run's
-    /// messages: by the <c>toolCallId</c> the client sent back when it sent one, otherwise by
-    /// being the single unanswered approval-gated call.
+    /// messages: by the <c>toolCallId</c> the client sent back when it sent one, otherwise by the
+    /// interrupt id, which is the approval request id FunctionInvokingChatClient minted for the call
+    /// (see <see cref="FiccApprovalRequestIdFor"/>).
     /// </summary>
     /// <returns>
     /// The recovered call, or <see langword="null"/> when nothing in the messages identifies one
     /// (the entry then stays a generic interrupt response).
     /// </returns>
     /// <exception cref="InvalidOperationException">
-    /// The entry names a tool call the run's messages do not carry, or leaves the choice between
-    /// several unanswered approval-gated calls ambiguous.
+    /// The entry names a tool call the run's messages do not carry, by <c>toolCallId</c> or by an
+    /// approval interrupt id.
     /// </exception>
     private static FunctionCallContent? ResolvePendingApprovalCall(
         AGUIResume resume,
@@ -348,15 +367,40 @@ public static class RunAgentInputExtensions
                 $"Resume entry '{resume.InterruptId}' answers tool call '{toolCallId}', which the run's messages do not carry.");
         }
 
-        if (pendingApprovalCalls.Count > 1)
+        // Otherwise only the call this interrupt was raised for. An interrupt id that is not an
+        // approval id (another kind of interrupt) approves nothing.
+        var approvalIdPrefix = FiccApprovalRequestIdFor(string.Empty);
+        if (string.IsNullOrEmpty(resume.InterruptId)
+            || !resume.InterruptId.StartsWith(approvalIdPrefix, StringComparison.Ordinal))
         {
-            var callIds = string.Join(", ", pendingApprovalCalls.Select(call => $"'{call.CallId}'"));
-            throw new InvalidOperationException(
-                $"Resume entry '{resume.InterruptId}' does not say which tool call it answers, and the run's messages carry {pendingApprovalCalls.Count} unanswered approval-gated tool calls ({callIds}). Send the answered call's id as 'toolCallId' on the resume payload.");
+            return null;
         }
 
-        return pendingApprovalCalls.Count == 1 ? pendingApprovalCalls[0] : null;
+        var interruptCallId = resume.InterruptId[approvalIdPrefix.Length..];
+        foreach (var pending in pendingApprovalCalls)
+        {
+            if (string.Equals(pending.CallId, interruptCallId, StringComparison.Ordinal))
+            {
+                return pending;
+            }
+        }
+
+        // Same as a toolCallId: a call already answered is not approved a second time, and a call
+        // the messages do not carry at all is rejected.
+        if (originalCallsById.ContainsKey(interruptCallId))
+        {
+            return null;
+        }
+
+        throw new InvalidOperationException(
+            $"Resume entry '{resume.InterruptId}' answers tool call '{interruptCallId}', which the run's messages do not carry.");
     }
+
+    // FunctionInvokingChatClient mints the approval request id for a call in its private
+    // ComposeApprovalRequestId, and the server emits that request id as the interrupt id, so a
+    // bare resume entry is matched back to its call through this same id. Kept in one place
+    // because the format is FICC's, not ours.
+    private static string FiccApprovalRequestIdFor(string callId) => "ficc_" + callId;
 
     /// <summary>
     /// Configures <paramref name="chatOptions"/> for mixed server/client tool invocation.

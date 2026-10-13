@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.0.6 — 2026-10-13
+
+- Delegation logging now respects the debug setting; A2A tasks and replies are only logged with `console.debug` when `debug.enabled` is true, instead of always.
+
+### Breaking changes
+
+None.
+
 ## 0.0.5 — 2026-10-13
 
 - Works through runtimes that clone the agent per request, such as CopilotKit: `clone()` now carries over the agent cards, clients, instructions and orchestrator. Before, a clone's first run threw while reading the agent cards.

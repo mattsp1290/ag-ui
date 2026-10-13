@@ -22,6 +22,10 @@ class StubOrchestrationAgent extends AbstractAgent {
       observer.complete();
     });
   }
+
+  clone(): StubOrchestrationAgent {
+    return new StubOrchestrationAgent(this.events);
+  }
 }
 
 const TOOL_CALL_ID = "call-1";
@@ -191,5 +195,76 @@ describe("A2AMiddlewareAgent error handling (issue #2444)", () => {
     const runError = result.events.find((e) => e.type === EventType.RUN_ERROR);
     expect(runError, "expected a RUN_ERROR event on the stream").toBeDefined();
     expect((runError as any).message).toMatch(/missing-agent/);
+  });
+});
+
+describe("delegated call arguments (PNI-549)", () => {
+  /** An orchestrator whose stream counts its subscriptions. */
+  class CountingOrchestrationAgent extends StubOrchestrationAgent {
+    subscriptions = 0;
+    run(input: RunAgentInput): Observable<BaseEvent> {
+      return new Observable<BaseEvent>((observer) => {
+        this.subscriptions += 1;
+        return super.run(input).subscribe(observer);
+      });
+    }
+  }
+
+  const streamedArgsEvents = (args: string): BaseEvent[] => [
+    { type: EventType.RUN_STARTED, threadId: "t1", runId: "r1" } as BaseEvent,
+    {
+      type: EventType.TOOL_CALL_START,
+      toolCallId: TOOL_CALL_ID,
+      toolCallName: TOOL_NAME,
+    } as BaseEvent,
+    // Split across two deltas, as streaming models send them.
+    { type: EventType.TOOL_CALL_ARGS, toolCallId: TOOL_CALL_ID, delta: args.slice(0, 10) } as BaseEvent,
+    { type: EventType.TOOL_CALL_ARGS, toolCallId: TOOL_CALL_ID, delta: args.slice(10) } as BaseEvent,
+    { type: EventType.TOOL_CALL_END, toolCallId: TOOL_CALL_ID } as BaseEvent,
+    { type: EventType.RUN_FINISHED, threadId: "t1", runId: "r1" } as BaseEvent,
+  ];
+
+  it("reads the arguments from the stream and runs the orchestrator once", async () => {
+    const orchestrationAgent = new CountingOrchestrationAgent(
+      streamedArgsEvents(JSON.stringify({ agentName: "missing-agent", task: "hi" })),
+    );
+    const agent = new A2AMiddlewareAgent({ agentUrls: [], orchestrationAgent });
+    // No seeded messages: the arguments exist only in TOOL_CALL_ARGS.
+
+    const result = await collect(agent);
+
+    // Reaching the agent lookup means the streamed arguments were parsed.
+    const runError = result.events.find((e) => e.type === EventType.RUN_ERROR);
+    expect((runError as any)?.message).toMatch(/missing-agent/);
+    expect(orchestrationAgent.subscriptions).toBe(1);
+  });
+});
+
+describe("A2AMiddlewareAgent.clone", () => {
+  // CopilotKit runs a clone per request; AbstractAgent.clone() alone drops the
+  // middleware's own fields, and the clone's first run then fails reading the
+  // agent cards.
+  it("keeps the agent cards, instructions and orchestrator, so a clone runs", async () => {
+    const orchestrationAgent = new StubOrchestrationAgent(orchestrationEvents());
+    const agent = new A2AMiddlewareAgent({
+      agentUrls: [],
+      instructions: "Delegate to the departments.",
+      orchestrationAgent,
+    });
+
+    const cloned = agent.clone();
+    expect(cloned.instructions).toBe("Delegate to the departments.");
+    expect(cloned.agentCards).toBe(agent.agentCards);
+    expect(cloned.orchestrationAgent).not.toBe(orchestrationAgent);
+
+    cloned.messages = [
+      assistantMessageWithArgs(JSON.stringify({ agentName: "missing-agent", task: "hi" })),
+    ];
+    const result = await collect(cloned);
+
+    // The run gets as far as resolving the delegated agent, which only
+    // happens with the cards and the orchestrator in place.
+    const runError = result.events.find((e) => e.type === EventType.RUN_ERROR);
+    expect((runError as any)?.message).toMatch(/missing-agent/);
   });
 });

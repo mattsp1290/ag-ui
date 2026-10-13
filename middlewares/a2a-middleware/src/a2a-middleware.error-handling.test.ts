@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { Observable } from "rxjs";
 import {
   AbstractAgent,
@@ -237,6 +237,36 @@ describe("delegated call arguments (PNI-549)", () => {
     const runError = result.events.find((e) => e.type === EventType.RUN_ERROR);
     expect((runError as any)?.message).toMatch(/missing-agent/);
     expect(orchestrationAgent.subscriptions).toBe(1);
+  });
+});
+
+describe("debug logging", () => {
+  // agent.debug is a resolved config object, so a bare `if (this.debug)` was
+  // always true and every delegated task and reply was logged.
+  const runDelegation = async (debug?: boolean) => {
+    const agent = new A2AMiddlewareAgent({
+      agentUrls: [],
+      orchestrationAgent: new StubOrchestrationAgent(orchestrationEvents()),
+      debug,
+    });
+    agent.messages = [
+      assistantMessageWithArgs(JSON.stringify({ agentName: "missing-agent", task: "hi" })),
+    ];
+    const spy = vi.spyOn(console, "debug").mockImplementation(() => {});
+    try {
+      await collect(agent);
+      return spy.mock.calls.some(([message]) => message === "sending message to a2a agent");
+    } finally {
+      spy.mockRestore();
+    }
+  };
+
+  it("stays quiet unless debug is enabled", async () => {
+    expect(await runDelegation()).toBe(false);
+  });
+
+  it("logs delegations when debug is enabled", async () => {
+    expect(await runDelegation(true)).toBe(true);
   });
 });
 

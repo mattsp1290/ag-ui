@@ -2,9 +2,8 @@
 
 ## 0.0.5 — 2026-10-13
 
-- Fixed `clone()` so cloned agents carry over agent cards, clients, instructions, and the orchestrator; previously the first run of a clone threw while reading cards.
-- Delegated arguments are now read from the run's own stream.
-- Demo and route handling updated to interoperate with a2a-sdk 1.x while the middleware client still speaks protocol 0.3.
+- Works through runtimes that clone the agent per request, such as CopilotKit: `clone()` now carries over the agent cards, clients, instructions and orchestrator. Before, a clone's first run threw while reading the agent cards.
+- A delegated `send_message_to_a2a_agent` call no longer fails with "Tool arguments not found": its arguments are read from the run's own stream, which also stops the orchestrator from being subscribed to twice.
 
 ### Breaking changes
 

@@ -601,10 +601,12 @@ public static class ChatResponseUpdateAGUIExtensions
                             break;
                         }
 
-                        // FICC also wraps server calls when a peer requires approval. Those collateral
-                        // calls don't require confirmation, so unwrap them without prompting.
+                        // FICC also wraps server calls when a peer requires approval. In a mixed
+                        // first turn those collateral calls (no confirmation required) are resumed
+                        // by the continuation, so unwrap them without prompting. Without client
+                        // tools nothing else resumes them, so they still interrupt.
 #pragma warning disable MEAI001
-                        if (!ar.RequiresConfirmation)
+                        if (clientToolNames.Count > 0 && !isContinuation && !ar.RequiresConfirmation)
 #pragma warning restore MEAI001
                         {
                             break;

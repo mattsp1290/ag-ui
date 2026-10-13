@@ -134,34 +134,194 @@ public sealed class ServerToolApprovalWithClientToolsTest
     }
 
     /// <summary>
-    /// The regression guard the old blanket guard was standing in for: when one tool in the
-    /// response requires approval, FunctionInvokingChatClient wraps the peer server-side calls as
-    /// <see cref="ToolApprovalRequestContent"/> too, with
-    /// <c>RequiresConfirmation = false</c>. Those are collateral — the tool was never marked
-    /// approval-required — so they must unwrap to a plain TOOL_CALL and leave the run successful.
+    /// When one server tool requires approval, FunctionInvokingChatClient also wraps the plain
+    /// server tools called alongside it (<c>RequiresConfirmation = false</c>). With no client
+    /// tools declared, nothing else resumes those calls, so each one must still be surfaced as an
+    /// interrupt. Driven through the real FICC: the plain ListFiles call must run after the resume.
     /// </summary>
     [Fact]
-    public async Task ServerToolApproval_CollateralWrapWithoutConfirmation_DoesNotInterrupt()
+    public async Task RoundTrip_NoClientTools_PlainServerToolBesideApprovalStillRuns()
     {
-        var collateral = new ToolApprovalRequestContent(
-            "req-lookup",
-            new FunctionCallContent("call-lookup", "LookupOrder",
-                new Dictionary<string, object?> { ["orderId"] = "o-1" }))
+        var deleteInvoked = false;
+        var listInvoked = false;
+        var serverTools = new List<AITool>
         {
-#pragma warning disable MEAI001
-            RequiresConfirmation = false,
-#pragma warning restore MEAI001
+            new ApprovalRequiredAIFunction(AIFunctionFactory.Create(
+                (string path) => { deleteInvoked = true; return $"deleted {path}"; }, "DeleteFile")),
+            AIFunctionFactory.Create(() => { listInvoked = true; return "a.txt"; }, "ListFiles"),
         };
 
-        var events = await CollectEvents(
-            ToAsyncEnumerable(new ChatResponseUpdate { Role = ChatRole.Assistant, Contents = [collateral] }),
-            BuildContext());
+        var llm = new ScriptedChatClient(
+            new FunctionCallContent("call-delete", "DeleteFile", new Dictionary<string, object?> { ["path"] = "a.txt" }),
+            new FunctionCallContent("call-list", "ListFiles", new Dictionary<string, object?>()));
 
-        // The call is still proposed to the client; only the interrupt is withheld.
-        Assert.Equal("LookupOrder", events.OfType<ToolCallStartEvent>().Single().ToolCallName);
+        var turn1 = await RunTurn(llm, serverTools, BuildInput([]));
+        var interrupts = Assert.IsType<RunFinishedInterruptOutcome>(
+            turn1.OfType<RunFinishedEvent>().Single().Outcome).Interrupts;
+        Assert.Equal(2, interrupts.Count);
 
-        var finished = events.OfType<RunFinishedEvent>().Single();
-        Assert.IsType<RunFinishedSuccessOutcome>(finished.Outcome);
+        await RunTurn(llm, serverTools, BuildResumeInput([], turn1, interrupts, _ => true, clientResults: []));
+
+        Assert.True(deleteInvoked, "DeleteFile was approved and should run");
+        Assert.True(listInvoked, "ListFiles was never gated and should run on resume");
+        AssertEveryCallAnswered(llm.LastMessages!);
+    }
+
+    /// <summary>
+    /// A client tool and a server tool requiring approval in the same response. The user denies
+    /// the server tool on resume. The continuation that resolves the client tool's result must not
+    /// re-approve the denied call: DeleteFile must not run.
+    /// </summary>
+    [Fact]
+    public async Task RoundTrip_ClientToolBesideServerApproval_DenialIsHonoured()
+    {
+        var deleteInvoked = false;
+        var serverTools = new List<AITool>
+        {
+            new ApprovalRequiredAIFunction(AIFunctionFactory.Create(
+                (string path) => { deleteInvoked = true; return $"deleted {path}"; }, "DeleteFile")),
+        };
+
+        var llm = new ScriptedChatClient(
+            new FunctionCallContent("call-choose", "choose_option", new Dictionary<string, object?>()),
+            new FunctionCallContent("call-delete", "DeleteFile", new Dictionary<string, object?> { ["path"] = "a.txt" }));
+
+        var turn1 = await RunTurn(llm, serverTools, BuildInput(["choose_option"]));
+        var interrupt = Assert.Single(Assert.IsType<RunFinishedInterruptOutcome>(
+            turn1.OfType<RunFinishedEvent>().Single().Outcome).Interrupts);
+        Assert.Equal("call-delete", interrupt.ToolCallId);
+
+        await RunTurn(llm, serverTools, BuildResumeInput(
+            ["choose_option"], turn1, [interrupt], _ => false,
+            clientResults: new() { ["call-choose"] = "\"a\"" }));
+
+        Assert.False(deleteInvoked, "DeleteFile was denied and must not run");
+        AssertEveryCallAnswered(llm.LastMessages!);
+    }
+
+    private static RunAgentInput BuildInput(string[] clientToolNames) =>
+        new()
+        {
+            ThreadId = ThreadId,
+            RunId = RunId,
+            Tools = clientToolNames
+                .Select(name => new AGUITool
+                {
+                    Name = name,
+                    Parameters = JsonDocument.Parse("""{"type":"object"}""").RootElement.Clone()
+                })
+                .ToList(),
+            Messages = [new AGUIUserMessage { Content = "tidy my files" }]
+        };
+
+    /// <summary>
+    /// Builds the resume request a spec-following client sends: the history including the
+    /// assistant's streamed tool calls and any client tool results, plus one echoed approval
+    /// resume entry per interrupt.
+    /// </summary>
+    private static RunAgentInput BuildResumeInput(
+        string[] clientToolNames,
+        List<BaseEvent> turn1,
+        IEnumerable<AGUIInterrupt> interrupts,
+        Func<AGUIInterrupt, bool> approve,
+        Dictionary<string, string> clientResults)
+    {
+        var input = BuildInput(clientToolNames);
+        var args = turn1.OfType<ToolCallArgsEvent>().ToDictionary(e => e.ToolCallId, e => e.Delta);
+        var calls = turn1.OfType<ToolCallStartEvent>().ToDictionary(e => e.ToolCallId, e => e.ToolCallName);
+        var messages = new List<AGUIMessage>(input.Messages)
+        {
+            new AGUIAssistantMessage
+            {
+                ToolCalls = calls.Select(c => new AGUIToolCall
+                {
+                    Id = c.Key,
+                    Function = new AGUIToolCallFunction { Name = c.Value, Arguments = args[c.Key] }
+                }).ToList()
+            }
+        };
+        foreach (var r in clientResults)
+        {
+            messages.Add(new AGUIToolMessage { ToolCallId = r.Key, Content = r.Value });
+        }
+
+        input.Messages = messages;
+        input.Resume = interrupts.Select(i => new AGUIResume
+        {
+            InterruptId = i.Id,
+            Status = ResumeStatus.Resolved,
+            Payload = JsonDocument.Parse(
+                $$$"""{"approved":{{{(approve(i) ? "true" : "false")}}},"toolCall":{"callId":"{{{i.ToolCallId}}}","name":"{{{calls[i.ToolCallId!]}}}","arguments":{{{args[i.ToolCallId!]}}}}}""")
+                .RootElement.Clone(),
+        }).ToList();
+        return input;
+    }
+
+    private static async Task<List<BaseEvent>> RunTurn(
+        ScriptedChatClient llm, IList<AITool> serverTools, RunAgentInput input)
+    {
+        var context = input.ToChatRequestContext(SerializerOptions);
+        context.ChatOptions.Tools ??= new List<AITool>();
+        foreach (var tool in serverTools)
+        {
+            context.ChatOptions.Tools.Add(tool);
+        }
+
+        var ficc = new ChatClientBuilder(llm).UseFunctionInvocation().Build();
+        return await CollectEvents(
+            ficc.GetStreamingResponseAsync(context.Messages, context.ChatOptions), context).ConfigureAwait(false);
+    }
+
+    private static void AssertEveryCallAnswered(IEnumerable<ChatMessage> messages)
+    {
+        var contents = messages.SelectMany(m => m.Contents).ToList();
+        var answered = contents.OfType<FunctionResultContent>().Select(r => r.CallId).ToHashSet();
+        foreach (var call in contents.OfType<FunctionCallContent>())
+        {
+            Assert.Contains(call.CallId, answered);
+        }
+    }
+
+    /// <summary>
+    /// A fake model: the first call proposes the given tool calls, every later call answers with
+    /// text and records the messages it was sent.
+    /// </summary>
+    private sealed class ScriptedChatClient(params AIContent[] firstTurnCalls) : IChatClient
+    {
+        private int _calls;
+
+        public List<ChatMessage>? LastMessages { get; private set; }
+
+        public async IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(
+            IEnumerable<ChatMessage> messages,
+            ChatOptions? options = null,
+            [EnumeratorCancellation] CancellationToken cancellationToken = default)
+        {
+            await Task.Yield();
+            if (_calls++ == 0)
+            {
+                yield return new ChatResponseUpdate
+                {
+                    Role = ChatRole.Assistant,
+                    Contents = [.. firstTurnCalls],
+                    FinishReason = ChatFinishReason.ToolCalls,
+                };
+                yield break;
+            }
+
+            LastMessages = messages.ToList();
+            yield return new ChatResponseUpdate { Role = ChatRole.Assistant, Contents = [new TextContent("done")] };
+        }
+
+        public Task<ChatResponse> GetResponseAsync(
+            IEnumerable<ChatMessage> messages, ChatOptions? options = null, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public object? GetService(Type serviceType, object? serviceKey = null) => null;
+
+        public void Dispose()
+        {
+        }
     }
 
     private static async Task<List<BaseEvent>> CollectEvents(

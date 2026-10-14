@@ -63,6 +63,8 @@ export interface OmnaraApi {
   listBacklog(
     agentId: string,
   ): Promise<Array<{ id: string; input_idempotency_key?: string }>>;
+  /** Cancel an input still in the backlog (a 409 once it has started). */
+  cancelQueuedInput(agentId: string, inputId: string): Promise<void>;
   postInput(
     agentId: string,
     body: {
@@ -229,6 +231,12 @@ export function createOmnaraApi(options: {
         query: { limit: PAGE_LIMIT },
       });
       return data.data;
+    },
+    async cancelQueuedInput(agentId, inputId) {
+      await sdk.cancelQueuedBacklogInput({
+        client,
+        path: { ...agent(agentId), inputID: inputId },
+      });
     },
     async postInput(agentId, body, idempotencyKey) {
       await sdk.createAgentInput({

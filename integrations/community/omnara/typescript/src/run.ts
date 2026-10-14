@@ -166,13 +166,14 @@ export class OmnaraRun {
     try {
       ending = await this.drive();
     } catch (error) {
-      if (this.detached) {
+      if (this.detached && !this.stopped) {
         await this.report("run_after_disconnect", error);
         return;
       }
       const code = error instanceof RunError ? error.code : "run_failed";
       await this.report(code, error instanceof RunError ? error.detail : error);
-      ending = { error: code };
+      // Stop still cancels what was sent, however the request failed.
+      ending = this.stopped ? await this.endStopped() : { error: code };
     }
     if (this.detached) return;
     this.closeOpen();
@@ -209,14 +210,9 @@ export class OmnaraRun {
     const log = await this.deps.api.listEvents(agent.id);
     await this.syncTools(agent, log);
     for (const e of log) this.noteToolCalls(e);
+    // With nothing new to send (a reconnect), the run still follows the
+    // agent's current work to its end.
     const work = this.newWork(log);
-
-    if (!work.messages.length && !work.results.length && !work.resume.length) {
-      // Nothing to submit: report what the agent is waiting on, if anything.
-      const waiting = await this.waitingOutcome(agent.id);
-      if (this.stopped) return this.endStopped();
-      return { outcome: waiting ?? { type: "success" } };
-    }
 
     await this.restoreOrder(log, work.messages);
 
@@ -612,7 +608,7 @@ export class OmnaraRun {
     const seen = this.lastSequence;
     try {
       const agentId = this.agentId!;
-      const waiting = await this.waitingOutcome(agentId, true);
+      const waiting = await this.waitingOutcome(agentId);
       if (waiting === null) return; // ran host tools; keep following
       let outcome = waiting;
       if (!outcome && this.pendingKeys.size && this.turnEnded)
@@ -650,13 +646,12 @@ export class OmnaraRun {
 
   /**
    * The outcome for what the agent waits on: an approval or question, or a
-   * browser tool. With `runHostTools`, ready `backendTools` calls are run, a
-   * subagent's call to a page tool gets a failed result, and `null` is
-   * returned (the agent will continue).
+   * browser tool. Ready `backendTools` calls are run, a subagent's call to a
+   * page tool gets a failed result, and `null` is returned (the agent will
+   * continue).
    */
   private async waitingOutcome(
     agentId: string,
-    runHostTools = false,
   ): Promise<RunFinishedOutcome | undefined | null> {
     const { api, backendTools } = this.deps;
     const interactions = await api.openInteractions(agentId);
@@ -677,7 +672,7 @@ export class OmnaraRun {
         this.isBrowserCall(c.name, c.type) &&
         !this.handledCalls.has(c.id),
     );
-    if (runHostTools && (hostCalls.length || subagentBrowserCalls.length)) {
+    if (hostCalls.length || subagentBrowserCalls.length) {
       await Promise.all([
         ...hostCalls.map((c) => this.runBackendTool(c)),
         ...subagentBrowserCalls.map((c) =>
@@ -781,10 +776,33 @@ export class OmnaraRun {
     );
   }
 
-  /** Stop: cancel the agent's work (once it's known) and end as cancelled. */
+  /** Stop: cancel this request's queued messages and the agent's work (once it's known), and end as cancelled. */
   private async endStopped(): Promise<Ending> {
-    if (this.agentId) await this.cancelWork(this.agentId);
+    if (this.agentId) {
+      await this.cancelQueuedInputs(this.agentId);
+      await this.cancelWork(this.agentId);
+    }
     return { outcome: { type: "cancelled" } };
+  }
+
+  /**
+   * Omnara's cancel leaves queued inputs waiting, so a message of ours still
+   * queued would start after Stop. They go first: one that starts in the
+   * meantime is the current turn, which the agent's cancel then stops.
+   */
+  private async cancelQueuedInputs(agentId: string): Promise<void> {
+    if (!this.pendingKeys.size) return;
+    const { api } = this.deps;
+    const queued = await api.listBacklog(agentId).catch(async (e) => {
+      await this.report("cancel_input", e);
+      return [];
+    });
+    for (const input of queued) {
+      if (!this.pendingKeys.has(input.input_idempotency_key ?? "")) continue;
+      await accept409(() => api.cancelQueuedInput(agentId, input.id)).catch(
+        (e) => this.report("cancel_input", e),
+      );
+    }
   }
 
   /** Cancel the agent's running subagents, nested ones first, then the agent (Omnara's default cancel). */

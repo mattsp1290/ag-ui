@@ -55,11 +55,16 @@ export class FakeOmnara implements OmnaraApi {
   cancelInputs = false;
   /** Accepts the next input but loses the response (a timeout, say). */
   loseNextInputResponse = false;
+  /** The agent is busy: inputs wait in the backlog until `startHeldInputs()`. */
+  holdInputs = false;
+  private held: Array<() => void> = [];
   actors = new Map<string, Actor>();
   /** Fails the named method once with this status (and Omnara error code). */
   failNext = new Map<string, number | [number, string]>();
   /** Scripted reactions. */
   onInput?: (text: string, key: string) => void;
+  /** Called once an input is stored, before the response returns. */
+  onPostInput?: (key: string) => void;
   onResult?: (toolCallId: string) => void;
   onResolve?: (interactionId: string) => void;
 
@@ -283,6 +288,18 @@ export class FakeOmnara implements OmnaraApi {
     this.record("listBacklog", [agentId]);
     return [...this.backlog];
   }
+  async cancelQueuedInput(agentId: string, inputId: string) {
+    this.record("cancelQueuedInput", [agentId, inputId]);
+    if (!this.backlog.some((i) => i.id === inputId))
+      throw new FakeApiError(409);
+    this.backlog = this.backlog.filter((i) => i.id !== inputId);
+  }
+  /** The agent finished its earlier work: held inputs start, in order. */
+  startHeldInputs(): void {
+    const held = this.held;
+    this.held = [];
+    for (const start of held) this.later(start);
+  }
   async postInput(
     agentId: string,
     body: { content_blocks: Block[] },
@@ -309,7 +326,9 @@ export class FakeOmnara implements OmnaraApi {
     // Queued until it starts; starting moves it into the log in one step.
     const queued = { id: this.id("ain"), input_idempotency_key: key };
     this.backlog.push(queued);
-    this.later(() => {
+    const start = () => {
+      // Canceled while it waited.
+      if (!this.backlog.includes(queued)) return;
       this.backlog = this.backlog.filter((i) => i !== queued);
       this.push({
         event_kind: "agent_input",
@@ -320,7 +339,10 @@ export class FakeOmnara implements OmnaraApi {
         is_opening_event: true,
       });
       this.onInput?.(text, key);
-    });
+    };
+    if (this.holdInputs) this.held.push(start);
+    else this.later(start);
+    this.onPostInput?.(key);
     if (this.loseNextInputResponse) {
       this.loseNextInputResponse = false;
       throw new FakeApiError(504);

@@ -1894,6 +1894,74 @@ describe("subagents and stop", () => {
     // Leaving isn't a failure.
     expect(onError).not.toHaveBeenCalled();
   });
+
+  it("a reconnect with nothing new follows the reply still coming", async () => {
+    const { fake, agent } = setup();
+    // The earlier request left while the agent was still answering.
+    fake.push({
+      event_kind: "agent_input",
+      input_kind: "content",
+      input_idempotency_key: "agui:u-0",
+      content_blocks: [{ type: "text", text: "q" }],
+    });
+    agent.addMessage({ id: "u-0", role: "user", content: "q" });
+    // The reply lands only once the reconnect is following.
+    const stream = fake.stream.bind(fake);
+    fake.stream = (...args) => {
+      setTimeout(
+        () => fake.output("mcc_r", [{ type: "text", text: "Done" }]),
+        20,
+      );
+      return stream(...args);
+    };
+    const events = await run(agent);
+    expect(finished(events)?.outcome).toEqual({ type: "success" });
+    expect(fake.called("postInput")).toEqual([]);
+    expect(summary(agent.messages)).toEqual([
+      ["user", "u-0", "q", undefined],
+      ["assistant", "mcc_r", "Done", undefined],
+    ]);
+  });
+
+  it("a reconnect with nothing new runs a host tool the agent is waiting on", async () => {
+    const handler = vi.fn(async () => ({ temperature: 21 }));
+    const { fake, agent } = setup({
+      backendTools: [{ name: "get_weather", description: "Weather.", handler }],
+    });
+    // The earlier request left after the agent called a host tool.
+    fake.push({
+      event_kind: "agent_input",
+      input_kind: "content",
+      input_idempotency_key: "agui:u-0",
+      content_blocks: [{ type: "text", text: "weather?" }],
+    });
+    fake.output(
+      "mcc_t",
+      [
+        {
+          type: "tool_call",
+          tool_call_id: "tcl_w",
+          tool_type: "custom",
+          name: "get_weather",
+          input: { city: "Paris" },
+        },
+      ],
+      "tool_use",
+    );
+    fake.readyCall("tcl_w", "get_weather");
+    fake.onResult = () =>
+      fake.output("mcc_done", [{ type: "text", text: "21 degrees" }]);
+    agent.addMessage({ id: "u-0", role: "user", content: "weather?" });
+    const events = await run(agent);
+    expect(handler).toHaveBeenCalledWith({}, { toolCallId: "tcl_w" });
+    expect(finished(events)?.outcome).toEqual({ type: "success" });
+    expect(summary(agent.messages).at(-1)).toEqual([
+      "assistant",
+      "mcc_done",
+      "21 degrees",
+      undefined,
+    ]);
+  });
 });
 
 describe("races and Stop", () => {
@@ -2139,5 +2207,95 @@ describe("races and Stop", () => {
       "agt_1",
     ]);
     expect(fake.called("postInput")).toEqual([]);
+  });
+
+  it("Stop still cancels when Omnara takes the message but the response fails", async () => {
+    const { fake, agent, onError } = setup();
+    fake.children = [
+      {
+        ...fake.agent,
+        id: "agt_child",
+        activity: { state: "running" },
+      } as never,
+    ];
+    replies(fake);
+    // Stored, then Stop, then the response is lost.
+    fake.loseNextInputResponse = true;
+    fake.onPostInput = () => agent.abortRun();
+    const events = await run(agent, { text: "go" });
+    expect(finished(events)?.outcome).toEqual({ type: "cancelled" });
+    expect(errored(events)).toBeUndefined();
+    expect(fake.called("cancelQueuedInput")).toHaveLength(1);
+    expect(fake.called("cancel").map((args) => args[0])).toEqual([
+      "agt_child",
+      "agt_1",
+    ]);
+    // The failure still reaches onError.
+    expect(onError).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ operation: "run_failed" }),
+    );
+    await new Promise((r) => setTimeout(r, 20));
+    expect(
+      fake.events.some(
+        (e) => e.event_kind === "agent_input" && e.input_kind === "content",
+      ),
+    ).toBe(false);
+  });
+
+  it("Stop still cancels when the client also leaves before the send fails", async () => {
+    const { fake, agent } = setup();
+    agent.addMessage({ id: "u-0", role: "user", content: "go" });
+    const subscription = agent
+      .run({
+        threadId: "thread-1",
+        runId: "r1",
+        messages: agent.messages,
+        tools: [],
+        context: [],
+      })
+      .subscribe();
+    // Stored, then Stop and the client leaves, then the response is lost.
+    fake.loseNextInputResponse = true;
+    fake.onPostInput = () => {
+      agent.abortRun();
+      subscription.unsubscribe();
+    };
+    await vi.waitFor(() =>
+      expect(fake.called("cancel").map((args) => args[0])).toEqual(["agt_1"]),
+    );
+    expect(fake.called("cancelQueuedInput")).toHaveLength(1);
+  });
+
+  it("Stop doesn't report a queued message that started just before its cancel", async () => {
+    const { fake, agent, onError } = setup();
+    fake.holdInputs = true;
+    fake.onPostInput = () => void setTimeout(() => agent.abortRun(), 10);
+    // It started between listing the queue and canceling it: the agent's cancel stops it.
+    fake.failNext.set("cancelQueuedInput", 409);
+    const events = await run(agent, { text: "go" });
+    expect(finished(events)?.outcome).toEqual({ type: "cancelled" });
+    expect(fake.called("cancel").map((args) => args[0])).toEqual(["agt_1"]);
+    expect(onError).not.toHaveBeenCalled();
+  });
+
+  it("Stop cancels a message still queued behind other work, so it never runs", async () => {
+    const { fake, agent } = setup();
+    // The agent is busy with earlier work: the message waits in the queue.
+    fake.holdInputs = true;
+    replies(fake);
+    fake.onPostInput = () => void setTimeout(() => agent.abortRun(), 10);
+    const events = await run(agent, { text: "go" });
+    expect(finished(events)?.outcome).toEqual({ type: "cancelled" });
+    expect(fake.called("cancelQueuedInput")).toHaveLength(1);
+    expect(fake.called("cancel").map((args) => args[0])).toEqual(["agt_1"]);
+    // The earlier work ends; the canceled message doesn't start.
+    fake.startHeldInputs();
+    await new Promise((r) => setTimeout(r, 20));
+    expect(
+      fake.events.some(
+        (e) => e.event_kind === "agent_input" && e.input_kind === "content",
+      ),
+    ).toBe(false);
   });
 });

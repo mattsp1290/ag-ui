@@ -119,6 +119,9 @@ async def test_frontend_proxy_accepts_rich_success_envelope():
 
 @pytest.mark.asyncio
 async def test_frontend_error_survives_real_sdk_mcp_server():
+    # Recovery requires this tested SDK floor: 0.1.21 discarded failure flags
+    # while wrapping callbacks, irrespective of the handler's result.
+    pytest.importorskip("claude_agent_sdk", minversion="0.2.166")
     import anyio
     from mcp import ClientSession
     from mcp.shared.memory import create_client_server_memory_streams

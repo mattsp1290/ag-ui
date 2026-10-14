@@ -552,15 +552,18 @@ function jsonSchemaToZodShape(
 /**
  * Convert an AG-UI tool definition to a Claude SDK MCP tool.
  *
- * Creates a proxy tool that Claude can "see" and call, but with stub implementation
- * since actual execution happens on the client side.
+ * Creates a proxy that returns the matched client result to the original SDK call.
  */
+export type FrontendToolResult =
+  | ToolMessage["content"]
+  | Pick<ToolMessage, "content" | "error">;
+
 export function convertAguiToolToClaudeSdk(
   toolDef: Tool,
   resolveFrontendResult?: (
     name: string,
     input: Record<string, unknown>,
-  ) => ToolMessage["content"] | Promise<ToolMessage["content"]>,
+  ) => FrontendToolResult | Promise<FrontendToolResult>,
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
 ): any {
   const toolName = toolDef.name ?? "unknown";
@@ -570,7 +573,7 @@ export function convertAguiToolToClaudeSdk(
   // Convert JSON Schema to Zod shape for the TS SDK's tool() function
   const zodShape = jsonSchemaToZodShape(toolParameters);
 
-  // Create stub tool with empty implementation (execution happens client-side)
+  // Complete only with the matched result supplied by the recovery lifecycle.
   return tool(toolName, toolDescription, zodShape, async (args) => {
     if (!resolveFrontendResult) {
       throw new Error(
@@ -578,7 +581,25 @@ export function convertAguiToolToClaudeSdk(
       );
     }
     const result = await resolveFrontendResult(toolName, args);
-    return { content: frontendResultBlocks(result) };
+    const envelope: Pick<ToolMessage, "content" | "error"> =
+      typeof result === "string" || Array.isArray(result)
+        ? { content: result }
+        : result;
+    const content = frontendResultBlocks(envelope.content);
+    const error = envelope.error;
+    if (error) {
+      if (
+        content.length === 1 &&
+        content[0].type === "text" &&
+        content[0].text === ""
+      )
+        content.pop();
+      if (
+        !content.some((block) => block.type === "text" && block.text === error)
+      )
+        content.push({ type: "text", text: error });
+    }
+    return { content, ...(error != null ? { isError: true } : {}) };
   });
 }
 

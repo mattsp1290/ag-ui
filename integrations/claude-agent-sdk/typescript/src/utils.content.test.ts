@@ -122,3 +122,53 @@ it("preserves structured frontend image bytes and external MCP names", () => {
   );
   expect(stripMcpPrefix("mcp__ag_ui__confirm")).toBe("confirm");
 });
+
+it.each([
+  {
+    content: "",
+    error: "denied",
+    expected: [{ type: "text", text: "denied" }],
+  },
+  {
+    content: "detail",
+    error: "",
+    expected: [{ type: "text", text: "detail" }],
+  },
+  {
+    content: "detail",
+    error: "denied",
+    expected: [
+      { type: "text", text: "detail" },
+      { type: "text", text: "denied" },
+    ],
+  },
+])(
+  "preserves frontend failure status and reason: $error",
+  async ({ content, error, expected }) => {
+    const proxy = convertAguiToolToClaudeSdk(
+      { name: "confirm", description: "", parameters: {} },
+      () => ({ content, error }),
+    );
+    expect(await proxy.handler({}, {})).toEqual({
+      content: expected,
+      isError: true,
+    });
+  },
+);
+
+it("accepts successful rich frontend result envelopes", async () => {
+  const proxy = convertAguiToolToClaudeSdk(
+    { name: "image", description: "", parameters: {} },
+    () => ({
+      content: [
+        {
+          type: "image",
+          source: { type: "data", value: "AQID", mimeType: "image/png" },
+        },
+      ],
+    }),
+  );
+  expect(await proxy.handler({}, {})).toEqual({
+    content: [{ type: "image", data: "AQID", mimeType: "image/png" }],
+  });
+});

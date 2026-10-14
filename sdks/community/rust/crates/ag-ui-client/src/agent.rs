@@ -280,7 +280,7 @@ where
             let mut stream = self.run(input).await?.fuse();
             let mut chunks = ChunkExpander::default();
             while let Some(event) = stream.next().await {
-                for expanded in chunks.expand(event?)? {
+                for expanded in chunks.expand(event?, &event_handler.messages)? {
                     let mutation = event_handler.handle_event(&expanded).await?;
                     event_handler.apply_mutation(mutation).await?;
                 }

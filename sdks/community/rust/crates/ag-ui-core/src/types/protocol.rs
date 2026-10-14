@@ -494,12 +494,14 @@ pub struct ExecutionCapabilities {
     #[serde(
         skip_serializing_if = "Option::is_none",
         deserialize_with = "safe_unsigned",
+        serialize_with = "serialize_safe_unsigned",
         default
     )]
     pub max_iterations: Option<u64>,
     #[serde(
         skip_serializing_if = "Option::is_none",
         deserialize_with = "safe_unsigned",
+        serialize_with = "serialize_safe_unsigned",
         default
     )]
     pub max_execution_time: Option<u64>,

@@ -1,7 +1,7 @@
 //! Expand the three chunk shorthands before verification and subscriber delivery.
 use crate::agent::AgentError;
 use crate::core::event::*;
-use crate::core::types::{MessageId, Role, ToolCallId};
+use crate::core::types::{Message, MessageId, Role, ToolCallId};
 use crate::core::{AgentState, JsonValue};
 
 type Lane = Option<String>;
@@ -140,6 +140,7 @@ impl ChunkExpander {
     pub(crate) fn expand<StateT: AgentState>(
         &mut self,
         event: Event<StateT>,
+        messages: &[Message],
     ) -> Result<Vec<Event<StateT>>, AgentError> {
         // The generated events are typed at the same StateT as the incoming stream.
         let mut output: Vec<Event<StateT>> = Vec::new();
@@ -204,11 +205,37 @@ impl ChunkExpander {
                 }
             }
             Event::ToolCallChunk(chunk) => {
+                let inherited = crate::event_handler::tool_call_owner(
+                    messages,
+                    chunk.parent_message_id.as_ref(),
+                    &chunk.base.subagent_run_id,
+                    chunk.tool_call_id.as_ref().map(AsRef::as_ref),
+                )?;
+                // Only a new identified opener chooses a lane from its parent.
+                // An id-less continuation still follows the normal lane rules.
+                let new_opener = chunk.tool_call_id.as_ref().is_some_and(|id| {
+                    !self.lanes.iter().any(|(_, pending)| {
+                        pending.kind() == "TOOL_CALL_CHUNK" && pending.id() == id.as_ref()
+                    })
+                });
+                let effective_owner = if new_opener {
+                    inherited
+                        .clone()
+                        .unwrap_or_else(|| chunk.base.subagent_run_id.clone())
+                } else {
+                    chunk.base.subagent_run_id.clone()
+                };
                 let owner = self.resolve(
                     "TOOL_CALL_CHUNK",
                     chunk.tool_call_id.as_ref().map(AsRef::as_ref),
-                    &chunk.base.subagent_run_id,
+                    &effective_owner,
                 )?;
+                if inherited
+                    .as_ref()
+                    .is_some_and(|parent_owner| parent_owner != &owner)
+                {
+                    return Err(fail("Tool call owner does not match parent message"));
+                }
                 let previous = self.lane(&owner).cloned();
                 let (id, open) = if let Some(Pending::Tool { id, name, parent }) =
                     previous.as_ref().filter(|p| {

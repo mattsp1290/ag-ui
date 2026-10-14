@@ -5,20 +5,57 @@ description: "AG-UI 1.0 Rust HTTP client"
 
 # `ag-ui-client`
 
-`ag-ui-client` 0.2.0 provides `Agent`, `HttpAgent`, and `AgentSubscriber` over the 1.0 model in `ag-ui-core` 0.2.0.
+`ag-ui-client` 0.2.0 provides `Agent`, `HttpAgent`, and `AgentSubscriber` over
+the 1.0 model in `ag-ui-core` 0.2.0.
 
-For the unreleased 0.2.0 workspace revision, depend on the checked-out client by path and patch its core dependency to the same checkout:
+## Installation and delivery
+
+Use the same reachable, immutable 40-hex Git commit for all three crates.
+Replace every `FULL_40_HEX_COMMIT` below with one revision qualified by the
+repository's
+[independent Git consumer gate](https://github.com/mattsp1290/ag-ui/blob/cd807f804e82e915f07daec6ab3f75e9561b884d/sdks/community/rust/tests/external-consumer/README.md).
+A branch name or unpushed local hash is not an immutable pin.
 
 ```toml
 [dependencies]
-ag-ui-client = { path = "path/to/ag-ui/sdks/community/rust/crates/ag-ui-client" }
+ag-ui-core = { git = "https://github.com/mattsp1290/ag-ui.git", rev = "FULL_40_HEX_COMMIT" }
+ag-ui-client = { git = "https://github.com/mattsp1290/ag-ui.git", rev = "FULL_40_HEX_COMMIT" }
+ag-ui-encoder = { git = "https://github.com/mattsp1290/ag-ui.git", rev = "FULL_40_HEX_COMMIT" }
 
 [patch.crates-io]
-ag-ui-core = { path = "path/to/ag-ui/sdks/community/rust/crates/ag-ui-core" }
+ag-ui-core = { git = "https://github.com/mattsp1290/ag-ui.git", rev = "FULL_40_HEX_COMMIT" }
+ag-ui-client = { git = "https://github.com/mattsp1290/ag-ui.git", rev = "FULL_40_HEX_COMMIT" }
+ag-ui-encoder = { git = "https://github.com/mattsp1290/ag-ui.git", rev = "FULL_40_HEX_COMMIT" }
 ```
 
-The patch is temporary while `ag-ui-core` 0.2.0 is unpublished. After both crates are published, remove it and use `cargo add ag-ui-client@0.2.0`.
+The same-revision patches keep the client and encoder connected to one public
+core type identity. Resolve and retain an independent consumer lock, then build
+and test with `--locked`. Path dependencies inside this checkout only prove
+local integration. Unverified package assembly (`--no-verify`) is diagnostic;
+normal registry publication still requires verified packaging against published
+dependencies.
 
-Use [Agent](/sdk/rust/client/agent-trait) to run a stream and collect messages, state, result, outcome, and usage. [HttpAgent](/sdk/rust/client/http-agent) sends JSON to an AG-UI endpoint and receives SSE. [AgentSubscriber](/sdk/rust/client/subscriber) exposes lifecycle and typed event hooks for activity, reasoning, subagents, state, messages, and tools.
+## Running and continuing
 
-The HTTP parser translates deprecated pre-1.0 `THINKING_*` wire events into reasoning events and logs warnings. New servers should send `REASONING_*` events directly.
+Use [Agent::run_input](/sdk/rust/client/agent-trait) with explicit thread/run
+identities for the complete lifecycle. Inspect `terminal_status` and `outcome`;
+an `Ok` result can contain a producer `RUN_ERROR`. `output` is independent of
+status. Carry the complete `messages` and `new_state` into the next turn,
+retaining the thread ID and choosing a new run ID. `new_messages` alone cannot
+preserve snapshot replacements or deletions.
+
+[HttpAgent](/sdk/rust/client/http-agent) sends JSON and receives bounded SSE.
+[AgentSubscriber](/sdk/rust/client/subscriber) exposes lifecycle, structured
+diagnostics, and typed hooks for activity, reasoning, subagents, state,
+messages, and tools. `Agent::run` is a raw event stream without lifecycle
+reduction or completion verification; `run_agent` constructs an input and
+creates a fresh thread unless explicitly supplied one.
+
+## Compatibility
+
+The HTTP boundary processes current AG-UI 1.0 events. Retired pre-1.0
+`THINKING_*` translation is outside this implementation's scope. Unknown
+variants are dropped; structured processing diagnostics are available through
+`HttpAgentBuilder::with_diagnostic_handler`. New servers must emit `REASONING_*`
+events directly. Non-success HTTP response bodies are omitted from errors;
+bounded receipt metadata records byte counts and stopping reasons.

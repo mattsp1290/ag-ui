@@ -44,8 +44,6 @@ where
     tool_owners: HashMap<ToolCallId, Option<String>>,
     notified_messages: HashSet<MessageId>,
     notified_tools: HashSet<ToolCallId>,
-    text_chunk: Option<(MessageId, Role)>,
-    tool_chunk: Option<(crate::core::types::ToolCallId, String)>,
 }
 
 impl<'a, StateT, FwdPropsT> EventHandler<'a, StateT, FwdPropsT>
@@ -94,8 +92,6 @@ where
             tool_owners: HashMap::new(),
             notified_messages,
             notified_tools,
-            text_chunk: None,
-            tool_chunk: None,
         };
         handler.seed_owners();
         handler
@@ -113,6 +109,7 @@ where
     fn update_from_mutation(&mut self, mutation: &AgentStateMutation<StateT>) {
         if let Some(messages) = &mutation.messages {
             self.messages = messages.clone();
+            self.seed_owners();
         }
         if let Some(state) = &mutation.state {
             self.state = state.clone();
@@ -141,13 +138,13 @@ where
     }
 
     fn verify_event(&mut self, event: &Event<StateT>) -> Result<(), AgentError> {
-        // RAW does not interrupt a chunk lane. Every other non-chunk event does.
-        if !matches!(
+        if matches!(
             event,
-            Event::Raw(_) | Event::TextMessageChunk(_) | Event::ToolCallChunk(_)
+            Event::TextMessageChunk(_) | Event::ToolCallChunk(_) | Event::ReasoningMessageChunk(_)
         ) {
-            self.text_chunk = None;
-            self.tool_chunk = None;
+            return Err(AgentError::exec(
+                "chunk must be expanded before event handling",
+            ));
         }
         let fail = |message: String| AgentError::Execution { message };
         if self.finished_run
@@ -347,26 +344,12 @@ where
                 self.active_reasoning.remove(&e.message_id);
             }
             Event::ToolCallStart(e) => {
-                let inherited = e
-                    .parent_message_id
-                    .as_ref()
-                    .and_then(|id| self.message_owners.get(id))
-                    .cloned();
-                if let Some(parent_id) = &e.parent_message_id
-                    && let Some(parent) = self.messages.iter().find(|m| m.id() == parent_id)
-                {
-                    if parent.role() != Role::Assistant {
-                        return Err(fail(format!(
-                            "Tool call '{}' parent message is not assistant",
-                            e.tool_call_id
-                        )));
-                    }
-                    check_owner(
-                        &message_owner(parent).cloned(),
-                        &e.base.subagent_run_id,
-                        e.tool_call_id.as_ref(),
-                    )?;
-                }
+                let inherited = tool_call_owner(
+                    &self.messages,
+                    e.parent_message_id.as_ref(),
+                    &e.base.subagent_run_id,
+                    Some(e.tool_call_id.as_ref()),
+                )?;
                 let effective_owner = inherited
                     .clone()
                     .unwrap_or_else(|| e.base.subagent_run_id.clone());
@@ -487,38 +470,6 @@ where
                 }
                 self.closed_subagents.insert(e.subagent_run_id.clone());
             }
-            Event::TextMessageChunk(e) => {
-                if let Some((id, role)) = &self.text_chunk {
-                    if e.message_id.as_ref().is_some_and(|v| v != id) {
-                        return Err(fail("Conflicting TEXT_MESSAGE_CHUNK messageId".into()));
-                    }
-                    if e.role.as_ref().is_some_and(|v| v != role) {
-                        return Err(fail("Conflicting TEXT_MESSAGE_CHUNK role".into()));
-                    }
-                } else {
-                    let id = e.message_id.clone().ok_or_else(|| {
-                        fail("First TEXT_MESSAGE_CHUNK must have a messageId".into())
-                    })?;
-                    self.text_chunk = Some((id, e.role.clone().unwrap_or(Role::Assistant)));
-                }
-            }
-            Event::ToolCallChunk(e) => {
-                if let Some((id, name)) = &self.tool_chunk {
-                    if e.tool_call_id.as_ref().is_some_and(|v| v != id)
-                        || e.tool_call_name.as_ref().is_some_and(|v| v != name)
-                    {
-                        return Err(fail("Conflicting TOOL_CALL_CHUNK".into()));
-                    }
-                } else {
-                    let id = e.tool_call_id.clone().ok_or_else(|| {
-                        fail("First TOOL_CALL_CHUNK must have a toolCallId".into())
-                    })?;
-                    let name = e.tool_call_name.clone().ok_or_else(|| {
-                        fail("First TOOL_CALL_CHUNK must have a toolCallName".into())
-                    })?;
-                    self.tool_chunk = Some((id, name));
-                }
-            }
             _ => {}
         }
         if let Some(owner) = event_attribution(event) {
@@ -532,14 +483,27 @@ where
         event: &Event<StateT>,
     ) -> Result<AgentStateMutation<StateT>, AgentError> {
         let mut current_mutation = AgentStateMutation::default();
-        let mut mutations = Vec::new();
+        // Generic callbacks precede reduction; stopping here suppresses reduction
+        // and typed delivery. Typed callbacks observe the reduced event, so their
+        // stop only suppresses later typed subscribers, not the existing reduction.
+        macro_rules! dispatch_mutation {
+            ($mutation:expr $(,)?) => {{
+                let mutation = $mutation;
+                let stop = mutation.stop_propagation;
+                self.process_mutation(mutation, &mut current_mutation);
+                if stop {
+                    current_mutation.stop_propagation = true;
+                    return Ok(current_mutation);
+                }
+            }};
+        }
 
         self.verify_event(event)?;
         // Clone subscribers to avoid borrowing issues
         for subscriber in &self.subscribers.clone() {
             let params = self.to_subscriber_params();
             let mutation = subscriber.on_event(event, params).await?;
-            mutations.push(mutation);
+            dispatch_mutation!(mutation);
         }
 
         // Then handle specific event types
@@ -553,10 +517,10 @@ where
                 }
                 current_mutation.messages = Some(self.messages.clone());
 
-                for subscriber in &self.subscribers {
+                for subscriber in &self.subscribers.clone() {
                     let params = self.to_subscriber_params();
                     let mutation = subscriber.on_text_message_start_event(e, params).await?;
-                    mutations.push(mutation);
+                    dispatch_mutation!(mutation);
                 }
             }
             Event::TextMessageContent(e) => {
@@ -584,12 +548,12 @@ where
                     .unwrap_or_default()
                     .to_string(); // Clone to avoid borrowing issues
 
-                for subscriber in &self.subscribers {
+                for subscriber in &self.subscribers.clone() {
                     let params = self.to_subscriber_params();
                     let mutation = subscriber
                         .on_text_message_content_event(e, &text_message_buffer, params)
                         .await?;
-                    mutations.push(mutation);
+                    dispatch_mutation!(mutation);
                 }
             }
             Event::TextMessageEnd(e) => {
@@ -612,42 +576,12 @@ where
                     .unwrap_or_default()
                     .to_string(); // Clone to avoid borrowing issues
 
-                for subscriber in &self.subscribers {
+                for subscriber in &self.subscribers.clone() {
                     let params = self.to_subscriber_params();
                     let mutation = subscriber
                         .on_text_message_end_event(e, &text_message_buffer, params)
                         .await?;
-                    mutations.push(mutation);
-                }
-            }
-            Event::TextMessageChunk(e) => {
-                if let Some(id) = self.text_chunk.as_ref().map(|(id, _)| id) {
-                    if let Some(Message::Assistant { name, content, .. }) =
-                        self.messages.iter_mut().rev().find(|m| m.id() == id)
-                    {
-                        if let Some(author) = &e.name {
-                            *name = Some(author.clone());
-                        }
-                        if let Some(delta) = &e.delta {
-                            content.get_or_insert_with(String::new).push_str(delta);
-                        }
-                    } else {
-                        self.messages.push(Message::Assistant {
-                            id: id.clone(),
-                            content: Some(e.delta.clone().unwrap_or_default()),
-                            name: e.name.clone(),
-                            tool_calls: None,
-                            metadata: None,
-                            encrypted_value: None,
-                            subagent_run_id: e.base.subagent_run_id.clone(),
-                        });
-                    }
-                    current_mutation.messages = Some(self.messages.clone());
-                }
-                for subscriber in &self.subscribers {
-                    let params = self.to_subscriber_params();
-                    let mutation = subscriber.on_text_message_chunk_event(e, params).await?;
-                    mutations.push(mutation);
+                    dispatch_mutation!(mutation);
                 }
             }
             Event::ToolCallStart(e) => {
@@ -666,7 +600,7 @@ where
                 if let Some(existing_call) = self
                     .messages
                     .iter_mut()
-                    .filter_map(|message| message.tool_calls_mut())
+                    .filter_map(existing_tool_calls_mut)
                     .flatten()
                     .find(|call| call.id == e.tool_call_id)
                 {
@@ -711,17 +645,17 @@ where
                 }
                 current_mutation.messages = Some(self.messages.clone());
 
-                for subscriber in &self.subscribers {
+                for subscriber in &self.subscribers.clone() {
                     let params = self.to_subscriber_params();
                     let mutation = subscriber.on_tool_call_start_event(e, params).await?;
-                    mutations.push(mutation);
+                    dispatch_mutation!(mutation);
                 }
             }
             Event::ToolCallArgs(e) => {
                 let call = self
                     .messages
                     .iter_mut()
-                    .filter_map(|message| message.tool_calls_mut())
+                    .filter_map(existing_tool_calls_mut)
                     .flatten()
                     .find(|call| call.id == e.tool_call_id)
                     .ok_or_else(|| {
@@ -740,7 +674,7 @@ where
                         .unwrap_or_default();
                 current_mutation.messages = Some(self.messages.clone());
 
-                for subscriber in &self.subscribers {
+                for subscriber in &self.subscribers.clone() {
                     let params = self.to_subscriber_params();
                     let mutation = subscriber
                         .on_tool_call_args_event(
@@ -751,14 +685,14 @@ where
                             params,
                         )
                         .await?;
-                    mutations.push(mutation);
+                    dispatch_mutation!(mutation);
                 }
             }
             Event::ToolCallEnd(e) => {
                 let call = self
                     .messages
                     .iter_mut()
-                    .filter_map(|message| message.tool_calls_mut())
+                    .filter_map(existing_tool_calls_mut)
                     .flatten()
                     .find(|call| call.id == e.tool_call_id)
                     .ok_or_else(|| {
@@ -777,75 +711,12 @@ where
                     current_mutation.messages = Some(self.messages.clone());
                 }
 
-                for subscriber in &self.subscribers {
+                for subscriber in &self.subscribers.clone() {
                     let params = self.to_subscriber_params();
                     let mutation = subscriber
                         .on_tool_call_end_event(e, &tool_call_name, &tool_call_args, params)
                         .await?;
-                    mutations.push(mutation);
-                }
-            }
-            Event::ToolCallChunk(e) => {
-                if let Some((id, name)) = &self.tool_chunk {
-                    let parent = e.parent_message_id.clone();
-                    let position = self
-                        .messages
-                        .iter()
-                        .rposition(|m| {
-                            Some(m.id()) == parent.as_ref() && m.role() == Role::Assistant
-                        })
-                        .or_else(|| {
-                            self.messages
-                                .iter()
-                                .rposition(|m| m.role() == Role::Assistant)
-                        });
-                    if let Some(message) = position.and_then(|i| self.messages.get_mut(i)) {
-                        let Message::Assistant { tool_calls, .. } = message else {
-                            unreachable!()
-                        };
-                        let calls = tool_calls.get_or_insert_with(Vec::new);
-                        if let Some(call) = calls.iter_mut().find(|c| &c.id == id) {
-                            call.function
-                                .arguments
-                                .push_str(e.delta.as_deref().unwrap_or_default());
-                        } else {
-                            calls.push(ToolCall {
-                                id: id.clone(),
-                                call_type: "function".into(),
-                                function: FunctionCall {
-                                    name: name.clone(),
-                                    arguments: e.delta.clone().unwrap_or_default(),
-                                },
-                                metadata: None,
-                                encrypted_value: None,
-                            });
-                        }
-                    } else {
-                        self.messages.push(Message::Assistant {
-                            id: parent.unwrap_or_else(MessageId::random),
-                            content: None,
-                            name: None,
-                            tool_calls: Some(vec![ToolCall {
-                                id: id.clone(),
-                                call_type: "function".into(),
-                                function: FunctionCall {
-                                    name: name.clone(),
-                                    arguments: e.delta.clone().unwrap_or_default(),
-                                },
-                                metadata: None,
-                                encrypted_value: None,
-                            }]),
-                            metadata: None,
-                            encrypted_value: None,
-                            subagent_run_id: e.base.subagent_run_id.clone(),
-                        });
-                    }
-                    current_mutation.messages = Some(self.messages.clone());
-                }
-                for subscriber in &self.subscribers {
-                    let params = self.to_subscriber_params();
-                    let mutation = subscriber.on_tool_call_chunk_event(e, params).await?;
-                    mutations.push(mutation);
+                    dispatch_mutation!(mutation);
                 }
             }
             Event::ToolCallResult(e) => {
@@ -860,10 +731,10 @@ where
                 };
                 upsert_message(&mut self.messages, message);
                 current_mutation.messages = Some(self.messages.clone());
-                for subscriber in &self.subscribers {
+                for subscriber in &self.subscribers.clone() {
                     let params = self.to_subscriber_params();
                     let mutation = subscriber.on_tool_call_result_event(e, params).await?;
-                    mutations.push(mutation);
+                    dispatch_mutation!(mutation);
                 }
             }
             Event::StateSnapshot(e) => {
@@ -871,15 +742,17 @@ where
                 self.state = e.snapshot.clone();
                 current_mutation.state = Some(self.state.clone());
 
-                for subscriber in &self.subscribers {
+                for subscriber in &self.subscribers.clone() {
                     let params = self.to_subscriber_params();
                     let mutation = subscriber.on_state_snapshot_event(e, params).await?;
-                    mutations.push(mutation);
+                    dispatch_mutation!(mutation);
                 }
             }
             Event::StateDelta(e) => {
                 // Default behavior
-                let mut state_val = serde_json::to_value(&self.state)?;
+                let mut state_val = serde_json::to_value(&self.state).map_err(|_| {
+                    AgentError::exec("Application state cannot be serialized for patching")
+                })?;
 
                 // TODO: This cast to and from JsonValue seems unnecessary
                 let patches: Vec<PatchOperation> =
@@ -892,46 +765,50 @@ where
                     )
                     .await?;
                 } else {
-                    let new_state: StateT = serde_json::from_value(state_val)?;
+                    let new_state: StateT = serde_json::from_value(state_val).map_err(|_| {
+                        AgentError::exec(
+                            "Patched state cannot be represented by the application's state type",
+                        )
+                    })?;
                     self.state = new_state;
                     current_mutation.state = Some(self.state.clone());
                 }
 
-                for subscriber in &self.subscribers {
+                for subscriber in &self.subscribers.clone() {
                     let params = self.to_subscriber_params();
                     let mutation = subscriber.on_state_delta_event(e, params).await?;
-                    mutations.push(mutation);
+                    dispatch_mutation!(mutation);
                 }
             }
             Event::MessagesSnapshot(e) => {
                 reconcile_messages(&mut self.messages, &e.messages);
                 self.seed_owners();
                 current_mutation.messages = Some(self.messages.clone());
-                for subscriber in &self.subscribers {
+                for subscriber in &self.subscribers.clone() {
                     let params = self.to_subscriber_params();
                     let mutation = subscriber.on_messages_snapshot_event(e, params).await?;
-                    mutations.push(mutation);
+                    dispatch_mutation!(mutation);
                 }
             }
             Event::Raw(e) => {
-                for subscriber in &self.subscribers {
+                for subscriber in &self.subscribers.clone() {
                     let params = self.to_subscriber_params();
                     let mutation = subscriber.on_raw_event(e, params).await?;
-                    mutations.push(mutation);
+                    dispatch_mutation!(mutation);
                 }
             }
             Event::Custom(e) => {
-                for subscriber in &self.subscribers {
+                for subscriber in &self.subscribers.clone() {
                     let params = self.to_subscriber_params();
                     let mutation = subscriber.on_custom_event(e, params).await?;
-                    mutations.push(mutation);
+                    dispatch_mutation!(mutation);
                 }
             }
             Event::RunStarted(e) => {
-                for subscriber in &self.subscribers {
+                for subscriber in &self.subscribers.clone() {
                     let params = self.to_subscriber_params();
                     let mutation = subscriber.on_run_started_event(e, params).await?;
-                    mutations.push(mutation);
+                    dispatch_mutation!(mutation);
                 }
             }
             Event::RunFinished(e) => {
@@ -941,32 +818,32 @@ where
                 self.outcome = e.outcome.clone();
                 self.usage = e.usage.clone();
 
-                for subscriber in &self.subscribers {
+                for subscriber in &self.subscribers.clone() {
                     let params = self.to_subscriber_params();
                     let mutation = subscriber.on_run_finished_event(e, params).await?;
-                    mutations.push(mutation);
+                    dispatch_mutation!(mutation);
                 }
             }
             Event::RunError(e) => {
                 self.usage = e.usage.clone();
-                for subscriber in &self.subscribers {
+                for subscriber in &self.subscribers.clone() {
                     let params = self.to_subscriber_params();
                     let mutation = subscriber.on_run_error_event(e, params).await?;
-                    mutations.push(mutation);
+                    dispatch_mutation!(mutation);
                 }
             }
             Event::StepStarted(e) => {
-                for subscriber in &self.subscribers {
+                for subscriber in &self.subscribers.clone() {
                     let params = self.to_subscriber_params();
                     let mutation = subscriber.on_step_started_event(e, params).await?;
-                    mutations.push(mutation);
+                    dispatch_mutation!(mutation);
                 }
             }
             Event::StepFinished(e) => {
-                for subscriber in &self.subscribers {
+                for subscriber in &self.subscribers.clone() {
                     let params = self.to_subscriber_params();
                     let mutation = subscriber.on_step_finished_event(e, params).await?;
-                    mutations.push(mutation);
+                    dispatch_mutation!(mutation);
                 }
             }
             Event::ActivitySnapshot(e) => {
@@ -991,9 +868,9 @@ where
                     self.messages.push(activity_message(e));
                 }
                 current_mutation.messages = Some(self.messages.clone());
-                for subscriber in &self.subscribers {
+                for subscriber in &self.subscribers.clone() {
                     let params = self.to_subscriber_params();
-                    mutations.push(subscriber.on_activity_snapshot_event(e, params).await?);
+                    dispatch_mutation!(subscriber.on_activity_snapshot_event(e, params).await?);
                 }
             }
             Event::ActivityDelta(e) => {
@@ -1039,15 +916,15 @@ where
                 if let Some(message) = warning {
                     self.warn("/patch", message).await?;
                 }
-                for subscriber in &self.subscribers {
+                for subscriber in &self.subscribers.clone() {
                     let params = self.to_subscriber_params();
-                    mutations.push(subscriber.on_activity_delta_event(e, params).await?);
+                    dispatch_mutation!(subscriber.on_activity_delta_event(e, params).await?);
                 }
             }
             Event::ReasoningStart(e) => {
-                for subscriber in &self.subscribers {
+                for subscriber in &self.subscribers.clone() {
                     let params = self.to_subscriber_params();
-                    mutations.push(subscriber.on_reasoning_start_event(e, params).await?);
+                    dispatch_mutation!(subscriber.on_reasoning_start_event(e, params).await?);
                 }
             }
             Event::ReasoningMessageStart(e) => {
@@ -1063,9 +940,9 @@ where
                     });
                 }
                 current_mutation.messages = Some(self.messages.clone());
-                for subscriber in &self.subscribers {
+                for subscriber in &self.subscribers.clone() {
                     let params = self.to_subscriber_params();
-                    mutations.push(
+                    dispatch_mutation!(
                         subscriber
                             .on_reasoning_message_start_event(e, params)
                             .await?,
@@ -1080,9 +957,9 @@ where
                     }
                     current_mutation.messages = Some(self.messages.clone());
                 }
-                for subscriber in &self.subscribers {
+                for subscriber in &self.subscribers.clone() {
                     let params = self.to_subscriber_params();
-                    mutations.push(
+                    dispatch_mutation!(
                         subscriber
                             .on_reasoning_message_content_event(e, params)
                             .await?,
@@ -1094,55 +971,23 @@ where
                     merge_message_metadata(message, &e.base.metadata);
                     current_mutation.messages = Some(self.messages.clone());
                 }
-                for subscriber in &self.subscribers {
+                for subscriber in &self.subscribers.clone() {
                     let params = self.to_subscriber_params();
-                    mutations.push(subscriber.on_reasoning_message_end_event(e, params).await?);
-                }
-            }
-            Event::ReasoningMessageChunk(e) => {
-                let id = e
-                    .message_id
-                    .clone()
-                    .or_else(|| self.active_reasoning.keys().next().cloned());
-                if let Some(id) = id {
-                    if let Some(Message::Reasoning { content, .. }) =
-                        self.messages.iter_mut().find(|m| m.id() == &id)
-                    {
-                        content.push_str(e.delta.as_deref().unwrap_or_default());
-                    } else {
-                        self.messages.push(Message::Reasoning {
-                            id,
-                            content: e.delta.clone().unwrap_or_default(),
-                            encrypted_value: None,
-                            metadata: e.base.metadata.clone(),
-                            subagent_run_id: e.base.subagent_run_id.clone(),
-                        });
-                    }
-                    current_mutation.messages = Some(self.messages.clone());
-                }
-                for subscriber in &self.subscribers {
-                    let params = self.to_subscriber_params();
-                    mutations.push(
-                        subscriber
-                            .on_reasoning_message_chunk_event(e, params)
-                            .await?,
-                    );
+                    dispatch_mutation!(subscriber.on_reasoning_message_end_event(e, params).await?);
                 }
             }
             Event::ReasoningEnd(e) => {
-                for subscriber in &self.subscribers {
+                for subscriber in &self.subscribers.clone() {
                     let params = self.to_subscriber_params();
-                    mutations.push(subscriber.on_reasoning_end_event(e, params).await?);
+                    dispatch_mutation!(subscriber.on_reasoning_end_event(e, params).await?);
                 }
             }
             Event::ReasoningEncryptedValue(e) => {
-                if e.subtype == ReasoningEncryptedValueSubtype::Message {
-                    if let Some(message) = self
-                        .messages
+                let retained = if e.subtype == ReasoningEncryptedValueSubtype::Message {
+                    self.messages
                         .iter_mut()
-                        .find(|m| m.id().as_ref() == e.entity_id)
-                    {
-                        match message {
+                        .find(|message| message.id().as_ref() == e.entity_id)
+                        .and_then(|message| match message {
                             Message::Assistant {
                                 encrypted_value, ..
                             }
@@ -1160,26 +1005,34 @@ where
                             }
                             | Message::Developer {
                                 encrypted_value, ..
-                            } => *encrypted_value = Some(e.encrypted_value.clone()),
-                            _ => {}
-                        }
-                        current_mutation.messages = Some(self.messages.clone());
-                    }
+                            } => Some(encrypted_value),
+                            Message::Activity { .. } => None,
+                        })
+                        .map(|target| *target = Some(e.encrypted_value.clone()))
+                        .is_some()
                 } else {
-                    for message in &mut self.messages {
-                        if let Some(calls) = message.tool_calls_mut()
-                            && let Some(call) =
-                                calls.iter_mut().find(|c| c.id.as_ref() == e.entity_id)
-                        {
-                            call.encrypted_value = Some(e.encrypted_value.clone());
-                            current_mutation.messages = Some(self.messages.clone());
-                            break;
-                        }
-                    }
+                    self.messages
+                        .iter_mut()
+                        .filter_map(existing_tool_calls_mut)
+                        .flatten()
+                        .find(|call| call.id.as_ref() == e.entity_id)
+                        .map(|call| call.encrypted_value = Some(e.encrypted_value.clone()))
+                        .is_some()
+                };
+                if retained {
+                    current_mutation.messages = Some(self.messages.clone());
+                } else {
+                    self.emit_diagnostic(crate::core::processing::Diagnostic {
+                        category: crate::core::processing::DiagnosticCategory::MissingTarget,
+                        path: "/entityId".into(),
+                        message: "Encrypted reasoning target is missing or cannot retain the value"
+                            .into(),
+                    })
+                    .await?;
                 }
-                for subscriber in &self.subscribers {
+                for subscriber in &self.subscribers.clone() {
                     let params = self.to_subscriber_params();
-                    mutations.push(
+                    dispatch_mutation!(
                         subscriber
                             .on_reasoning_encrypted_value_event(e, params)
                             .await?,
@@ -1187,33 +1040,24 @@ where
                 }
             }
             Event::SubagentStarted(e) => {
-                for subscriber in &self.subscribers {
+                for subscriber in &self.subscribers.clone() {
                     let params = self.to_subscriber_params();
-                    mutations.push(subscriber.on_subagent_started_event(e, params).await?);
+                    dispatch_mutation!(subscriber.on_subagent_started_event(e, params).await?);
                 }
             }
             Event::SubagentFinished(e) => {
-                for subscriber in &self.subscribers {
+                for subscriber in &self.subscribers.clone() {
                     let params = self.to_subscriber_params();
-                    mutations.push(subscriber.on_subagent_finished_event(e, params).await?);
+                    dispatch_mutation!(subscriber.on_subagent_finished_event(e, params).await?);
                 }
             }
             Event::SubagentError(e) => {
-                for subscriber in &self.subscribers {
+                for subscriber in &self.subscribers.clone() {
                     let params = self.to_subscriber_params();
-                    mutations.push(subscriber.on_subagent_error_event(e, params).await?);
+                    dispatch_mutation!(subscriber.on_subagent_error_event(e, params).await?);
                 }
             }
             _ => {}
-        }
-
-        for mutation in mutations {
-            if mutation.stop_propagation {
-                self.update_from_mutation(&mutation);
-                return Ok(mutation);
-            } else {
-                self.process_mutation(mutation, &mut current_mutation);
-            }
         }
 
         Ok(current_mutation)
@@ -1306,6 +1150,13 @@ where
             path: path.to_owned(),
             message: message.to_owned(),
         };
+        self.emit_diagnostic(diagnostic).await
+    }
+
+    async fn emit_diagnostic(
+        &self,
+        diagnostic: crate::core::processing::Diagnostic,
+    ) -> Result<(), AgentError> {
         log::warn!("{}", diagnostic.message);
         for subscriber in &self.subscribers {
             subscriber
@@ -1473,6 +1324,60 @@ fn event_attribution<S: AgentState>(event: &Event<S>) -> Option<&str> {
     base.subagent_run_id.as_deref()
 }
 
+/// Resolve ownership from the same reconciled history for verification and
+/// chunk expansion. Known root ownership is distinct from an unknown entity.
+pub(crate) fn tool_call_owner(
+    messages: &[Message],
+    parent_id: Option<&MessageId>,
+    explicit_owner: &Option<String>,
+    call_id: Option<&str>,
+) -> Result<Option<Option<String>>, AgentError> {
+    let entity = call_id.unwrap_or("");
+    let inherited = if let Some(parent) =
+        parent_id.and_then(|id| messages.iter().find(|message| message.id() == id))
+    {
+        if parent.role() != Role::Assistant {
+            return Err(AgentError::exec(format!(
+                "Tool call '{entity}' parent message is not assistant"
+            )));
+        }
+        let owner = message_owner(parent).cloned();
+        check_owner(&owner, explicit_owner, entity)?;
+        Some(owner)
+    } else {
+        None
+    };
+    let known = call_id
+        .and_then(|id| {
+            messages.iter().find(|message| {
+                message
+                    .tool_calls()
+                    .is_some_and(|calls| calls.iter().any(|call| call.id.as_ref() == id))
+            })
+        })
+        .map(|message| message_owner(message).cloned());
+    if let Some(owner) = &known {
+        check_owner(owner, explicit_owner, entity)?;
+        if inherited
+            .as_ref()
+            .is_some_and(|parent_owner| parent_owner != owner)
+        {
+            return Err(AgentError::exec(
+                "Tool call owner does not match parent message",
+            ));
+        }
+    }
+    Ok(known.or(inherited))
+}
+
+// Looking up an existing call must not create toolCalls on unrelated messages.
+fn existing_tool_calls_mut(message: &mut Message) -> Option<&mut Vec<ToolCall>> {
+    match message {
+        Message::Assistant { tool_calls, .. } => tool_calls.as_mut(),
+        _ => None,
+    }
+}
+
 fn message_owner(message: &Message) -> Option<&String> {
     match message {
         Message::Developer {
@@ -1601,7 +1506,11 @@ mod name_tests {
         );
 
         let chunk: Event = serde_json::from_value(json!({"type":"TEXT_MESSAGE_CHUNK","messageId":"other","role":"assistant","name":"Grace","delta":"Hi"})).unwrap();
-        handler.handle_event(&chunk).await.unwrap();
+        let mut chunks = crate::chunk::ChunkExpander::default();
+        for expanded in chunks.expand(chunk, &handler.messages).unwrap() {
+            let mutation = handler.handle_event(&expanded).await.unwrap();
+            handler.apply_mutation(mutation).await.unwrap();
+        }
         let materialized = serde_json::to_value(&handler.messages[1]).unwrap();
         assert_eq!(materialized["name"], "Grace");
         assert_eq!(materialized["content"], "Hi");
@@ -1792,7 +1701,7 @@ mod conformance_tests {
             for raw in fixture["stream"].as_array().unwrap() {
                 let event: Event = serde_json::from_value(raw.clone())
                     .unwrap_or_else(|e| panic!("{name}: {e}: {raw}"));
-                let expanded = match chunks.expand(event) {
+                let expanded = match chunks.expand(event, &handler.messages) {
                     Ok(events) => events,
                     Err(e) => {
                         error = Some(e.to_string());

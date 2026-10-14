@@ -30,9 +30,7 @@
   "expect": {
     "outcome": "failed",
     "errorContains": "expected object, received array",
-    "eventTypes": [
-      "RUN_STARTED"
-    ]
+    "eventTypes": ["RUN_STARTED"]
   },
   "expectOverrides": {
     "dotnet": {
@@ -42,9 +40,7 @@
     "rust": {
       "intentional": "Rust exposes a structured InvalidValue category and JSON-pointer path instead of the TypeScript validator's English text. The same malformed known value must fail before delivery.",
       "errorContains": "InvalidValue at /outcome",
-      "eventTypes": [
-        "RUN_STARTED"
-      ]
+      "eventTypes": ["RUN_STARTED"]
     }
   }
 }

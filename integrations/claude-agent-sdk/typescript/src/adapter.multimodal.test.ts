@@ -565,8 +565,51 @@ describe("SDK content identity", () => {
       },
     ];
     const events = await runAdapter(messages);
+    expect(
+      events.find((e) => e.name === "claude:unsupported_input")?.value,
+    ).toMatchObject({
+      messageId: "user-native",
+      contentIndex: 1,
+      contentType: "audio",
+    });
     expect(events.find((e) => e.type === "RUN_STARTED")?.input).toMatchObject({
       messages,
     });
   });
+});
+
+it("forwards UTF-8 text documents with their filename", async () => {
+  const prompt = processMessages({
+    threadId: "thread",
+    runId: "run",
+    messages: [
+      {
+        id: "user",
+        role: "user",
+        content: [
+          {
+            type: "document",
+            source: { type: "data", value: "aMOpbGxv", mimeType: "text/plain" },
+            metadata: { filename: "notes.txt" },
+          },
+        ],
+      },
+    ],
+    tools: [],
+    context: [],
+    state: {},
+  }).userMessage;
+  expect(await collectPrompt(prompt)).toMatchObject([
+    {
+      message: {
+        content: [
+          {
+            type: "document",
+            title: "notes.txt",
+            source: { type: "text", media_type: "text/plain", data: "héllo" },
+          },
+        ],
+      },
+    },
+  ]);
 });

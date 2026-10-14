@@ -3,6 +3,8 @@ import {
   buildAguiToolMessage,
   convertAguiToolToClaudeSdk,
   mergeStateUpdate,
+  frontendResultBlocks,
+  stripMcpPrefix,
 } from "./utils";
 
 describe("tool result fidelity", () => {
@@ -104,4 +106,19 @@ it("shallow-merges state without losing untouched keys or deep-merging replaceme
   expect(() => mergeStateUpdate(before, { state_updates: [] })).toThrow(
     "must be an object",
   );
+});
+
+it("preserves structured frontend image bytes and external MCP names", () => {
+  expect(
+    frontendResultBlocks([
+      {
+        type: "image",
+        source: { type: "data", value: "AQID", mimeType: "image/png" },
+      },
+    ]),
+  ).toEqual([{ type: "image", data: "AQID", mimeType: "image/png" }]);
+  expect(stripMcpPrefix("mcp__external__confirm")).toBe(
+    "mcp__external__confirm",
+  );
+  expect(stripMcpPrefix("mcp__ag_ui__confirm")).toBe("confirm");
 });

@@ -50,26 +50,10 @@ export function extractToolNames(tools: Tool[]): string[] {
   return tools.map((t) => t.name).filter(Boolean);
 }
 
-/**
- * Strip mcp__servername__ prefix from Claude SDK tool names.
- *
- * Claude SDK prefixes all MCP tools: mcp__weather__get_weather, mcp__ag_ui__generate_haiku
- * Frontend registers unprefixed: get_weather, generate_haiku
- *
- * @example
- * stripMcpPrefix("mcp__weather__get_weather") // "get_weather"
- * stripMcpPrefix("mcp__ag_ui__generate_haiku") // "generate_haiku"
- * stripMcpPrefix("local_tool") // "local_tool" (unchanged)
- */
+/** Only the adapter-owned MCP server maps to unprefixed frontend names. */
 export function stripMcpPrefix(toolName: string): string {
-  if (toolName.startsWith("mcp__")) {
-    const parts = toolName.split("__");
-    if (parts.length >= 3) {
-      // mcp__servername__toolname -- keep just toolname (handles double underscores in names)
-      return parts.slice(2).join("__");
-    }
-  }
-  return toolName;
+  const prefix = "mcp__ag_ui__";
+  return toolName.startsWith(prefix) ? toolName.slice(prefix.length) : toolName;
 }
 
 /**
@@ -182,6 +166,25 @@ function documentBlock(source: unknown, field: string): ContentBlockParam {
   const mediaType = normalizedMediaType(value.mimeType);
 
   if (value.type === "data") {
+    if (mediaType === "text/plain") {
+      const encoded = requireString(value.value, `${field}.value`);
+      if (
+        !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(
+          encoded,
+        )
+      )
+        throw new Error(`${field}.value must be base64`);
+      return {
+        type: "document",
+        source: {
+          type: "text",
+          media_type: "text/plain",
+          data: new TextDecoder("utf-8", { fatal: true }).decode(
+            Buffer.from(encoded, "base64"),
+          ),
+        },
+      };
+    }
     if (mediaType !== "application/pdf") {
       throw new Error(
         `[ClaudeAdapter] ${field}.mimeType must be application/pdf`,
@@ -301,9 +304,13 @@ function convertContentBlock(
         );
         return undefined;
       }
-      return block.type === "image"
-        ? imageBlock(block.source, `content[${index}].source`)
-        : documentBlock(block.source, `content[${index}].source`);
+      if (block.type === "image")
+        return imageBlock(block.source, `content[${index}].source`);
+      const document = documentBlock(block.source, `content[${index}].source`);
+      const filename = block.metadata?.filename;
+      return typeof filename === "string"
+        ? ({ ...document, title: filename } as ContentBlockParam)
+        : document;
     }
     case "binary":
       return legacyBinaryBlock(block, index);
@@ -875,5 +882,28 @@ export function frontendResultBlocks(result: ToolMessage["content"]) {
     throw new Error(
       `Cannot return unresolved provider file ${source.value} as an SDK tool result`,
     );
+  });
+}
+
+export function unsupportedInputParts(input: RunAgentInput) {
+  const message = input.messages?.[input.messages.length - 1];
+  if (!message || !Array.isArray(message.content)) return [];
+  return message.content.flatMap((part, index) => {
+    const reason =
+      part.type === "audio" || part.type === "video"
+        ? `Claude does not accept ${part.type} input`
+        : "source" in part && part.source.type === "file"
+          ? "Provider file handles cannot be resolved by this adapter"
+          : undefined;
+    return reason
+      ? [
+          {
+            messageId: message.id,
+            contentIndex: index,
+            contentType: part.type,
+            reason,
+          },
+        ]
+      : [];
   });
 }

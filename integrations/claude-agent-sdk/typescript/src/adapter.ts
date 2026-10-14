@@ -41,6 +41,7 @@ import {
   buildAguiAssistantMessage,
   buildAguiToolMessage,
   mergeStateUpdate,
+  unsupportedInputParts,
   isStateManagementTool,
 } from "./utils";
 import { handleToolUseBlock } from "./handlers";
@@ -194,6 +195,13 @@ export class ClaudeAgentAdapter extends AbstractAgent {
         input,
       });
 
+      for (const notice of unsupportedInputParts(input)) {
+        subscriber.next({
+          type: EventType.CUSTOM,
+          name: "claude:unsupported_input",
+          value: notice,
+        });
+      }
       const { userMessage } = processMessages(input);
       const options = this.buildOptions(input);
       const abortController = this.config.queryTimeoutMs

@@ -5,6 +5,7 @@ Helper functions for message processing, tool conversion, and prompt building.
 """
 
 import json
+import base64
 import inspect
 import logging
 from collections.abc import AsyncIterable, AsyncIterator
@@ -81,28 +82,8 @@ def extract_tool_names(tools: List[Any]) -> List[str]:
 
 
 def strip_mcp_prefix(tool_name: str) -> str:
-    """
-    Strip mcp__servername__ prefix from Claude SDK tool names.
-    
-    Claude SDK prefixes all MCP tools: mcp__weather__get_weather, mcp__ag_ui__generate_haiku
-    Frontend registers unprefixed: get_weather, generate_haiku
-    
-    Args:
-        tool_name: Full MCP-prefixed tool name
-        
-    Returns:
-        Unprefixed tool name for client matching
-        
-    Examples:
-        "mcp__weather__get_weather" -> "get_weather"
-        "mcp__ag_ui__generate_haiku" -> "generate_haiku"
-        "local_tool" -> "local_tool" (unchanged)
-    """
-    if tool_name.startswith("mcp__"):
-        parts = tool_name.split("__")
-        if len(parts) >= 3:  # mcp__servername__toolname
-            return "__".join(parts[2:])  # Keep just toolname (handles double underscores in names)
-    return tool_name
+    """Map only adapter-owned tools to frontend names; preserve native MCP names."""
+    return tool_name.removeprefix("mcp__ag_ui__")
 
 
 SUPPORTED_IMAGE_MEDIA_TYPES = {
@@ -182,6 +163,8 @@ def _image_block(source: Any, field: str) -> Dict[str, Any]:
 def _document_block(source: Any, field: str) -> Dict[str, Any]:
     media_type = _normalized_media_type(getattr(source, "mime_type", None))
     if isinstance(source, InputContentDataSource):
+        if media_type == "text/plain":
+            return {"type": "document", "source": {"type": "text", "media_type": "text/plain", "data": base64.b64decode(source.value, validate=True).decode("utf-8")}}
         if media_type != "application/pdf":
             raise ValueError(f"{field}.mime_type must be application/pdf")
         return {
@@ -256,7 +239,11 @@ def _convert_content_block(block: Any, index: int) -> Optional[Dict[str, Any]]:
             return None
         if isinstance(block, ImageInputContent):
             return _image_block(block.source, f"content[{index}].source")
-        return _document_block(block.source, f"content[{index}].source")
+        document = _document_block(block.source, f"content[{index}].source")
+        filename = block.metadata.get("filename") if isinstance(block.metadata, dict) else None
+        if isinstance(filename, str):
+            document["title"] = filename
+        return document
     if isinstance(block, BinaryInputContent):
         return _legacy_binary_block(block, index)
     if isinstance(block, (AudioInputContent, VideoInputContent)):
@@ -713,3 +700,21 @@ def frontend_result_blocks(result: Any) -> list:
         else:
             raise ValueError("Cannot return unresolved provider file as an SDK tool result")
     return blocks
+
+
+def unsupported_input_parts(input_data: RunAgentInput) -> list:
+    message = input_data.messages[-1] if input_data.messages else None
+    content = getattr(message, "content", None)
+    if not isinstance(content, list):
+        return []
+    notices = []
+    for index, part in enumerate(content):
+        kind = getattr(part, "type", None)
+        reason = None
+        if kind in ("audio", "video"):
+            reason = f"Claude does not accept {kind} input"
+        elif _is_provider_file_source(getattr(part, "source", None)):
+            reason = "Provider file handles cannot be resolved by this adapter"
+        if reason:
+            notices.append({"messageId": message.id, "contentIndex": index, "contentType": kind, "reason": reason})
+    return notices

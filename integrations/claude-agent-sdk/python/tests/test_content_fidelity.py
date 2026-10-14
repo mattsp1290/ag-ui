@@ -72,3 +72,18 @@ def test_state_is_shallow_merged_and_rejects_invalid_updates():
     assert before["nested"] == {"old": True}
     with pytest.raises(ValueError, match="must be an object"):
         merge_state_update(before, {"state_updates": []})
+
+
+@pytest.mark.asyncio
+async def test_text_document_filename_and_explicit_unsupported_notice(make_input):
+    from ag_ui_claude_sdk.utils import process_messages, unsupported_input_parts, frontend_result_blocks
+    inp = make_input(messages=[{"id": "user", "role": "user", "content": [
+        {"type": "document", "source": {"type": "data", "value": "aMOpbGxv", "mimeType": "text/plain"}, "metadata": {"filename": "notes.txt"}},
+        {"type": "audio", "source": {"type": "data", "value": "AQID", "mimeType": "audio/wav"}, "metadata": {"filename": "audio.wav"}},
+    ]}])
+    prompt, _ = process_messages(inp)
+    messages = [m async for m in prompt]
+    assert messages[0]["message"]["content"] == [{"type": "document", "title": "notes.txt", "source": {"type": "text", "media_type": "text/plain", "data": "héllo"}}]
+    assert unsupported_input_parts(inp)[0]["contentIndex"] == 1
+    assert inp.messages[0].content[1].metadata["filename"] == "audio.wav"
+    assert frontend_result_blocks([{"type": "image", "source": {"type": "data", "value": "AQID", "mimeType": "image/png"}}]) == [{"type": "image", "data": "AQID", "mimeType": "image/png"}]

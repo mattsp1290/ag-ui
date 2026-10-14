@@ -284,7 +284,7 @@ class TestStreamToolCall:
         assert EventType.TOOL_CALL_ARGS in types
         assert EventType.TOOL_CALL_END in types
         start = next(e for e in events if e.type == EventType.TOOL_CALL_START)
-        assert start.tool_call_name == "lookup"  # prefix stripped
+        assert start.tool_call_name == "mcp__srv__lookup"  # native name retained
         # exactly one END for the one tool call
         assert types.count(EventType.TOOL_CALL_END) == 1
 
@@ -302,7 +302,7 @@ class TestStreamToolCall:
         types = _types(events)
         assert EventType.TOOL_CALL_START in types
         start = next(e for e in events if e.type == EventType.TOOL_CALL_START)
-        assert start.tool_call_name == "render_ui"  # prefix stripped
+        assert start.tool_call_name == "mcp__ui__render_ui"  # native name retained
         assert start.parent_message_id is not None
         assert start.parent_message_id != "tc-agent-call"  # not the SDK's parent_tool_use_id
 

@@ -50,6 +50,7 @@ from .utils import (
     build_agui_assistant_message,
     build_agui_tool_message,
     merge_state_update,
+    unsupported_input_parts,
     _is_state_management_tool,
     fix_surrogates,
     fix_surrogates_deep,
@@ -390,6 +391,9 @@ class ClaudeAgentAdapter:
                 }
             )
             
+            for notice in unsupported_input_parts(input_data):
+                yield CustomEvent(type=EventType.CUSTOM, name="claude:unsupported_input", value=notice)
+
             # Extract frontend tool names for halt detection
             frontend_tool_names = set(extract_tool_names(input_data.tools)) if input_data.tools else set()
             if frontend_tool_names:
@@ -1019,7 +1023,7 @@ class ClaudeAgentAdapter:
                         name="claude:assistant_content",
                         value={"messageId": msg_id, "uuid": getattr(message, "uuid", None),
                                "parentToolUseId": getattr(message, "parent_tool_use_id", None),
-                               "content": [asdict(b) if is_dataclass(b) else b for b in message.content]},
+                               "content": [{"type": {"TextBlock": "text", "ThinkingBlock": "thinking", "ToolUseBlock": "tool_use", "ToolResultBlock": "tool_result"}.get(type(b).__name__, type(b).__name__), **asdict(b)} if is_dataclass(b) else b for b in message.content]},
                     )
                     if current_message_id is None and last_streamed_message_id is None:
                         unstreamed_fallback_ids.add(msg_id)

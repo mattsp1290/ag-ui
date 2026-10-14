@@ -103,7 +103,7 @@ def _file_source_document_input(thread_id: str = "thread-1") -> RunAgentInput:
 
 class TestStripMcpPrefix:
     def test_strips_server_prefix(self):
-        assert strip_mcp_prefix("mcp__weather__get_weather") == "get_weather"
+        assert strip_mcp_prefix("mcp__weather__get_weather") == "mcp__weather__get_weather"
 
     def test_strips_ag_ui_prefix(self):
         assert strip_mcp_prefix("mcp__ag_ui__generate_haiku") == "generate_haiku"
@@ -113,7 +113,7 @@ class TestStripMcpPrefix:
 
     def test_preserves_double_underscore_in_tool_name(self):
         # mcp__server__tool__with__underscores -> tool__with__underscores
-        assert strip_mcp_prefix("mcp__srv__a__b") == "a__b"
+        assert strip_mcp_prefix("mcp__srv__a__b") == "mcp__srv__a__b"
 
     def test_too_few_parts_unchanged(self):
         assert strip_mcp_prefix("mcp__only") == "mcp__only"

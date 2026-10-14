@@ -42,7 +42,7 @@ class TestHandleToolUseBlock:
             EventType.TOOL_CALL_END,
         ]
         # Name is stripped of the MCP prefix
-        assert events[0].tool_call_name == "get_weather"
+        assert events[0].tool_call_name == "mcp__weather__get_weather"
         assert events[0].tool_call_id == "tc1"
         assert json.loads(events[1].delta) == {"city": "NYC"}
 

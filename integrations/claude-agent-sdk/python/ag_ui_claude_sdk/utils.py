@@ -460,7 +460,7 @@ def convert_agui_tool_to_claude_sdk(tool_def: Any, resolve_frontend_result: Any 
                 content = []
             if not any(block.get("type") == "text" and block.get("text") == error for block in content):
                 content.append({"type": "text", "text": error})
-        return {"content": content, **({"isError": True} if error is not None else {})}
+        return {"content": content, **({"is_error": True} if error is not None else {})}
     
     return frontend_tool_stub
 

@@ -1,4 +1,5 @@
 """Host-owned session bindings; SDK transcripts remain in native storage."""
+from copy import deepcopy
 from dataclasses import dataclass, asdict, is_dataclass
 from typing import Any, Protocol
 
@@ -7,6 +8,7 @@ class SessionBinding:
     session_id: str
     profile: str
     pending: dict[str, Any] | None = None
+    frontend_tools: list[dict[str, Any]] | None = None
 
 class SessionBindingStore(Protocol):
     async def load(self, thread_id: str) -> SessionBinding | None: ...
@@ -20,7 +22,8 @@ class RecoveryRun:
         self.delivered = False
         self.failure = None
         self.frontend_result = None
-        self.frontend_names = {f"mcp__ag_ui__{tool.name}" for tool in getattr(input_data, 'tools', [])} | set(defer_tools)
+        self.tools = deepcopy(binding.frontend_tools) if binding and binding.pending and binding.frontend_tools is not None else [tool.model_dump() for tool in getattr(input_data, 'tools', [])]
+        self.frontend_names = {f"mcp__ag_ui__{tool['name']}" for tool in self.tools} | set(defer_tools)
         pending = binding.pending if binding else None
         messages = getattr(input_data, 'messages', [])
         if pending and pending['name'].startswith('mcp__ag_ui__'):
@@ -28,7 +31,7 @@ class RecoveryRun:
             if len(results) > 1:
                 raise ValueError('Multiple results for one deferred tool call')
             if results:
-                self.frontend_result = results[0].content
+                self.frontend_result = {'content': results[0].content, 'error': getattr(results[0], 'error', None)}
                 self.decision = {'behavior': 'allow'}
         if messages and messages[-1].role == 'tool' and self.frontend_result is None:
             raise ValueError('No saved SDK deferral matches this frontend result')
@@ -108,6 +111,7 @@ class RecoveryRun:
             raise ValueError('SDK changed the original session UUID during resume.')
         if not self.binding:
             self.binding = SessionBinding(session_id, profile)
+        self.binding.frontend_tools = deepcopy(self.tools)
         if result is None:
             return
         reason = getattr(result, 'stop_reason', None)

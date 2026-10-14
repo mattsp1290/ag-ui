@@ -14,6 +14,7 @@ export interface SessionBinding {
   sessionId: string;
   profile: string;
   pending?: SDKDeferredToolUse;
+  frontendTools?: RunAgentInput["tools"];
 }
 export interface SessionBindingStore {
   load(threadId: string): Promise<SessionBinding | undefined>;
@@ -35,7 +36,11 @@ export class RecoveryRun {
     updatedInput?: Record<string, unknown>;
   };
   private consumed = false;
-  private frontendResult?: ToolMessage["content"];
+  private frontendResult?: {
+    content: ToolMessage["content"];
+    error?: ToolMessage["error"];
+  };
+  readonly tools: RunAgentInput["tools"];
   private delivered = false;
   private failure?: string;
   private frontendNames: Set<string>;
@@ -44,8 +49,13 @@ export class RecoveryRun {
     input: RunAgentInput,
     deferTools: string[] = [],
   ) {
+    this.tools = structuredClone(
+      binding?.pending && binding.frontendTools
+        ? binding.frontendTools
+        : input.tools,
+    );
     this.frontendNames = new Set([
-      ...input.tools.map((tool) => `mcp__ag_ui__${tool.name}`),
+      ...this.tools.map((tool) => `mcp__ag_ui__${tool.name}`),
       ...deferTools,
     ]);
     const pending = binding?.pending;
@@ -57,7 +67,10 @@ export class RecoveryRun {
       if (results.length > 1)
         throw new Error("Multiple results for one deferred tool call.");
       if (results.length === 1 && results[0].role === "tool") {
-        this.frontendResult = results[0].content;
+        this.frontendResult = {
+          content: results[0].content,
+          error: results[0].error,
+        };
         this.decision = { behavior: "allow" };
       }
     }
@@ -94,7 +107,7 @@ export class RecoveryRun {
   readonly resolveFrontendResult = (
     name: string,
     args: Record<string, unknown>,
-  ): ToolMessage["content"] => {
+  ) => {
     const pending = this.binding?.pending;
     if (
       !this.consumed ||
@@ -211,6 +224,8 @@ export class RecoveryRun {
     if (this.binding && sessionId !== this.binding.sessionId)
       throw new Error("SDK changed the original session UUID during resume.");
     this.binding ??= { sessionId, profile };
+    if (this.tools.length || this.binding.frontendTools)
+      this.binding.frontendTools = structuredClone(this.tools);
     if (!result) return;
     if (result.stop_reason === "tool_deferred_unavailable")
       throw new Error(

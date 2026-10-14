@@ -1,3 +1,4 @@
+import { startLoopbackMcp } from "./loopback-mcp";
 import { RecoveryRun, type SessionBinding } from "./recovery";
 import { getSessionInfo } from "@anthropic-ai/claude-agent-sdk";
 /**
@@ -34,6 +35,7 @@ import {
   AG_UI_MCP_SERVER_NAME,
 } from "./config";
 import {
+  type FrontendToolResult,
   processMessages,
   buildStateContextAddendum,
   extractToolNames,
@@ -175,6 +177,7 @@ export class ClaudeAgentAdapter extends AbstractAgent {
     const queryKey = input.threadId ?? "default";
     const threadId = input.threadId ?? randomUUID();
     const runId = input.runId ?? randomUUID();
+    let loopback: Awaited<ReturnType<typeof startLoopbackMcp>> | undefined;
     let releaseResumeInput: (() => void) | undefined;
     let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
 
@@ -227,10 +230,18 @@ export class ClaudeAgentAdapter extends AbstractAgent {
         ? await recoveryConfig.resolveProfile(profile)
         : {};
       const options = this.buildOptions(
-        input,
+        { ...input, tools: recovery.tools },
         profileOptions,
         recovery.resolveFrontendResult,
       );
+      const proxy = options.mcpServers?.[AG_UI_MCP_SERVER_NAME];
+      if (proxy && typeof proxy === "object" && proxy.type === "sdk") {
+        loopback = await startLoopbackMcp(proxy);
+        options.mcpServers = {
+          ...options.mcpServers,
+          [AG_UI_MCP_SERVER_NAME]: loopback.config,
+        };
+      }
       if (binding) {
         if (options.forkSession || options.resumeSessionAt || options.continue)
           throw new Error(
@@ -346,6 +357,8 @@ export class ClaudeAgentAdapter extends AbstractAgent {
         runCtx,
       );
 
+      await loopback?.close();
+      loopback = undefined;
       subscriber.next({
         type: EventType.RUN_FINISHED,
         threadId,
@@ -381,6 +394,7 @@ export class ClaudeAgentAdapter extends AbstractAgent {
         idleEntry.lastUsed = Date.now();
         this.evictSessions();
       }
+      await loopback?.close();
     }
   }
 
@@ -442,7 +456,7 @@ export class ClaudeAgentAdapter extends AbstractAgent {
     resolveFrontendResult?: (
       name: string,
       args: Record<string, unknown>,
-    ) => ToolMessage["content"],
+    ) => FrontendToolResult,
   ): Options {
     // Start with sensible defaults
     const merged: Record<string, unknown> = {

@@ -144,7 +144,7 @@ it("keeps pending recovery actionable without re-running the SDK", async () => {
     outcome: { type: "interrupt" },
   });
 });
-it("rejects unrecoverable in-process MCP approval before SDK execution", async () => {
+it("keeps frontend deferral pending with a ready HTTP proxy", async () => {
   const deferred = {
     id: "frontend-original",
     name: "mcp__ag_ui__confirm",
@@ -172,7 +172,7 @@ it("rejects unrecoverable in-process MCP approval before SDK execution", async (
   });
   expect(sdk.query).not.toHaveBeenCalled();
   expect(events[events.length - 1]).toMatchObject({
-    type: "RUN_ERROR",
-    message: expect.stringContaining("not actionable"),
+    type: "RUN_FINISHED",
+    outcome: { type: "success", pendingToolCallIds: [deferred.id] },
   });
 });

@@ -65,6 +65,7 @@ from .handlers import (
     handle_tool_result_block,
 )
 from .session import SessionWorker
+from .loopback_mcp import LoopbackMcpServer
 from .recovery import SessionBinding, RecoveryRun
 
 logger = logging.getLogger(__name__)
@@ -305,6 +306,7 @@ class ClaudeAgentAdapter:
         # to avoid decrementing the peer's refcount. (Item 7a)
         counted_in = False
         recovery = None
+        loopback = None
 
         try:
             if self._session_binding_store is not None:
@@ -322,7 +324,13 @@ class ClaudeAgentAdapter:
                 recovery = RecoveryRun(binding, input_data, self._defer_tools)
                 profile = binding.profile if binding else self._execution_profile
                 profile_options = await self._resolve_profile(profile)
-                options = self.build_options(input_data, thread_id=thread_id, profile_options=profile_options, resolve_frontend_result=recovery.resolve_frontend_result)
+                from ag_ui.core import Tool
+                restored_input = input_data.model_copy(update={'tools': [Tool.model_validate(tool) for tool in recovery.tools]})
+                options = self.build_options(restored_input, thread_id=thread_id, profile_options=profile_options, resolve_frontend_result=recovery.resolve_frontend_result)
+                proxy = options.mcp_servers.get(AG_UI_MCP_SERVER_NAME) if isinstance(options.mcp_servers, dict) else None
+                if isinstance(proxy, dict) and proxy.get('type') == 'sdk':
+                    loopback = LoopbackMcpServer(proxy)
+                    options.mcp_servers = {**options.mcp_servers, AG_UI_MCP_SERVER_NAME: await loopback.start()}
                 if binding:
                     if options.fork_session or options.resume_session_at or options.continue_conversation:
                         raise ValueError("Original-session recovery cannot fork, rewind or continue the newest session")
@@ -580,14 +588,18 @@ class ClaudeAgentAdapter:
                 entry["active"] = entry["active_runs"] > 0
                 entry["last_used"] = datetime.now()
 
-            # Drop THIS run's result slot (per-run keyed; thread-scoped cleanup
-            # paths above may already have purged it, hence pop with default).
-            self._per_run_result.pop(result_key, None)
-
-            # Release the run-admission lock on EVERY exit path (success, error,
-            # timeout, and the fail-loud early return) so a waiting same-thread
-            # run can proceed. We acquired it unconditionally before this try.
-            run_lock.release()
+            try:
+                if loopback is not None:
+                    # Disconnect the SDK before stopping its tool transport.
+                    owned_entry = self._workers.pop(thread_id, None)
+                    try:
+                        if owned_entry:
+                            await owned_entry['worker'].stop()
+                    finally:
+                        await loopback.close()
+            finally:
+                self._per_run_result.pop(result_key, None)
+                run_lock.release()
 
     async def _observe_recovery(self, stream, recovery, thread_id, profile):
         from copy import deepcopy

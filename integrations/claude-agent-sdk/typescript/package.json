@@ -30,7 +30,8 @@
     "unlink:global": "pnpm unlink --global"
   },
   "dependencies": {
-    "rxjs": "7.8.1"
+    "rxjs": "7.8.1",
+    "@modelcontextprotocol/sdk": "^1.29.0"
   },
   "peerDependencies": {
     "@ag-ui/client": ">=1.0.0",

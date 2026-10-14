@@ -125,13 +125,15 @@ Python SDK **0.2.166**, bundled CLI **2.1.299**, AG-UI **1.0**. Use the bundled 
 custom binaries older than 2.1.261 lack the startup barrier. Local transcript
 lookup needs matching host/query `CLAUDE_CONFIG_DIR` settings.
 
-**Known blocker:** saved in-process SDK MCP deferrals, including the frontend
-proxy, fail because the CLI checks for the tool before SDK MCP registration.
-The adapter rejects those pending bindings before execution and retains them;
-PNI-658's frontend-result bridge is not yet releasable as durable recovery.
-Native durable deferral supports one call at a time, not parallel tool calls.
-Missing native data/tools/configuration surfaces an error instead of starting a
-replacement session.
+Frontend deferrals under `mcp__ag_ui__` use an authenticated loopback HTTP
+MCP endpoint, connected with `alwaysLoad` before native replay. The endpoint
+exists only for the query and closes afterward. The binding also stores the
+original frontend tool declarations (`frontendTools` in TypeScript,
+`frontend_tools` in Python); persist these fields unchanged so a delta-only
+`ToolMessage` with `tools: []` can resume the original call after restart.
+Tool errors retain their native failure flag. Other host-provided in-process SDK
+MCP deferrals remain guarded because those servers register too late for replay.
+Durable deferral supports **one tool call at a time**, not parallel calls.
 
 `PYTHONPATH=. python scripts/probe_durable_resume.py` uses a localhost fake
 provider and disposable synthetic native files. It constructs a new adapter for
@@ -140,3 +142,9 @@ results with AG-UI emissions by original call ID. Unit tests additionally cover
 identity mismatches, unmatched callbacks and pending-state restoration. These
 checks do not validate remote storage, production credentials, Intelligence/UI
 replay or the six-row product matrix. Release and final validation remain pending.
+
+The frontend probe (`scripts/probe-frontend-resume.mjs`, with optional `--error`,
+in TypeScript; `scripts/probe_frontend_resume.py` in Python) additionally checks
+original-session frontend results with omitted tool definitions, native saved
+results, and a fresh SDK history read. It uses the same isolated fake-provider
+setup as the native approval probe.

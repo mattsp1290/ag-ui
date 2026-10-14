@@ -750,7 +750,7 @@ const agentFilesMapper: Record<
           path.join(
             __dirname,
             integrationsFolderPath,
-            `/omnara/typescript/src/agent.ts`,
+            `/community/omnara/typescript/src/agent.ts`,
           ),
         ],
       ]),

@@ -261,10 +261,10 @@
       ]
     },
     "integration-omnara": {
-      "description": "Omnara integration (TypeScript)",
+      "description": "Omnara integration (community, TypeScript)",
       "sharedVersion": false,
       "packages": [
-        { "name": "@ag-ui/omnara", "path": "integrations/omnara/typescript", "ecosystem": "typescript" }
+        { "name": "@ag-ui/omnara", "path": "integrations/community/omnara/typescript", "ecosystem": "typescript" }
       ]
     },
     "integration-pydantic-ai": {

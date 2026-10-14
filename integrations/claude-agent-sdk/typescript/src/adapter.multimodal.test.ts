@@ -372,7 +372,7 @@ describe("ClaudeAgentAdapter multimodal input", () => {
     expect(queryMock.mock.calls[0][0].prompt).toBe("hello");
   });
 
-  it("completes the follow-up run after a display-only frontend tool", async () => {
+  it("rejects a historical frontend reply without a saved SDK deferral", async () => {
     const events = await runAdapter(
       [
         { id: "u1", role: "user", content: "Show me the weather card" },
@@ -393,11 +393,9 @@ describe("ClaudeAgentAdapter multimodal input", () => {
       "thread-follow-up",
     );
 
-    expect(queryMock.mock.calls[0][0].prompt).toBe(
-      'The client completed the "showWeatherCard" tool call (id call-1) and returned no result.',
-    );
-    expect(events.map((event) => event.type)).toContain("RUN_FINISHED");
-    expect(events.map((event) => event.type)).not.toContain("RUN_ERROR");
+    expect(queryMock).not.toHaveBeenCalled();
+    expect(events.map((event) => event.type)).toContain("RUN_ERROR");
+    expect(events.map((event) => event.type)).not.toContain("RUN_FINISHED");
   });
   // A `file` source names bytes already held by a model provider, under a
   // handle only that provider can resolve. The Claude Agent SDK adapter has no

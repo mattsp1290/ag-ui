@@ -21,3 +21,5 @@ export {
   AG_UI_MCP_SERVER_NAME,
 } from "./config";
 export { extractToolNames } from "./utils";
+
+export type { SessionBinding, SessionBindingStore, SessionRecoveryConfig } from "./recovery";

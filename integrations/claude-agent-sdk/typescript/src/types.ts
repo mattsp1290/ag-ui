@@ -55,6 +55,8 @@ import type {
 export type ClaudeAgentAdapterConfig = AgentConfig & Options & {
   /** Maximum number of idle sessions to keep. Default: 1000 */
   maxSessions?: number;
+  /** Durable host binding store and trusted execution profiles. */
+  sessionRecovery?: import("./recovery").SessionRecoveryConfig;
   /** TTL in ms for idle sessions. Default: 30 minutes */
   sessionTtlMs?: number;
   /** Timeout in ms for query() calls. Default: undefined (no timeout) */

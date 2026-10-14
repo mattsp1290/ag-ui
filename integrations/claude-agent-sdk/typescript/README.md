@@ -90,3 +90,61 @@ Input uploads remain in `RUN_STARTED.input` with their original metadata. Image 
 Frontend tool proxies require a result resolver armed for the original tool call by the deferred-tool/session recovery integration. The resolver returns the real frontend result to that call; absent resolution fails explicitly instead of saving a placeholder. Strings retain their bytes; supported structured results become MCP content. This content change must ship with the PNI-659 lifecycle companion. It does not repair historical placeholder results or make arbitrary historical approvals resumable.
 
 Protocol regression tests exercise synthetic SDK streams and proxy callbacks without model calls. They do not establish released support, native persistence across restart, or end-to-end Intelligence replay; those require the lifecycle companion and product validation.
+
+### Session recovery (PNI-659, unreleased)
+
+Use `sessionRecovery: { store, profile, resolveProfile, deferTools? }` to retain
+thread-to-SDK-session bindings across adapter restarts. `store.load(threadId)`
+returns `{ sessionId, profile, pending?: { id, name, input } }`; `store.save`
+must durably commit that record before resolving. `resolveProfile(profile)`
+returns trusted SDK options, including the original `cwd`, native `sessionStore`
+(if used), tools/MCP configuration, permission mode and credential environment.
+Store a profile key, not credentials or serialized callbacks. The default
+in-memory bindings do not survive a process restart.
+
+For imported sessions the host must resolve the imported thread ID to the
+original UUID and execution profile, including a confirmed saved deferral when
+present. Missing imported records must throw rather than return `undefined`
+(which means a new thread). Never infer pending approvals from an unfinished
+`tool_use` or a callback that was waiting in a dead process. PNI-657 owns native
+history extraction and routing. Session binding access requires the same tenant
+and authorization boundary as the native transcript. Serialize runs across
+replicas with an application lock; the adapter only excludes overlapping local
+runs. Reconcile bindings against native storage after an interrupted save or
+out-of-band SDK activity before exposing a pending decision.
+
+Use `deferTools: ["Read"]` (exact native names) for native approval policy. A
+confirmed native deferral emits `RUN_FINISHED.outcome = { type: "interrupt",
+interrupts: [...] }`. Answer with `resume: [{ interruptId: originalCallId,
+status: "resolved", payload: { behavior: "allow" | "deny", message?,
+updatedInput? } }]`; `status: "cancelled"` denies the call. The adapter resumes
+the original UUID without forking, preserves the original call ID, and leaves
+actual execution/result persistence to the SDK. Existing host hooks still apply;
+do not configure a second unconditional deferral hook for the same call.
+
+The tested baseline is Agent SDK **0.3.296**, its bundled CLI **2.1.296**, and
+AG-UI **1.0**. Recovery requires the CLI `--await-initialize` barrier, which the
+adapter sets before resume, so SDK hooks exist before a saved call can execute.
+A held, empty input stream avoids enqueueing an extra user/model turn. Custom
+CLI binaries older than 2.1.261 do not support that barrier. For local transcript
+lookup, set the same `CLAUDE_CONFIG_DIR` in the host process and query environment.
+Missing transcripts/configuration and unavailable tools surface as run errors;
+there is no fallback to a new session.
+
+**Known blocker:** deferred in-process SDK MCP tools (including frontend tools
+under `mcp__ag_ui__`) are not recoverable in the tested SDK. The native CLI checks
+for the tool before the SDK MCP server connects, even with the initialization
+barrier. Recovery rejects these pending bindings before execution and retains
+them. The real-result bridge in PNI-658 therefore remains an unreleased companion,
+not a claim that frontend approvals survive restart. Durable deferral supports
+**one tool call at a time**; the framework ignores deferral for parallel calls.
+No adapter workaround for parallel durable approval is provided.
+
+Focused tests cover binding restoration, allow/deny mapping, missing sessions,
+identity mismatches and callback-history rejection. Run
+`pnpm exec tsx scripts/probe-durable-resume.mjs` and repeat with `--allow` from
+this package to exercise two actual SDK processes against a localhost fake
+provider and disposable synthetic native files. The probe checks original UUID,
+call ID, native/AG-UI result equality and exactly two model requests total.
+This is synthetic adapter validation; remote stores, production credentials,
+Intelligence/browser replay and the six-row product matrix remain unvalidated.

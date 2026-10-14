@@ -65,6 +65,7 @@ from .handlers import (
     handle_tool_result_block,
 )
 from .session import SessionWorker
+from .recovery import SessionBinding, RecoveryRun
 
 logger = logging.getLogger(__name__)
 
@@ -91,10 +92,21 @@ class ClaudeAgentAdapter:
         max_workers: int = 1000,
         worker_ttl_seconds: float = 1800,   # 30 min
         query_timeout_seconds: Optional[float] = 300,   # 5 min; bounds a hung/slow worker
+        *,
+        session_binding_store=None,
+        resolve_profile=None,
+        execution_profile: str = "default",
+        defer_tools: tuple[str, ...] = (),
     ):
         self.name = name
         self.description = description
         self._options = options
+        if (session_binding_store is None) != (resolve_profile is None):
+            raise ValueError("session_binding_store and resolve_profile must be provided together")
+        self._session_binding_store = session_binding_store
+        self._resolve_profile = resolve_profile
+        self._execution_profile = execution_profile
+        self._defer_tools = defer_tools
         self._max_workers = max_workers
         self._worker_ttl_seconds = worker_ttl_seconds
         self._query_timeout_seconds = query_timeout_seconds
@@ -237,7 +249,12 @@ class ClaudeAgentAdapter:
         # SessionWorker. Unsupported content is an input error, not evidence
         # that the existing Claude CLI session is broken.
         try:
-            prompt, _ = process_messages(input_data)
+            if self._session_binding_store is None and ((input_data.messages and input_data.messages[-1].role == 'tool') or getattr(input_data, 'resume', None)):
+                raise ValueError('Session recovery must be configured to answer saved approvals or frontend tool calls; historical results cannot become user text.')
+            if self._session_binding_store is not None and (getattr(input_data, 'resume', None) or (input_data.messages and input_data.messages[-1].role == 'tool')):
+                prompt = ""
+            else:
+                prompt, _ = process_messages(input_data)
         except Exception as e:
             logger.error(f"Invalid input for thread={thread_id}: {e}")
             yield RunErrorEvent(
@@ -287,8 +304,57 @@ class ClaudeAgentAdapter:
         # below returns WITHOUT counting itself in, so it must leave this False
         # to avoid decrementing the peer's refcount. (Item 7a)
         counted_in = False
+        recovery = None
 
         try:
+            if self._session_binding_store is not None:
+                from copy import deepcopy
+                from claude_agent_sdk import get_session_info, HookMatcher
+                from claude_agent_sdk import get_session_info_from_store
+                binding = deepcopy(await self._session_binding_store.load(thread_id))
+                requested = (input_data.forwarded_props or {}).get("resume")
+                if requested and not isinstance(requested, str):
+                    raise ValueError("resume must be the original session UUID")
+                if binding and requested and requested != binding.session_id:
+                    raise ValueError("Requested session conflicts with the durable thread binding")
+                if not binding and requested:
+                    binding = SessionBinding(requested, self._execution_profile)
+                recovery = RecoveryRun(binding, input_data, self._defer_tools)
+                profile = binding.profile if binding else self._execution_profile
+                profile_options = await self._resolve_profile(profile)
+                options = self.build_options(input_data, thread_id=thread_id, profile_options=profile_options, resolve_frontend_result=recovery.resolve_frontend_result)
+                if binding:
+                    if options.fork_session or options.resume_session_at or options.continue_conversation:
+                        raise ValueError("Original-session recovery cannot fork, rewind or continue the newest session")
+                    options.resume = binding.session_id
+                    options.fork_session = False
+                    options.extra_args = {**(options.extra_args or {}), "await-initialize": None}
+                    if options.session_store:
+                        info = await get_session_info_from_store(options.session_store, binding.session_id, str(options.cwd) if options.cwd else None)
+                    else:
+                        info = get_session_info(binding.session_id, directory=str(options.cwd) if options.cwd else None)
+                    if info is None:
+                        raise ValueError("Original SDK session is unavailable. Restore its transcript/store and original working directory.")
+                if binding and binding.pending and isinstance(options.mcp_servers, dict) and any(
+                    isinstance(server, dict) and server.get('type') == 'sdk' and binding.pending['name'].startswith(f'mcp__{name}__')
+                    for name, server in options.mcp_servers.items()
+                ):
+                    raise ValueError('This SDK cannot restore a deferred in-process MCP tool before startup. The saved call is retained but is not actionable; use a supported SDK fix before resuming.')
+                if recovery.awaiting_decision:
+                    yield RunStartedEvent(type=EventType.RUN_STARTED, thread_id=thread_id, run_id=run_id)
+                    yield RunFinishedEvent(type=EventType.RUN_FINISHED, thread_id=thread_id, run_id=run_id, outcome=recovery.outcome)
+                    return
+                options.hooks = {**(options.hooks or {}), "PreToolUse": [*(options.hooks or {}).get("PreToolUse", []), HookMatcher(hooks=[recovery.hook])]}
+                if recovery.decision:
+                    # Resume replays the deferred call automatically. Sending an
+                    # empty user message would enqueue an extra model turn.
+                    prompt = None
+                # Recovery owns a new SDK process for each run so hooks and restored
+                # execution configuration cannot be retained from a previous run.
+                previous = self._workers.pop(thread_id, None)
+                if previous:
+                    await previous["worker"].stop()
+
             # Get or create worker for this thread.
             # Guard against a poisoned cache entry: if a previously-cached
             # worker's background task has died (e.g. client.connect() failed),
@@ -342,7 +408,8 @@ class ClaudeAgentAdapter:
                     entry = None
 
             if entry is None:
-                options = self.build_options(input_data, thread_id=thread_id)
+                if recovery is None:
+                    options = self.build_options(input_data, thread_id=thread_id)
                 worker = SessionWorker(thread_id, options)
                 await worker.start()
                 # ``active_runs`` is a refcount of in-flight run() invocations
@@ -365,6 +432,8 @@ class ClaudeAgentAdapter:
                 logger.debug(f"Reusing worker for thread={thread_id}")
 
             message_stream = worker.query(prompt, session_id=thread_id)
+            if recovery is not None:
+                message_stream = self._observe_recovery(message_stream, recovery, thread_id, profile)
 
             # Log parent_run_id if provided (for branching/time travel tracking)
             if input_data.parent_run_id:
@@ -449,6 +518,7 @@ class ClaudeAgentAdapter:
                     thread_id=thread_id,
                     run_id=run_id,
                     result=self._per_run_result.get(result_key, None),
+                    **({"outcome": recovery.outcome} if recovery and recovery.outcome else {}),
                 )
             
         except asyncio.TimeoutError as e:
@@ -519,7 +589,25 @@ class ClaudeAgentAdapter:
             # run can proceed. We acquired it unconditionally before this try.
             run_lock.release()
 
-    def build_options(self, input_data: Optional[RunAgentInput] = None, thread_id: Optional[str] = None) -> "ClaudeAgentOptions":
+    async def _observe_recovery(self, stream, recovery, thread_id, profile):
+        from copy import deepcopy
+        from claude_agent_sdk import SystemMessage, ResultMessage, UserMessage, ToolResultBlock
+        async for message in stream:
+            if isinstance(message, UserMessage) and isinstance(message.content, list):
+                for block in message.content:
+                    if isinstance(block, ToolResultBlock) and recovery.observe_tool_result(block.tool_use_id):
+                        await self._session_binding_store.save(thread_id, deepcopy(recovery.binding))
+            session_id = None
+            if isinstance(message, SystemMessage) and message.subtype == "init":
+                session_id = message.data.get("session_id")
+            elif isinstance(message, ResultMessage):
+                session_id = message.session_id
+            if session_id:
+                recovery.observe(session_id, profile, message if isinstance(message, ResultMessage) else None)
+                await self._session_binding_store.save(thread_id, deepcopy(recovery.binding))
+            yield message
+
+    def build_options(self, input_data: Optional[RunAgentInput] = None, thread_id: Optional[str] = None, profile_options=None, resolve_frontend_result=None) -> "ClaudeAgentOptions":
         """Build ClaudeAgentOptions from base config + RunAgentInput."""
         from claude_agent_sdk import ClaudeAgentOptions, create_sdk_mcp_server
         
@@ -591,6 +679,9 @@ class ClaudeAgentAdapter:
         merged_kwargs.pop("api_key", None)
         logger.debug(f"Merged kwargs after pop: {merged_kwargs}")
         
+        if profile_options is not None:
+            merged_kwargs.update(profile_options if isinstance(profile_options, dict) else vars(profile_options))
+
         # Apply forwarded_props as per-run overrides (before adding dynamic tools)
         if input_data and input_data.forwarded_props:
             merged_kwargs = apply_forwarded_props(
@@ -611,7 +702,7 @@ class ClaudeAgentAdapter:
                 
                 for tool_def in input_data.tools:
                     try:
-                        claude_tool = convert_agui_tool_to_claude_sdk(tool_def)
+                        claude_tool = convert_agui_tool_to_claude_sdk(tool_def, resolve_frontend_result)
                         ag_ui_tools.append(claude_tool)
                     except Exception as e:
                         logger.warning(f"Failed to convert tool: {e}")
@@ -698,8 +789,6 @@ class ClaudeAgentAdapter:
         # Track which tools we've already emitted START for (to avoid duplicates)
         processed_tool_ids: set = set()
         
-        # Frontend tool halt flag
-        halt_event_stream: bool = False
         
         # ── MESSAGES_SNAPSHOT accumulation ──
         run_messages: List[Any] = []
@@ -759,10 +848,6 @@ class ClaudeAgentAdapter:
         async for message in message_stream:
             message_count += 1
             
-            # If we've halted due to frontend tool, break out of loop
-            if halt_event_stream:
-                logger.debug(f"[Message #{message_count}]: Halted - breaking stream loop")
-                break
             
             logger.debug(f"[Message #{message_count}]: {type(message).__name__}")
             
@@ -947,36 +1032,6 @@ class ClaudeAgentAdapter:
                                 )
                             )
 
-                        # Check if this is a frontend tool -- halt stream
-                        is_frontend_tool = current_tool_display_name in frontend_tool_names
-                        
-                        if is_frontend_tool:
-                            flush_pending_msg()
-
-                            yield ToolCallEndEvent(
-                                type=EventType.TOOL_CALL_END,
-                                thread_id=thread_id,
-                                run_id=run_id,
-                                tool_call_id=current_tool_call_id,
-                            )
-                            
-                            if current_message_id and has_streamed_text:
-                                yield TextMessageEndEvent(
-                                    type=EventType.TEXT_MESSAGE_END,
-                                    thread_id=thread_id,
-                                    run_id=run_id,
-                                    message_id=current_message_id,
-                                )
-                                current_message_id = None
-
-                            logger.debug(f"Frontend tool halt: {current_tool_display_name}")
-                            current_tool_call_id = None
-                            current_tool_call_name = None
-                            current_tool_display_name = None
-                            accumulated_tool_json = ""
-                            halt_event_stream = True
-                            continue
-                        
                         # Emit TOOL_CALL_END for regular backend tools
                         yield ToolCallEndEvent(
                             type=EventType.TOOL_CALL_END,
@@ -1049,21 +1104,6 @@ class ClaudeAgentAdapter:
                         async for event in tool_events:
                             yield event
 
-                        # Check for frontend tool halt (same logic as streaming path)
-                        block_display_name = strip_mcp_prefix(getattr(block, 'name', '') or '')
-                        if block_display_name and block_display_name in frontend_tool_names:
-                            flush_pending_msg()
-                            if current_message_id and has_streamed_text:
-                                yield TextMessageEndEvent(
-                                    type=EventType.TEXT_MESSAGE_END,
-                                    thread_id=thread_id,
-                                    run_id=run_id,
-                                    message_id=current_message_id,
-                                )
-                                current_message_id = None
-                            logger.debug(f"Frontend tool halt (non-streaming): {block_display_name}")
-                            halt_event_stream = True
-                            break
 
                     elif isinstance(block, ToolResultBlock):
                         tool_use_id = getattr(block, 'tool_use_id', None)

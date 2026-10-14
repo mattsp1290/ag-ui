@@ -312,7 +312,7 @@ class TestStreamToolCall:
         assert any(getattr(m, "id", None) == start.parent_message_id for m in snapshot.messages)
 
     @pytest.mark.asyncio
-    async def test_frontend_tool_halts_stream(self, make_input):
+    async def test_frontend_tool_does_not_drop_later_sdk_events(self, make_input):
         adapter = ClaudeAgentAdapter(name="t")
         # Register a frontend tool named "confirm"
         tools = [{"name": "confirm", "description": "", "parameters": {}}]
@@ -331,15 +331,15 @@ class TestStreamToolCall:
                 }
             ),
             stream_event({"type": "content_block_stop"}),
-            # This message_stop must NOT be processed -- stream halts on the frontend tool
+            # Continue reading: the durable deferred ResultMessage arrives after this block.
             stream_event(
                 {"type": "content_block_delta", "delta": {"type": "text_delta", "text": "AFTER"}}
             ),
         ]
         events = await _drive(adapter, stream, make_input, tools=tools)
-        # The post-halt text must not appear.
+        # Later SDK events must remain visible until the SDK stops.
         contents = [e for e in events if e.type == EventType.TEXT_MESSAGE_CONTENT]
-        assert all(c.delta != "AFTER" for c in contents)
+        assert any(c.delta == "AFTER" for c in contents)
         assert EventType.TOOL_CALL_END in _types(events)
 
 

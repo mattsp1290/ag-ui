@@ -8,6 +8,7 @@ import json
 import pytest
 from ag_ui.core import (
     AssistantMessage,
+    CustomEvent,
     EventType,
     FunctionCall,
     ResumeEntry,
@@ -20,7 +21,7 @@ from strands import Agent, ToolContext, tool
 from strands.models.model import Model
 from strands.session import FileSessionManager
 
-from ag_ui_strands import StrandsAgent, StrandsAgentConfig
+from ag_ui_strands import StrandsAgent, StrandsAgentConfig, ToolBehavior
 
 
 @tool(context=True)
@@ -89,7 +90,7 @@ def run_input(sid, messages, resume=None):
 )
 @pytest.mark.parametrize("emit_snapshots", [False, True])
 async def test_cold_native_resume_preserves_transcript(
-    tmp_path, mixed, existing_result, emit_snapshots
+    tmp_path, mixed, existing_result, emit_snapshots, stop_after_result=False
 ):
     sid = "original-native-session"
     routed_ids = []
@@ -108,8 +109,18 @@ async def test_cold_native_resume_preserves_transcript(
         session_manager=manager(),
         callback_handler=None,
     )
-    _ = [event async for event in native.stream_async("Approve shipment")]
-    interrupt_id = next(iter(native._interrupt_state.interrupts))
+    paused = StrandsAgent(
+        native,
+        name="pause",
+        config=StrandsAgentConfig(session_manager_provider=manager),
+    )
+    pause_events = [
+        event
+        async for event in paused.run(
+            run_input(sid, [UserMessage(id="user", content="Approve shipment")])
+        )
+    ]
+    interrupt_id = pause_events[-1].outcome.interrupts[0].id
     messages = [
         UserMessage(id="user", content="Approve shipment"),
         AssistantMessage(
@@ -135,6 +146,18 @@ async def test_cold_native_resume_preserves_transcript(
             )
         )
     original = copy.deepcopy(messages)
+    hook_calls = []
+
+    def state_from_result(context):
+        hook_calls.append(("state", context.tool_use_id))
+        return {"calculator_completed": True}
+
+    async def custom_result_handler(context):
+        hook_calls.append(("custom", context.tool_use_id))
+        yield CustomEvent(
+            type=EventType.CUSTOM, name="calculator_completed", value=True
+        )
+
     adapter = StrandsAgent(
         Agent(
             model=TranscriptModel(),
@@ -143,7 +166,15 @@ async def test_cold_native_resume_preserves_transcript(
         ),
         name="resume",
         config=StrandsAgentConfig(
-            session_manager_provider=manager, emit_messages_snapshot=emit_snapshots
+            session_manager_provider=manager,
+            emit_messages_snapshot=emit_snapshots,
+            tool_behaviors={
+                "calculator": ToolBehavior(
+                    stop_streaming_after_result=stop_after_result,
+                    state_from_result=state_from_result,
+                    custom_result_handler=custom_result_handler,
+                )
+            },
         ),
     )
     events = [
@@ -164,9 +195,10 @@ async def test_cold_native_resume_preserves_transcript(
     results = [e for e in events if e.type == EventType.TOOL_CALL_RESULT]
     expected_ids = (
         ["completed-calculator"] if mixed and existing_result != "same" else []
-    ) + ["native-approval"]
+    ) + ([] if stop_after_result else ["native-approval"])
     assert [e.tool_call_id for e in results] == expected_ids
-    assert json.loads(results[-1].content) == {"approved": {"response": True}}
+    if not stop_after_result:
+        assert json.loads(results[-1].content) == {"approved": {"response": True}}
     if emit_snapshots:
         final = [e for e in events if e.type == EventType.MESSAGES_SNAPSHOT][
             -1
@@ -178,11 +210,29 @@ async def test_cold_native_resume_preserves_transcript(
         tool_messages = [m for m in final if m.role == "tool"]
         assert [m.tool_call_id for m in tool_messages] == (
             ["completed-calculator"] if mixed else []
-        ) + ["native-approval"]
-        assert final[-1].content == "Done."
+        ) + ([] if stop_after_result else ["native-approval"])
+        if not stop_after_result:
+            assert final[-1].content == "Done."
         assert len({m.id for m in final}) == len(final)
     else:
         assert not [e for e in events if e.type == EventType.MESSAGES_SNAPSHOT]
+    assert hook_calls == (
+        [("state", "completed-calculator"), ("custom", "completed-calculator")]
+        if mixed
+        else []
+    )
+    if mixed:
+        assert any(
+            e.type == EventType.STATE_SNAPSHOT
+            and e.snapshot.get("calculator_completed")
+            for e in events
+        )
+        assert any(
+            e.type == EventType.CUSTOM and e.name == "calculator_completed"
+            for e in events
+        )
+    if stop_after_result:
+        assert not any(e.type == EventType.TEXT_MESSAGE_CONTENT for e in events)
     assert messages == original
     assert events[-1].outcome.type == "success"
 
@@ -226,3 +276,10 @@ async def test_normal_structured_tool_control():
     assert json.loads(results[0].content) == {"expression": "6*7", "result": 42}
     final = [e for e in events if e.type == EventType.MESSAGES_SNAPSHOT][-1].messages
     assert [m.tool_call_id for m in final if m.role == "tool"] == ["normal-calculator"]
+
+
+@pytest.mark.parametrize("emit_snapshots", [False, True])
+async def test_matching_resume_result_still_stops_streaming(tmp_path, emit_snapshots):
+    await test_cold_native_resume_preserves_transcript(
+        tmp_path, True, "same", emit_snapshots, stop_after_result=True
+    )

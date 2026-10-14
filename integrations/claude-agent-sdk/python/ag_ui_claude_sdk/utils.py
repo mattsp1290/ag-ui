@@ -452,7 +452,15 @@ def convert_agui_tool_to_claude_sdk(tool_def: Any, resolve_frontend_result: Any 
         result = resolve_frontend_result(tool_name, args)
         if inspect.isawaitable(result):
             result = await result
-        return {"content": frontend_result_blocks(result)}
+        envelope = result if isinstance(result, dict) else None
+        content = frontend_result_blocks(envelope["content"] if envelope is not None else result)
+        error = envelope.get("error") if envelope is not None else None
+        if error:
+            if content == [{"type": "text", "text": ""}]:
+                content = []
+            if not any(block.get("type") == "text" and block.get("text") == error for block in content):
+                content.append({"type": "text", "text": error})
+        return {"content": content, **({"isError": True} if error is not None else {})}
     
     return frontend_tool_stub
 

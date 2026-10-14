@@ -96,3 +96,22 @@ async def test_native_structured_result_and_record_identity_are_retained():
     events = [e async for e in handle_tool_result_block(block, "thread", "run", None, raw, "record-original")]
     assert events[0].raw_event["tool_use_result"] == raw
     assert events[0].raw_event["uuid"] == "record-original"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("content,error,expected", [
+    ("", "denied", [{"type": "text", "text": "denied"}]),
+    ("detail", "", [{"type": "text", "text": "detail"}]),
+    ("detail", "denied", [{"type": "text", "text": "detail"}, {"type": "text", "text": "denied"}]),
+])
+async def test_frontend_proxy_preserves_failure_status_and_reason(content, error, expected):
+    from ag_ui_claude_sdk.utils import convert_agui_tool_to_claude_sdk
+    proxy = convert_agui_tool_to_claude_sdk({"name": "confirm"}, lambda name, args: {"content": content, "error": error})
+    assert await proxy.handler({}) == {"content": expected, "isError": True}
+
+
+@pytest.mark.asyncio
+async def test_frontend_proxy_accepts_rich_success_envelope():
+    from ag_ui_claude_sdk.utils import convert_agui_tool_to_claude_sdk
+    proxy = convert_agui_tool_to_claude_sdk({"name": "image"}, lambda name, args: {"content": [{"type": "image", "source": {"type": "data", "value": "AQID", "mimeType": "image/png"}}]})
+    assert await proxy.handler({}) == {"content": [{"type": "image", "data": "AQID", "mimeType": "image/png"}]}

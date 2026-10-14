@@ -2,6 +2,7 @@
 name = "ag-ui-core"
 version = "0.2.0"
 edition = "2024"
+rust-version = "1.88"
 description = "Core type library for the AG-UI protocol."
 license = "MIT"
 
@@ -11,3 +12,6 @@ serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 uuid = { workspace = true }
 json-patch = "4"
+
+[dev-dependencies]
+jsonschema = { version = "0.33", default-features = false }

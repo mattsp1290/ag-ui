@@ -46,6 +46,16 @@ where
         Ok(AgentStateMutation::default())
     }
 
+    /// Structured application/reducer diagnostics. Transport normalization
+    /// diagnostics are available from the HttpAgent diagnostic handler.
+    async fn on_diagnostic(
+        &self,
+        diagnostic: &crate::core::processing::Diagnostic,
+        params: AgentSubscriberParams<'async_trait, StateT, FwdPropsT>,
+    ) -> Result<(), AgentError> {
+        Ok(())
+    }
+
     // Events
     async fn on_event(
         &self,

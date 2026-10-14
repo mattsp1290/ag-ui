@@ -2,32 +2,84 @@ use super::{MessageId, ToolCallId};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+/// A known RFC 6902 operation. Additional members are retained verbatim.
+/// `extra` cannot shadow fields defined by the chosen operation. Unused members
+/// (for example `value` on remove) remain legal RFC 6902 extensions.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
 #[serde(tag = "op", rename_all = "lowercase")]
 pub enum JsonPatchOperation {
     Add {
         path: JsonPointer,
         value: Value,
+        #[serde(flatten)]
+        extra: Map<String, Value>,
     },
     Remove {
         path: JsonPointer,
+        #[serde(flatten)]
+        extra: Map<String, Value>,
     },
     Replace {
         path: JsonPointer,
         value: Value,
+        #[serde(flatten)]
+        extra: Map<String, Value>,
     },
     Move {
         from: JsonPointer,
         path: JsonPointer,
+        #[serde(flatten)]
+        extra: Map<String, Value>,
     },
     Copy {
         from: JsonPointer,
         path: JsonPointer,
+        #[serde(flatten)]
+        extra: Map<String, Value>,
     },
     Test {
         path: JsonPointer,
         value: Value,
+        #[serde(flatten)]
+        extra: Map<String, Value>,
     },
+}
+impl Serialize for JsonPatchOperation {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::SerializeMap;
+        let (op, path, value, from, extra) = match self {
+            Self::Add { path, value, extra } => ("add", path, Some(value), None, extra),
+            Self::Remove { path, extra } => ("remove", path, None, None, extra),
+            Self::Replace { path, value, extra } => ("replace", path, Some(value), None, extra),
+            Self::Move { path, from, extra } => ("move", path, None, Some(from), extra),
+            Self::Copy { path, from, extra } => ("copy", path, None, Some(from), extra),
+            Self::Test { path, value, extra } => ("test", path, Some(value), None, extra),
+        };
+        if extra.contains_key("op")
+            || extra.contains_key("path")
+            || (value.is_some() && extra.contains_key("value"))
+            || (from.is_some() && extra.contains_key("from"))
+        {
+            return Err(serde::ser::Error::custom(
+                "patch extension shadows a defined operation field",
+            ));
+        }
+        let mut map = serializer.serialize_map(Some(
+            2 + usize::from(value.is_some()) + usize::from(from.is_some()) + extra.len(),
+        ))?;
+        map.serialize_entry("op", op)?;
+        map.serialize_entry("path", path)?;
+        if let Some(value) = value {
+            map.serialize_entry("value", value)?;
+        }
+        if let Some(from) = from {
+            map.serialize_entry("from", from)?;
+        }
+        for (key, value) in extra {
+            map.serialize_entry(key, value)?;
+        }
+        map.end()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]

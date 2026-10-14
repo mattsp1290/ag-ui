@@ -67,9 +67,9 @@ impl LoggingSubscriber {
 
     fn log_event<T: Debug>(&self, event_name: &str, event: &T) {
         if self.verbose {
-            info!("Event: {} - {:?}", event_name, event);
+            info!("Event: {event_name} - {event:?}");
         } else {
-            info!("Event: {}", event_name);
+            info!("Event: {event_name}");
         }
     }
 }
@@ -93,7 +93,7 @@ where
         error: &AgentError,
         _params: AgentSubscriberParams<'async_trait, StateT, FwdPropsT>,
     ) -> Result<AgentStateMutation<StateT>, AgentError> {
-        info!("Run failed: {:?}", error);
+        info!("Run failed: {error:?}");
         Ok(AgentStateMutation::default())
     }
 
@@ -175,7 +175,7 @@ where
         _params: AgentSubscriberParams<'async_trait, StateT, FwdPropsT>,
     ) -> Result<AgentStateMutation<StateT>, AgentError> {
         self.log_event("TextMessageContent", event);
-        info!("Current buffer: {}", text_message_buffer);
+        info!("Current buffer: {text_message_buffer}");
         Ok(AgentStateMutation::default())
     }
 
@@ -186,7 +186,7 @@ where
         _params: AgentSubscriberParams<'async_trait, StateT, FwdPropsT>,
     ) -> Result<AgentStateMutation<StateT>, AgentError> {
         self.log_event("TextMessageEnd", event);
-        info!("Final message: {}", text_message_buffer);
+        info!("Final message: {text_message_buffer}");
         Ok(AgentStateMutation::default())
     }
 
@@ -208,11 +208,8 @@ where
         _params: AgentSubscriberParams<'async_trait, StateT, FwdPropsT>,
     ) -> Result<AgentStateMutation<StateT>, AgentError> {
         self.log_event("ToolCallArgs", event);
-        info!(
-            "Tool call: {} with args: {}",
-            tool_call_name, tool_call_buffer
-        );
-        info!("Partial args: {:?}", partial_tool_call_args);
+        info!("Tool call: {tool_call_name} with args: {tool_call_buffer}");
+        info!("Partial args: {partial_tool_call_args:?}");
         Ok(AgentStateMutation::default())
     }
 
@@ -224,10 +221,7 @@ where
         _params: AgentSubscriberParams<'async_trait, StateT, FwdPropsT>,
     ) -> Result<AgentStateMutation<StateT>, AgentError> {
         self.log_event("ToolCallEnd", event);
-        info!(
-            "Tool call completed: {} with args: {:?}",
-            tool_call_name, tool_call_args
-        );
+        info!("Tool call completed: {tool_call_name} with args: {tool_call_args:?}");
         Ok(AgentStateMutation::default())
     }
 
@@ -324,7 +318,7 @@ where
         message: &Message,
         _params: AgentSubscriberParams<'async_trait, StateT, FwdPropsT>,
     ) -> Result<(), AgentError> {
-        info!("New message: {:?}", message);
+        info!("New message: {message:?}");
         Ok(())
     }
 
@@ -333,7 +327,7 @@ where
         tool_call: &ToolCall,
         _params: AgentSubscriberParams<'async_trait, StateT, FwdPropsT>,
     ) -> Result<(), AgentError> {
-        info!("New tool call: {:?}", tool_call);
+        info!("New tool call: {tool_call:?}");
         Ok(())
     }
 }

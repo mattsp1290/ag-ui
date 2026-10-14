@@ -1,4 +1,4 @@
-use crate::agent::{AgentError, AgentStateMutation};
+use crate::agent::{AgentError, AgentStateMutation, RunTerminalStatus};
 use crate::core::event::Event;
 use crate::core::types::{
     FunctionCall, Message, MessageId, ReasoningEncryptedValueSubtype, Role, RunAgentInput,
@@ -22,6 +22,9 @@ where
     pub input: &'a RunAgentInput<StateT, FwdPropsT>,
     pub subscribers: Subscribers<StateT, FwdPropsT>,
     pub result: JsonValue,
+    pub output: Option<JsonValue>,
+    pub terminal_status: Option<RunTerminalStatus>,
+    current_run_id: Option<crate::core::types::RunId>,
     pub outcome: Option<RunFinishedOutcome>,
     pub usage: Option<Vec<TokenUsage>>,
     active_run: bool,
@@ -35,6 +38,12 @@ where
     activity_owners: HashMap<MessageId, Option<String>>,
     pub run_error: Option<String>,
     active_subagents: HashSet<String>,
+    closed_subagents: HashSet<String>,
+    attributed_subagents: HashSet<String>,
+    message_owners: HashMap<MessageId, Option<String>>,
+    tool_owners: HashMap<ToolCallId, Option<String>>,
+    notified_messages: HashSet<MessageId>,
+    notified_tools: HashSet<ToolCallId>,
     text_chunk: Option<(MessageId, Role)>,
     tool_chunk: Option<(crate::core::types::ToolCallId, String)>,
 }
@@ -50,12 +59,22 @@ where
         input: &'a RunAgentInput<StateT, FwdPropsT>,
         subscribers: Subscribers<StateT, FwdPropsT>,
     ) -> Self {
-        Self {
+        let notified_messages = messages.iter().map(|m| m.id().clone()).collect();
+        let notified_tools = messages
+            .iter()
+            .filter_map(|m| m.tool_calls())
+            .flatten()
+            .map(|call| call.id.clone())
+            .collect();
+        let mut handler = Self {
             messages,
             state,
             input,
             subscribers,
             result: JsonValue::Null,
+            output: None,
+            terminal_status: None,
+            current_run_id: None,
             outcome: None,
             usage: None,
             active_run: false,
@@ -69,9 +88,17 @@ where
             activity_owners: HashMap::new(),
             run_error: None,
             active_subagents: HashSet::new(),
+            closed_subagents: HashSet::new(),
+            attributed_subagents: HashSet::new(),
+            message_owners: HashMap::new(),
+            tool_owners: HashMap::new(),
+            notified_messages,
+            notified_tools,
             text_chunk: None,
             tool_chunk: None,
-        }
+        };
+        handler.seed_owners();
+        handler
     }
 
     fn to_subscriber_params(&'a self) -> AgentSubscriberParams<'a, StateT, FwdPropsT> {
@@ -125,7 +152,7 @@ where
         let fail = |message: String| AgentError::Execution { message };
         if self.finished_run
             && !matches!(event, Event::RunStarted(_))
-            && !(matches!(event, Event::RunError(_)) && !self.last_terminal_was_error)
+            && (!matches!(event, Event::RunError(_)) || self.last_terminal_was_error)
         {
             return Err(fail(
                 "The run has already finished with 'RUN_FINISHED' or 'RUN_ERROR'".into(),
@@ -142,7 +169,19 @@ where
                     "Cannot send 'RUN_STARTED' while a run is still active".into(),
                 ));
             }
-            Event::RunStarted(_) => {
+            Event::RunStarted(e) => {
+                if e.thread_id != self.input.thread_id {
+                    return Err(AgentError::ExchangeIdentity(
+                        "RUN_STARTED threadId does not match the request".into(),
+                    ));
+                }
+                self.current_run_id = Some(e.run_id.clone());
+                self.result = JsonValue::Null;
+                self.output = None;
+                self.outcome = None;
+                self.usage = None;
+                self.run_error = None;
+                self.terminal_status = None;
                 self.active_run = true;
                 self.finished_run = false;
                 self.last_terminal_was_error = false;
@@ -152,9 +191,22 @@ where
                 self.active_tools.clear();
                 self.active_steps.clear();
                 self.active_subagents.clear();
+                self.closed_subagents.clear();
+                self.attributed_subagents.clear();
+                self.message_owners.clear();
+                self.tool_owners.clear();
                 self.activity_owners.clear();
+                self.seed_owners();
             }
-            Event::RunFinished(_) => {
+            Event::RunFinished(e) => {
+                if e.thread_id != self.input.thread_id
+                    || Some(&e.run_id) != self.current_run_id.as_ref()
+                {
+                    return Err(AgentError::ExchangeIdentity(
+                        "RUN_FINISHED identity does not match its RUN_STARTED and request threadId"
+                            .into(),
+                    ));
+                }
                 if !self.active_subagents.is_empty() {
                     return Err(fail(format!(
                         "RUN_FINISHED with active subagent {}",
@@ -172,12 +224,20 @@ where
                 self.active_run = false;
                 self.finished_run = true;
                 self.last_terminal_was_error = false;
+                self.terminal_status = Some(RunTerminalStatus::Finished {
+                    thread_id: e.thread_id.clone(),
+                    run_id: e.run_id.clone(),
+                });
             }
             Event::RunError(e) => {
                 self.active_run = false;
                 self.finished_run = true;
                 self.last_terminal_was_error = true;
                 self.run_error = Some(e.message.clone());
+                self.result = JsonValue::Null;
+                self.output = None;
+                self.outcome = None;
+                self.terminal_status = Some(RunTerminalStatus::ProducerError(e.clone()));
                 self.active_text.clear();
                 self.active_reasoning.clear();
                 self.active_span.clear();
@@ -187,9 +247,20 @@ where
                 self.activity_owners.clear();
             }
             Event::TextMessageStart(e) => {
+                if !matches!(
+                    e.role,
+                    None | Some(Role::Assistant | Role::User | Role::System | Role::Developer)
+                ) {
+                    return Err(fail("TEXT_MESSAGE_START has an invalid text role".into()));
+                }
+                let owner = self
+                    .message_owners
+                    .entry(e.message_id.clone())
+                    .or_insert_with(|| e.base.subagent_run_id.clone());
+                check_owner(owner, &e.base.subagent_run_id, e.message_id.as_ref())?;
                 if self
                     .active_text
-                    .insert(e.message_id.clone(), e.base.subagent_run_id.clone())
+                    .insert(e.message_id.clone(), owner.clone())
                     .is_some()
                 {
                     return Err(fail(format!(
@@ -218,8 +289,13 @@ where
                 self.active_text.remove(&e.message_id);
             }
             Event::ReasoningStart(e) => {
-                self.active_span
-                    .insert(e.message_id.clone(), e.base.subagent_run_id.clone());
+                if self
+                    .active_span
+                    .insert(e.message_id.clone(), e.base.subagent_run_id.clone())
+                    .is_some()
+                {
+                    return Err(fail("REASONING_START for an already open span".into()));
+                }
             }
             Event::ReasoningEnd(e) => {
                 let owner = self
@@ -235,9 +311,14 @@ where
                         "Reasoning message role: expected \\\"reasoning\\\"".into(),
                     ));
                 }
+                let owner = self
+                    .message_owners
+                    .entry(e.message_id.clone())
+                    .or_insert_with(|| e.base.subagent_run_id.clone());
+                check_owner(owner, &e.base.subagent_run_id, e.message_id.as_ref())?;
                 if self
                     .active_reasoning
-                    .insert(e.message_id.clone(), e.base.subagent_run_id.clone())
+                    .insert(e.message_id.clone(), owner.clone())
                     .is_some()
                 {
                     return Err(fail(format!(
@@ -266,11 +347,13 @@ where
                 self.active_reasoning.remove(&e.message_id);
             }
             Event::ToolCallStart(e) => {
+                let inherited = e
+                    .parent_message_id
+                    .as_ref()
+                    .and_then(|id| self.message_owners.get(id))
+                    .cloned();
                 if let Some(parent_id) = &e.parent_message_id
-                    && let Some(parent) = self
-                        .messages
-                        .iter()
-                        .find(|message| message.id() == parent_id)
+                    && let Some(parent) = self.messages.iter().find(|m| m.id() == parent_id)
                 {
                     if parent.role() != Role::Assistant {
                         return Err(fail(format!(
@@ -278,16 +361,29 @@ where
                             e.tool_call_id
                         )));
                     }
-                    if message_owner(parent) != e.base.subagent_run_id.as_ref() {
-                        return Err(fail(format!(
-                            "Tool call '{}' owner does not match parent message '{}'",
-                            e.tool_call_id, parent_id
-                        )));
+                    check_owner(
+                        &message_owner(parent).cloned(),
+                        &e.base.subagent_run_id,
+                        e.tool_call_id.as_ref(),
+                    )?;
+                }
+                let effective_owner = inherited
+                    .clone()
+                    .unwrap_or_else(|| e.base.subagent_run_id.clone());
+                if let Some(owner) = self.tool_owners.get(&e.tool_call_id) {
+                    check_owner(owner, &e.base.subagent_run_id, e.tool_call_id.as_ref())?;
+                    if inherited.is_some() && owner != &effective_owner {
+                        return Err(fail("Tool call owner does not match parent message".into()));
                     }
                 }
+                let owner = self
+                    .tool_owners
+                    .entry(e.tool_call_id.clone())
+                    .or_insert(effective_owner)
+                    .clone();
                 if self
                     .active_tools
-                    .insert(e.tool_call_id.clone(), e.base.subagent_run_id.clone())
+                    .insert(e.tool_call_id.clone(), owner)
                     .is_some()
                 {
                     return Err(fail(format!(
@@ -334,26 +430,62 @@ where
                 }
             }
             Event::ActivitySnapshot(e) => {
-                self.activity_owners
-                    .insert(e.message_id.clone(), e.base.subagent_run_id.clone());
+                let existing = self.messages.iter().find(|m| m.id() == &e.message_id);
+                if existing.is_none() || e.replace.unwrap_or(true) {
+                    self.activity_owners
+                        .insert(e.message_id.clone(), e.base.subagent_run_id.clone());
+                }
             }
             Event::ActivityDelta(e) => {
-                if let Some(owner) = self.activity_owners.get(&e.message_id) {
+                // A reminted non-activity target is the tolerated missing-target
+                // case, not a continuation of its former activity ownership.
+                if self
+                    .messages
+                    .iter()
+                    .any(|m| m.id() == &e.message_id && m.role() == Role::Activity)
+                    && let Some(owner) = self.activity_owners.get(&e.message_id)
+                {
                     check_owner(owner, &e.base.subagent_run_id, e.message_id.as_ref())?;
                 }
             }
+            Event::ToolCallResult(e) => {
+                self.activity_owners.remove(&e.message_id);
+                self.message_owners
+                    .insert(e.message_id.clone(), e.base.subagent_run_id.clone());
+            }
             Event::SubagentStarted(e) => {
+                if self.active_subagents.contains(&e.subagent_run_id)
+                    || self.closed_subagents.contains(&e.subagent_run_id)
+                {
+                    return Err(fail("Subagent invocation ID is already active or was already closed in this run".into()));
+                }
+                if self.attributed_subagents.contains(&e.subagent_run_id) {
+                    return Err(fail(
+                        "SUBAGENT_STARTED must precede attributed events for that invocation"
+                            .into(),
+                    ));
+                }
+                if let Some(parent) = &e.parent_subagent_run_id
+                    && !self.active_subagents.contains(parent)
+                    && !self.closed_subagents.contains(parent)
+                {
+                    return Err(fail(
+                        "parentSubagentRunId has not been started in this run".into(),
+                    ));
+                }
                 self.active_subagents.insert(e.subagent_run_id.clone());
             }
             Event::SubagentFinished(e) => {
                 if !self.active_subagents.remove(&e.subagent_run_id) {
                     return Err(fail(format!("Subagent not started: {}", e.subagent_run_id)));
                 }
+                self.closed_subagents.insert(e.subagent_run_id.clone());
             }
             Event::SubagentError(e) => {
                 if !self.active_subagents.remove(&e.subagent_run_id) {
                     return Err(fail(format!("Subagent not started: {}", e.subagent_run_id)));
                 }
+                self.closed_subagents.insert(e.subagent_run_id.clone());
             }
             Event::TextMessageChunk(e) => {
                 if let Some((id, role)) = &self.text_chunk {
@@ -389,6 +521,9 @@ where
             }
             _ => {}
         }
+        if let Some(owner) = event_attribution(event) {
+            self.attributed_subagents.insert(owner.to_owned());
+        }
         Ok(())
     }
 
@@ -414,15 +549,7 @@ where
                 if let Some(existing) = self.messages.iter_mut().find(|m| m.id() == &e.message_id) {
                     merge_message_metadata(existing, &e.base.metadata);
                 } else {
-                    self.messages.push(Message::Assistant {
-                        id: e.message_id.clone(),
-                        content: Some(String::new()),
-                        name: e.name.clone(),
-                        tool_calls: None,
-                        metadata: e.base.metadata.clone(),
-                        encrypted_value: None,
-                        subagent_run_id: e.base.subagent_run_id.clone(),
-                    });
+                    self.messages.push(text_message(e)?);
                 }
                 current_mutation.messages = Some(self.messages.clone());
 
@@ -536,7 +663,20 @@ where
                     encrypted_value: None,
                 };
 
-                if let Some(last_message) = self.messages.iter_mut().rev().find(|m| {
+                if let Some(existing_call) = self
+                    .messages
+                    .iter_mut()
+                    .filter_map(|message| message.tool_calls_mut())
+                    .flatten()
+                    .find(|call| call.id == e.tool_call_id)
+                {
+                    if let Some(metadata) = &e.base.metadata {
+                        existing_call
+                            .metadata
+                            .get_or_insert_with(Default::default)
+                            .extend(metadata.clone());
+                    }
+                } else if let Some(last_message) = self.messages.iter_mut().rev().find(|m| {
                     m.role() == Role::Assistant && Some(m.id()) == e.parent_message_id.as_ref()
                 }) {
                     if let Message::Assistant { tool_calls, .. } = last_message {
@@ -558,6 +698,15 @@ where
                     self.messages.push(new_message);
                     if let Some(Message::Assistant { tool_calls, .. }) = self.messages.last_mut() {
                         tool_calls.get_or_insert_with(Vec::new).push(new_tool_call);
+                    }
+                }
+                for message in &self.messages {
+                    if message
+                        .tool_calls()
+                        .is_some_and(|calls| calls.iter().any(|call| call.id == e.tool_call_id))
+                    {
+                        self.message_owners
+                            .insert(message.id().clone(), message_owner(message).cloned());
                     }
                 }
                 current_mutation.messages = Some(self.messages.clone());
@@ -700,7 +849,7 @@ where
                 }
             }
             Event::ToolCallResult(e) => {
-                self.messages.push(Message::Tool {
+                let message = Message::Tool {
                     id: e.message_id.clone(),
                     content: e.content.clone(),
                     tool_call_id: e.tool_call_id.clone(),
@@ -708,7 +857,8 @@ where
                     metadata: e.base.metadata.clone(),
                     encrypted_value: None,
                     subagent_run_id: e.base.subagent_run_id.clone(),
-                });
+                };
+                upsert_message(&mut self.messages, message);
                 current_mutation.messages = Some(self.messages.clone());
                 for subscriber in &self.subscribers {
                     let params = self.to_subscriber_params();
@@ -735,8 +885,12 @@ where
                 let patches: Vec<PatchOperation> =
                     serde_json::from_value(serde_json::to_value(e.delta.clone())?)?;
 
-                if let Err(err) = json_patch::patch(&mut state_val, &patches) {
-                    log::warn!("Failed to apply state patch: {err}");
+                if json_patch::patch(&mut state_val, &patches).is_err() {
+                    self.warn(
+                        "/delta",
+                        "Failed to apply state patch: patch does not apply to the current state",
+                    )
+                    .await?;
                 } else {
                     let new_state: StateT = serde_json::from_value(state_val)?;
                     self.state = new_state;
@@ -751,6 +905,7 @@ where
             }
             Event::MessagesSnapshot(e) => {
                 reconcile_messages(&mut self.messages, &e.messages);
+                self.seed_owners();
                 current_mutation.messages = Some(self.messages.clone());
                 for subscriber in &self.subscribers {
                     let params = self.to_subscriber_params();
@@ -781,6 +936,7 @@ where
             }
             Event::RunFinished(e) => {
                 // Default behavior
+                self.output = e.result.clone();
                 self.result = e.result.clone().unwrap_or(JsonValue::Null);
                 self.outcome = e.outcome.clone();
                 self.usage = e.usage.clone();
@@ -814,24 +970,25 @@ where
                 }
             }
             Event::ActivitySnapshot(e) => {
-                if let Some(Message::Activity {
-                    content,
-                    activity_type,
-                    ..
-                }) = self.messages.iter_mut().find(|m| m.id() == &e.message_id)
-                {
-                    if e.replace.unwrap_or(true) {
-                        *content = e.content.clone();
-                        *activity_type = e.activity_type.clone();
+                if let Some(existing) = self.messages.iter_mut().find(|m| m.id() == &e.message_id) {
+                    if let Message::Activity {
+                        content,
+                        activity_type,
+                        subagent_run_id,
+                        ..
+                    } = existing
+                    {
+                        if e.replace.unwrap_or(true) {
+                            *content = e.content.clone();
+                            *activity_type = e.activity_type.clone();
+                            *subagent_run_id = e.base.subagent_run_id.clone();
+                        }
+                        merge_message_metadata(existing, &e.base.metadata);
+                    } else if e.replace.unwrap_or(true) {
+                        *existing = activity_message(e);
                     }
                 } else {
-                    self.messages.push(Message::Activity {
-                        id: e.message_id.clone(),
-                        activity_type: e.activity_type.clone(),
-                        content: e.content.clone(),
-                        metadata: e.base.metadata.clone(),
-                        subagent_run_id: e.base.subagent_run_id.clone(),
-                    });
+                    self.messages.push(activity_message(e));
                 }
                 current_mutation.messages = Some(self.messages.clone());
                 for subscriber in &self.subscribers {
@@ -840,18 +997,47 @@ where
                 }
             }
             Event::ActivityDelta(e) => {
-                if let Some(Message::Activity { content, .. }) =
+                let mut warning = None;
+                if let Some(message @ Message::Activity { .. }) =
                     self.messages.iter_mut().find(|m| m.id() == &e.message_id)
                 {
+                    merge_message_metadata(message, &e.base.metadata);
+                    let Message::Activity {
+                        content,
+                        activity_type,
+                        ..
+                    } = message
+                    else {
+                        unreachable!()
+                    };
                     let mut value = JsonValue::Object(content.clone());
                     let patches: Vec<PatchOperation> =
                         serde_json::from_value(serde_json::to_value(&e.patch)?)?;
-                    if json_patch::patch(&mut value, &patches).is_ok()
-                        && let JsonValue::Object(map) = value
-                    {
-                        *content = map;
-                        current_mutation.messages = Some(self.messages.clone());
+                    match json_patch::patch(&mut value, &patches) {
+                        Ok(()) => match value {
+                            JsonValue::Object(map) => {
+                                *content = map;
+                                *activity_type = e.activity_type.clone();
+                            }
+                            _ => {
+                                warning = Some(
+                                    "Failed to apply activity patch: content must remain an object",
+                                )
+                            }
+                        },
+                        Err(_) => {
+                            warning = Some(
+                                "Failed to apply activity patch: patch does not apply to the current content",
+                            )
+                        }
                     }
+                    current_mutation.messages = Some(self.messages.clone());
+                } else {
+                    warning =
+                        Some("ACTIVITY_DELTA target is missing or is not an activity message");
+                }
+                if let Some(message) = warning {
+                    self.warn("/patch", message).await?;
                 }
                 for subscriber in &self.subscribers {
                     let params = self.to_subscriber_params();
@@ -865,13 +1051,17 @@ where
                 }
             }
             Event::ReasoningMessageStart(e) => {
-                self.messages.push(Message::Reasoning {
-                    id: e.message_id.clone(),
-                    content: String::new(),
-                    encrypted_value: None,
-                    metadata: e.base.metadata.clone(),
-                    subagent_run_id: e.base.subagent_run_id.clone(),
-                });
+                if let Some(existing) = self.messages.iter_mut().find(|m| m.id() == &e.message_id) {
+                    merge_message_metadata(existing, &e.base.metadata);
+                } else {
+                    self.messages.push(Message::Reasoning {
+                        id: e.message_id.clone(),
+                        content: String::new(),
+                        encrypted_value: None,
+                        metadata: e.base.metadata.clone(),
+                        subagent_run_id: e.base.subagent_run_id.clone(),
+                    });
+                }
                 current_mutation.messages = Some(self.messages.clone());
                 for subscriber in &self.subscribers {
                     let params = self.to_subscriber_params();
@@ -900,6 +1090,10 @@ where
                 }
             }
             Event::ReasoningMessageEnd(e) => {
+                if let Some(message) = self.messages.iter_mut().find(|m| m.id() == &e.message_id) {
+                    merge_message_metadata(message, &e.base.metadata);
+                    current_mutation.messages = Some(self.messages.clone());
+                }
                 for subscriber in &self.subscribers {
                     let params = self.to_subscriber_params();
                     mutations.push(subscriber.on_reasoning_message_end_event(e, params).await?);
@@ -956,6 +1150,15 @@ where
                                 encrypted_value, ..
                             }
                             | Message::Tool {
+                                encrypted_value, ..
+                            }
+                            | Message::User {
+                                encrypted_value, ..
+                            }
+                            | Message::System {
+                                encrypted_value, ..
+                            }
+                            | Message::Developer {
                                 encrypted_value, ..
                             } => *encrypted_value = Some(e.encrypted_value.clone()),
                             _ => {}
@@ -1021,30 +1224,29 @@ where
         mutation: AgentStateMutation<StateT>,
     ) -> Result<(), AgentError> {
         if let Some(messages) = mutation.messages {
-            // Check for new messages to notify about
-            let old_message_ids: HashSet<&MessageId> =
-                self.messages.iter().map(|m| m.id()).collect();
-
-            let new_messages: Vec<&Message> = messages
+            self.messages = messages;
+            let new_messages: Vec<_> = self
+                .messages
                 .iter()
-                .filter(|m| !old_message_ids.contains(m.id()))
+                .filter(|message| !self.notified_messages.contains(message.id()))
+                .cloned()
                 .collect();
-
-            // Set the new messages first
-            self.messages = messages.clone();
-
-            // Notify about new messages
             for message in new_messages {
-                self.notify_new_message(message).await?;
-
-                // If the message is from assistant and has tool calls, notify about those too
-                if message.role() == Role::Assistant && message.tool_calls().is_some() {
-                    for tool_call in message.tool_calls().unwrap() {
-                        self.notify_new_tool_call(tool_call).await?;
-                    }
-                }
+                self.notified_messages.insert(message.id().clone());
+                self.notify_new_message(&message).await?;
             }
-
+            let new_calls: Vec<_> = self
+                .messages
+                .iter()
+                .filter_map(|m| m.tool_calls())
+                .flatten()
+                .filter(|call| !self.notified_tools.contains(&call.id))
+                .cloned()
+                .collect();
+            for call in new_calls {
+                self.notified_tools.insert(call.id.clone());
+                self.notify_new_tool_call(&call).await?;
+            }
             // Then notify about messages changed
             self.notify_messages_changed().await?;
         }
@@ -1093,28 +1295,182 @@ where
         Ok(())
     }
 
+    async fn warn(&self, path: &str, message: &str) -> Result<(), AgentError> {
+        use crate::core::processing::{Diagnostic, DiagnosticCategory};
+        let diagnostic = Diagnostic {
+            category: if message.starts_with("ACTIVITY_DELTA") {
+                DiagnosticCategory::MissingTarget
+            } else {
+                DiagnosticCategory::PatchNotApplied
+            },
+            path: path.to_owned(),
+            message: message.to_owned(),
+        };
+        log::warn!("{}", diagnostic.message);
+        for subscriber in &self.subscribers {
+            subscriber
+                .on_diagnostic(&diagnostic, self.to_subscriber_params())
+                .await?;
+        }
+        Ok(())
+    }
+
+    fn seed_owners(&mut self) {
+        self.message_owners.clear();
+        self.activity_owners.clear();
+        self.tool_owners.clear();
+        for message in &self.messages {
+            let owner = message_owner(message).cloned();
+            if message.role() == Role::Activity {
+                self.activity_owners
+                    .insert(message.id().clone(), owner.clone());
+            } else {
+                self.message_owners
+                    .insert(message.id().clone(), owner.clone());
+            }
+            if let Some(calls) = message.tool_calls() {
+                for call in calls {
+                    self.tool_owners.insert(call.id.clone(), owner.clone());
+                }
+            }
+        }
+        for (id, owner) in &mut self.active_text {
+            if let Some(current) = self.message_owners.get(id) {
+                *owner = current.clone();
+            }
+        }
+        for (id, owner) in &mut self.active_reasoning {
+            if let Some(current) = self.message_owners.get(id) {
+                *owner = current.clone();
+            }
+        }
+        for (id, owner) in &mut self.active_tools {
+            if let Some(current) = self.tool_owners.get(id) {
+                *owner = current.clone();
+            }
+        }
+    }
+
+    pub async fn on_initialize(&mut self) -> Result<(), AgentError> {
+        for subscriber in &self.subscribers.clone() {
+            let mutation = subscriber
+                .on_run_initialized(self.to_subscriber_params())
+                .await?;
+            self.apply_mutation(mutation).await?;
+        }
+        Ok(())
+    }
+
     pub async fn on_error(&self, error: &AgentError) -> Result<(), AgentError> {
         error!("Agent error: {error}");
+        let mut first_error = None;
         for subscriber in &self.subscribers {
-            let _mutation = subscriber
+            if let Err(error) = subscriber
                 .on_run_failed(error, self.to_subscriber_params())
-                .await?;
+                .await
+            {
+                first_error.get_or_insert(error);
+            }
         }
-        Ok(())
+        first_error.map_or(Ok(()), Err)
     }
 
-    pub fn terminal_received(&self) -> bool {
-        self.finished_run
+    pub fn check_completion(&self) -> Result<(), AgentError> {
+        match &self.terminal_status {
+            None => Err(AgentError::IncompleteRun(
+                "AG-UI stream ended before RUN_FINISHED or RUN_ERROR for the latest run".into(),
+            )),
+            Some(RunTerminalStatus::Finished { run_id, .. }) if run_id != &self.input.run_id => {
+                Err(AgentError::ExchangeIdentity(
+                    "The final successful runId is not the requested runId".into(),
+                ))
+            }
+            Some(_) => Ok(()),
+        }
     }
 
-    pub async fn on_finalize(&self) -> Result<(), AgentError> {
-        for subscriber in &self.subscribers {
-            let _mutation = subscriber
+    pub async fn on_finalize(&mut self) -> Result<(), AgentError> {
+        let mut first_error = None;
+        for subscriber in &self.subscribers.clone() {
+            match subscriber
                 .on_run_finalized(self.to_subscriber_params())
-                .await?;
+                .await
+            {
+                Ok(mutation) => {
+                    self.update_from_mutation(&mutation);
+                }
+                Err(error) => {
+                    first_error.get_or_insert(error);
+                }
+            }
         }
-        Ok(())
+        first_error.map_or(Ok(()), Err)
     }
+}
+
+fn text_message(event: &crate::core::event::TextMessageStartEvent) -> Result<Message, AgentError> {
+    let mut value = serde_json::json!({
+        "id": event.message_id, "role": event.role.clone().unwrap_or(Role::Assistant), "content": "",
+    });
+    if let Some(name) = &event.name {
+        value["name"] = name.clone().into();
+    }
+    if let Some(metadata) = &event.base.metadata {
+        value["metadata"] = JsonValue::Object(metadata.clone());
+    }
+    if let Some(owner) = &event.base.subagent_run_id {
+        value["subagentRunId"] = owner.clone().into();
+    }
+    Ok(serde_json::from_value(value)?)
+}
+
+fn activity_message(event: &crate::core::event::ActivitySnapshotEvent) -> Message {
+    Message::Activity {
+        id: event.message_id.clone(),
+        activity_type: event.activity_type.clone(),
+        content: event.content.clone(),
+        metadata: event.base.metadata.clone(),
+        subagent_run_id: event.base.subagent_run_id.clone(),
+    }
+}
+
+fn upsert_message(messages: &mut Vec<Message>, message: Message) {
+    if let Some(existing) = messages.iter_mut().find(|m| m.id() == message.id()) {
+        *existing = message;
+    } else {
+        messages.push(message);
+    }
+}
+
+fn event_attribution<S: AgentState>(event: &Event<S>) -> Option<&str> {
+    let base = match event {
+        Event::TextMessageStart(e) => &e.base,
+        Event::TextMessageContent(e) => &e.base,
+        Event::TextMessageEnd(e) => &e.base,
+        Event::TextMessageChunk(e) => &e.base,
+        Event::ToolCallStart(e) => &e.base,
+        Event::ToolCallArgs(e) => &e.base,
+        Event::ToolCallEnd(e) => &e.base,
+        Event::ToolCallChunk(e) => &e.base,
+        Event::ToolCallResult(e) => &e.base,
+        Event::ReasoningStart(e) => &e.base,
+        Event::ReasoningEnd(e) => &e.base,
+        Event::ReasoningMessageStart(e) => &e.base,
+        Event::ReasoningMessageContent(e) => &e.base,
+        Event::ReasoningMessageEnd(e) => &e.base,
+        Event::ReasoningMessageChunk(e) => &e.base,
+        Event::ReasoningEncryptedValue(e) => &e.base,
+        Event::ActivitySnapshot(e) => &e.base,
+        Event::ActivityDelta(e) => &e.base,
+        Event::StepStarted(e) => &e.base,
+        Event::StepFinished(e) => &e.base,
+        Event::StateSnapshot(e) => &e.base,
+        Event::StateDelta(e) => &e.base,
+        Event::Custom(e) => &e.base,
+        Event::Raw(e) => &e.base,
+        _ => return None,
+    };
+    base.subagent_run_id.as_deref()
 }
 
 fn message_owner(message: &Message) -> Option<&String> {
@@ -1154,7 +1510,11 @@ fn reconcile_messages(current: &mut Vec<Message>, snapshot: &[Message]) {
         .iter()
         .map(|message| (message.id().clone(), message))
         .collect();
+    let mut retained = HashSet::new();
     current.retain_mut(|message| {
+        if !retained.insert(message.id().clone()) {
+            return false;
+        }
         if let Some(replacement) = by_id.get(message.id()) {
             *message = (*replacement).clone();
             true
@@ -1166,7 +1526,7 @@ fn reconcile_messages(current: &mut Vec<Message>, snapshot: &[Message]) {
     let mut seen: HashSet<_> = current.iter().map(|message| message.id().clone()).collect();
     for message in snapshot {
         if seen.insert(message.id().clone()) {
-            current.push(message.clone());
+            current.push((*by_id[message.id()]).clone());
         }
     }
 }
@@ -1402,9 +1762,23 @@ mod conformance_tests {
             );
             let fixture: Value =
                 serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+            let last_start = fixture["stream"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .rev()
+                .find(|event| event["type"] == "RUN_STARTED");
             let input = RunAgentInput::new(
-                ThreadId::from("t"),
-                RunId::from("r"),
+                ThreadId::from(
+                    last_start
+                        .and_then(|event| event["threadId"].as_str())
+                        .unwrap_or("t"),
+                ),
+                RunId::from(
+                    last_start
+                        .and_then(|event| event["runId"].as_str())
+                        .unwrap_or("r"),
+                ),
                 json!({}),
                 vec![],
                 vec![],

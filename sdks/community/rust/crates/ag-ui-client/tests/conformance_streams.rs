@@ -1,25 +1,76 @@
-use ag_ui_client::agent::RunAgentResult;
-use ag_ui_client::core::types::Message;
+//! The complete 1.0 consumer corpus. Raw fixture events deliberately bypass
+//! producer validation. Producer correctness is tested in ag-ui-encoder.
+#[path = "conformance_support/http.rs"]
+mod http;
+#[path = "conformance_support/oracle.rs"]
+mod oracle;
+
+use ag_ui_client::agent::{AgentError, AgentStateMutation};
+use ag_ui_client::core::{event::Event, processing::Diagnostic, types::RunAgentInput};
 use ag_ui_client::subscriber::{AgentSubscriber, AgentSubscriberParams};
-use ag_ui_client::{Agent, HttpAgent, RunAgentParams};
+use ag_ui_client::{Agent, HttpAgent};
+use oracle::Observation;
 use serde_json::{Value, json};
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use std::time::Duration;
+use tokio::io::AsyncWriteExt;
 use tokio::net::TcpListener;
 
 #[derive(Clone, Default)]
-struct FinalMessages(Arc<Mutex<Vec<Message>>>);
+struct Capture {
+    observed: Arc<Mutex<Observation>>,
+    finalized: Arc<Mutex<usize>>,
+}
+
+fn warning(diagnostic: &Diagnostic) -> String {
+    format!(
+        "{:?} {}: {}",
+        diagnostic.category, diagnostic.path, diagnostic.message
+    )
+}
 
 #[async_trait::async_trait]
-impl AgentSubscriber for FinalMessages {
+impl AgentSubscriber for Capture {
+    async fn on_event(
+        &self,
+        event: &Event,
+        _params: AgentSubscriberParams<'async_trait, Value, Value>,
+    ) -> Result<AgentStateMutation<Value>, AgentError> {
+        self.observed
+            .lock()
+            .unwrap()
+            .events
+            .push(serde_json::to_value(event).unwrap());
+        Ok(Default::default())
+    }
+
+    async fn on_diagnostic(
+        &self,
+        diagnostic: &Diagnostic,
+        _params: AgentSubscriberParams<'async_trait, Value, Value>,
+    ) -> Result<(), AgentError> {
+        self.observed
+            .lock()
+            .unwrap()
+            .warnings
+            .push(warning(diagnostic));
+        Ok(())
+    }
+
     async fn on_run_finalized(
         &self,
         params: AgentSubscriberParams<'async_trait, Value, Value>,
-    ) -> Result<ag_ui_client::agent::AgentStateMutation<Value>, ag_ui_client::agent::AgentError>
-    {
-        *self.0.lock().unwrap() = params.messages.to_vec();
+    ) -> Result<AgentStateMutation<Value>, AgentError> {
+        let mut observation = self.observed.lock().unwrap();
+        observation.messages = params
+            .messages
+            .iter()
+            .map(|message| serde_json::to_value(message).unwrap())
+            .collect();
+        observation.state = params.state.clone();
+        *self.finalized.lock().unwrap() += 1;
         Ok(Default::default())
     }
 }
@@ -28,33 +79,48 @@ fn fixture_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../../../../spec/1.0/conformance/streams")
 }
 
-fn assert_subset(actual: &Value, expected: &Value, path: &str) {
-    match expected {
-        Value::Object(fields) => {
-            for (key, value) in fields {
-                let next = format!("{path}.{key}");
-                assert_subset(&actual[key], value, &next);
-            }
+fn fixture_input(fixture: &Value) -> RunAgentInput {
+    // Historical positive fixtures predate request identity assertions. Seed
+    // their thread and final requested run from their announced segments, but
+    // do not rewrite any response event. Identity-negative tests elsewhere use
+    // independent, explicitly authored input IDs and do not use this fallback.
+    let last_start = fixture["stream"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .rev()
+        .find(|event| event["type"] == "RUN_STARTED");
+    let mut raw = json!({
+        "threadId": last_start.and_then(|event| event.get("threadId")).cloned().unwrap_or(json!("fixture-error-only-thread")),
+        "runId": last_start.and_then(|event| event.get("runId")).cloned().unwrap_or(json!("fixture-error-only-run")),
+        "messages": [],
+        "state": {}
+    });
+    if let Some(input) = fixture.get("input") {
+        for (key, value) in input.as_object().expect("fixture input object") {
+            assert!(
+                [
+                    "threadId",
+                    "runId",
+                    "messages",
+                    "state",
+                    "tools",
+                    "context",
+                    "forwardedProps",
+                    "protocolVersion",
+                    "parentRunId",
+                    "resume"
+                ]
+                .contains(&key.as_str()),
+                "unsupported fixture input key {key}"
+            );
+            raw[key] = value.clone();
         }
-        Value::Array(items) => {
-            let values = actual
-                .as_array()
-                .unwrap_or_else(|| panic!("{path}: expected array, got {actual}"));
-            assert_eq!(values.len(), items.len(), "{path}: array length");
-            for (index, item) in items.iter().enumerate() {
-                assert_subset(&values[index], item, &format!("{path}[{index}]"));
-            }
-        }
-        _ => assert_eq!(actual, expected, "{path}"),
     }
+    serde_json::from_value(raw).expect("fixture input must be represented faithfully")
 }
 
-async fn replay(
-    fixture: &Value,
-) -> (
-    Result<RunAgentResult<Value>, ag_ui_client::agent::AgentError>,
-    Vec<Message>,
-) {
+async fn replay(fixture: &Value) -> Observation {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let address = listener.local_addr().unwrap();
     let frames: String = fixture["stream"]
@@ -64,194 +130,265 @@ async fn replay(
         .map(|event| format!("data: {event}\n\n"))
         .collect();
     let server = tokio::spawn(async move {
-        let (mut socket, _) = listener.accept().await.unwrap();
-        let mut request = Vec::new();
-        let mut buffer = [0_u8; 4096];
-        loop {
-            let read = socket.read(&mut buffer).await.unwrap();
-            assert!(read > 0, "request headers ended unexpectedly");
-            request.extend_from_slice(&buffer[..read]);
-            if request.windows(4).any(|window| window == b"\r\n\r\n") {
-                break;
-            }
-        }
-        let header = format!(
-            "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
-            frames.len()
-        );
-        socket.write_all(header.as_bytes()).await.unwrap();
-        socket.write_all(frames.as_bytes()).await.unwrap();
+        tokio::time::timeout(Duration::from_secs(10), async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let request = http::read(&mut socket).await.expect("complete actual HTTP request");
+            let header = format!("HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", frames.len());
+            socket.write_all(header.as_bytes()).await.unwrap();
+            // Early consumer rejection can close the connection before all
+            // deliberately invalid input is sent. The captured request remains.
+            let _ = socket.write_all(frames.as_bytes()).await;
+            request
+        }).await.expect("fixture server timed out")
     });
+    let capture = Capture::default();
+    let diagnostics = capture.observed.clone();
     let agent = HttpAgent::builder()
         .with_url_str(&format!("http://{address}/"))
         .unwrap()
+        .with_diagnostic_handler(move |diagnostic: &Diagnostic| {
+            diagnostics
+                .lock()
+                .unwrap()
+                .warnings
+                .push(warning(diagnostic))
+        })
         .build()
         .unwrap();
-    let mut params = RunAgentParams::new();
-    params.state = json!({});
-    if let Some(initial) = fixture.pointer("/input/messages") {
-        params.messages = serde_json::from_value(initial.clone()).unwrap();
+    let input = fixture_input(fixture);
+    let result = tokio::time::timeout(
+        Duration::from_secs(10),
+        agent.run_input(&input, (capture.clone(),)),
+    )
+    .await
+    .expect("fixture client timed out");
+    let request = server.await.unwrap();
+    let mut observation = capture.observed.lock().unwrap().clone();
+    assert_eq!(
+        *capture.finalized.lock().unwrap(),
+        1,
+        "public lifecycle must finalize exactly once"
+    );
+    match result {
+        Ok(result) => {
+            // Public full history must agree with actual finalization state.
+            let messages: Vec<_> = result
+                .messages
+                .iter()
+                .map(|message| serde_json::to_value(message).unwrap())
+                .collect();
+            assert_eq!(messages, observation.messages);
+            assert_eq!(result.new_state, observation.state);
+        }
+        Err(error) => observation.error = Some(error.to_string()),
     }
-    let final_messages = FinalMessages::default();
-    let result = agent.run_agent(&params, (final_messages.clone(),)).await;
-    server.await.unwrap();
-    let messages = final_messages.0.lock().unwrap().clone();
-    (result, messages)
+    observation.request = serde_json::from_slice(&request.body).unwrap();
+    observation.request_headers = request.headers;
+    observation.request_bytes = request.body;
+    assert_eq!(
+        observation
+            .request_headers
+            .get("accept")
+            .map(String::as_str),
+        Some("text/event-stream")
+    );
+    assert_eq!(
+        observation
+            .request_headers
+            .get("content-type")
+            .map(String::as_str),
+        Some("application/json")
+    );
+    assert_eq!(
+        serde_json::from_slice::<Value>(&observation.request_bytes).unwrap(),
+        observation.request
+    );
+    observation
+}
+
+fn validate_fixture(fixture: &Value) {
+    let keys = [
+        "name",
+        "area",
+        "description",
+        "specPage",
+        "kill",
+        "client",
+        "input",
+        "stream",
+        "expect",
+        "expectOverrides",
+    ];
+    for key in fixture.as_object().expect("fixture object").keys() {
+        assert!(keys.contains(&key.as_str()), "unknown fixture key {key}");
+    }
+    for key in ["name", "area", "description", "specPage", "kill"] {
+        assert!(
+            fixture[key].as_str().is_some_and(|s| !s.is_empty()),
+            "missing fixture {key}"
+        );
+    }
+    assert!(
+        fixture["stream"]
+            .as_array()
+            .is_some_and(|events| !events.is_empty())
+    );
+    oracle::validate_expectation(&fixture["expect"]).unwrap();
+    if let Some(client) = fixture.get("client") {
+        for key in client.as_object().expect("client object").keys() {
+            assert_eq!(key, "maxProtocolVersion", "unknown client configuration");
+        }
+        assert!(client["maxProtocolVersion"].is_string());
+    }
+    if let Some(overrides) = fixture.get("expectOverrides") {
+        for (lane, patch) in overrides.as_object().expect("overrides object") {
+            assert!(
+                ["rust", "typescript", "dotnet"].contains(&lane.as_str()),
+                "unknown lane {lane}"
+            );
+            assert!(patch["intentional"].as_str().is_some_and(|s| !s.is_empty()));
+            let mut resolved = fixture["expect"].clone();
+            for (key, value) in patch.as_object().expect("override object") {
+                if key != "intentional" {
+                    resolved[key] = value.clone();
+                }
+            }
+            // Rust can observe all keys, including ones .NET cannot. Shape and
+            // unknown-key checks still apply to every lane's metadata.
+            oracle::validate_expectation(&resolved).unwrap();
+        }
+    }
+}
+
+fn resolved_expectation(fixture: &Value) -> Value {
+    let mut expected = fixture["expect"].clone();
+    if let Some(overrides) = fixture.pointer("/expectOverrides/rust") {
+        assert!(
+            overrides["intentional"]
+                .as_str()
+                .is_some_and(|s| !s.is_empty())
+        );
+        for (key, value) in overrides.as_object().unwrap() {
+            if key != "intentional" {
+                expected[key] = value.clone();
+            }
+        }
+    }
+    expected
 }
 
 #[tokio::test]
 async fn manifest_streams_replay_through_http_agent() {
-    let revision = std::process::Command::new("git")
-        .args(["rev-parse", "HEAD"])
-        .current_dir(env!("CARGO_MANIFEST_DIR"))
-        .output()
-        .unwrap();
-    assert!(revision.status.success());
-    let revision = String::from_utf8(revision.stdout).unwrap();
-    // The two SDK crates share a version; read the core package field to verify it.
-    let core_manifest = std::fs::read_to_string(
-        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../ag-ui-core/Cargo.toml"),
-    )
-    .unwrap();
-    let core_package = core_manifest
-        .split("[package]")
-        .nth(1)
-        .unwrap()
-        .split('[')
-        .next()
-        .unwrap();
-    let core_version = core_package
-        .lines()
-        .find_map(|line| {
-            line.trim()
-                .strip_prefix("version = \"")
-                .and_then(|value| value.strip_suffix('"'))
-        })
-        .unwrap();
-    assert_eq!(core_version, env!("CARGO_PKG_VERSION"));
-    println!("ag-ui-core {core_version} @ {}", revision.trim());
-
     let directory = fixture_dir();
     let manifest = std::fs::read_to_string(directory.join("MANIFEST.txt")).unwrap();
-    let names: Vec<_> = manifest
+    let names: Vec<String> = manifest
         .lines()
         .map(str::trim)
         .filter(|line| !line.is_empty() && !line.starts_with('#'))
+        .map(str::to_string)
         .collect();
-    let skips = HashMap::from([
-        (
-            "era-0-0-39-flattens-content.json",
-            "0.0.39 request content flattening shim is outside this 1.0 client slice",
-        ),
-        (
-            "era-0-0-47-upgrades-binary-content.json",
-            "0.0.47 binary request upgrade shim is outside this 1.0 client slice",
-        ),
-        (
-            "era-current-peer-keeps-modern-content.json",
-            "request contains retired binary content requiring the out-of-scope binary-to-image compatibility shim",
-        ),
-        (
-            "era-0-0-57-subagent-dropped-with-warning.json",
-            "0.0.57 subagent compatibility shim is outside this 1.0 client slice",
-        ),
-    ]);
-    let listed: HashSet<_> = names.iter().copied().collect();
-    assert_eq!(listed.len(), names.len(), "duplicate manifest entries");
-    for skipped in skips.keys() {
-        assert!(listed.contains(skipped), "stale skip: {skipped}");
-    }
-    let on_disk: HashSet<_> = std::fs::read_dir(&directory)
+    let found: BTreeSet<_> = std::fs::read_dir(&directory)
         .unwrap()
         .map(|entry| entry.unwrap().file_name().into_string().unwrap())
         .filter(|name| name.ends_with(".json"))
         .collect();
+    oracle::manifest_matches(&names, &found).unwrap();
     assert_eq!(
-        listed
-            .iter()
-            .map(|name| name.to_string())
-            .collect::<HashSet<_>>(),
-        on_disk,
-        "manifest does not cover corpus"
+        names.len(),
+        68,
+        "review and reconcile a changed corpus inventory"
     );
-
+    let classifications: Vec<Value> =
+        serde_json::from_str(include_str!("conformance_support/classification.json")).unwrap();
+    let mut matrix = BTreeMap::new();
+    for entry in classifications {
+        let name = entry["file"].as_str().unwrap().to_string();
+        assert!(
+            matrix.insert(name, entry).is_none(),
+            "duplicate classification"
+        );
+    }
+    assert_eq!(
+        matrix.keys().cloned().collect::<BTreeSet<_>>(),
+        found,
+        "missing or stale classification"
+    );
     let mut failures = Vec::new();
-    let mut passed = 0_usize;
+    let mut normative = 0;
+    let mut divergent = 0;
+    let mut excluded = 0;
+    let mut executed = 0;
     for name in names {
-        if let Some(reason) = skips.get(name) {
-            println!("SKIP {name}: {reason}");
+        let fixture: Value =
+            serde_json::from_slice(&std::fs::read(directory.join(&name)).unwrap()).unwrap();
+        assert_eq!(fixture["name"], name.trim_end_matches(".json"));
+        validate_fixture(&fixture);
+        let classification = &matrix[&name];
+        assert_eq!(classification["specPage"], fixture["specPage"]);
+        assert!(
+            classification["reason"]
+                .as_str()
+                .is_some_and(|s| !s.is_empty())
+        );
+        let expected = resolved_expectation(&fixture);
+        oracle::validate_expectation(&expected).unwrap_or_else(|error| panic!("{name}: {error}"));
+        if classification["classification"] == "out_of_scope" {
+            let old_peer = fixture
+                .pointer("/client/maxProtocolVersion")
+                .and_then(Value::as_str)
+                .is_some_and(|version| version.starts_with("0.0."));
+            let retired_binary = fixture
+                .pointer("/input/messages/1/content/0/type")
+                .and_then(Value::as_str)
+                == Some("binary");
+            assert!(
+                old_peer || retired_binary,
+                "{name}: stale legacy scope exclusion"
+            );
+            excluded += 1;
+            println!(
+                "OUT OF SCOPE {name}: {} ({})",
+                classification["reason"], classification["specPage"]
+            );
             continue;
         }
-        let fixture: Value =
-            serde_json::from_str(&std::fs::read_to_string(directory.join(name)).unwrap()).unwrap();
-        assert_eq!(
-            fixture["name"],
-            name.trim_end_matches(".json"),
-            "{name}: fixture name"
+        assert!(
+            fixture.get("client").is_none(),
+            "{name}: applicable client configuration must be implemented, never silently ignored"
         );
-        let (result, messages) = replay(&fixture).await;
-        let check = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            let expected = &fixture["expect"];
-            match expected["outcome"].as_str().unwrap() {
-                "completed" => {
-                    assert!(result.is_ok(), "{name}: expected completed, got {result:?}");
+        executed += 1;
+        let observation = replay(&fixture).await;
+        match oracle::check(&observation, &expected) {
+            Ok(()) => {
+                match classification["classification"].as_str().unwrap() {
+                    "normative" => normative += 1,
+                    "normative_override" => divergent += 1,
+                    other => panic!("unknown classification {other}"),
                 }
-                "failed" => {
-                    assert!(result.is_err(), "{name}: expected failed");
-                }
-                other => panic!("{name}: unexpected expected outcome {other}"),
+                println!("PASS {name} [{}]", classification["classification"]);
             }
-            if let Some(fragment) = expected["errorContains"].as_str() {
-                let error = result.as_ref().unwrap_err().to_string();
-                assert!(
-                    error.contains(fragment),
-                    "{name}: expected error containing {fragment:?}, got {error:?}"
-                );
+            Err(error) => {
+                println!("FAIL {name}: {error}");
+                failures.push(format!("{name}: {error}"));
             }
-            if let Some(count) = expected["messageCount"].as_u64() {
-                assert_eq!(messages.len() as u64, count, "{name}: message count");
-            }
-            if let Some(expected_messages) = expected["messages"].as_array() {
-                assert_eq!(
-                    messages.len(),
-                    expected_messages.len(),
-                    "{name}: expected messages length"
-                );
-                for (index, (actual, expected_message)) in
-                    messages.iter().zip(expected_messages).enumerate()
-                {
-                    assert_subset(
-                        &serde_json::to_value(actual).unwrap(),
-                        expected_message,
-                        &format!("{name}.messages[{index}]"),
-                    );
-                }
-            }
-            if let Some(expected_state) = expected.get("state") {
-                assert_eq!(
-                    &result.as_ref().unwrap().new_state,
-                    expected_state,
-                    "{name}: state"
-                );
-            }
-        }));
-        if let Err(problem) = check {
-            let detail = problem
-                .downcast_ref::<String>()
-                .map(String::as_str)
-                .or_else(|| problem.downcast_ref::<&str>().copied())
-                .unwrap_or("unknown assertion failure");
-            failures.push(format!("{name}: {detail}"));
-            println!("FAIL {name}: {detail}");
-        } else {
-            passed += 1;
-            println!("PASS {name}");
         }
     }
     println!(
-        "{passed} passed, {} skipped, {} failed",
-        skips.len(),
+        "68 inventoried; {executed} executed; {normative} normative passes; {divergent} normative passes intentionally divergent from reference; {excluded} out of scope; {} failed",
         failures.len()
     );
+    assert_eq!(excluded, 6, "review every new scope exclusion");
+    assert_eq!(executed + excluded, 68);
     assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+#[test]
+fn fixture_input_preserves_every_field_and_explicit_identity() {
+    let fixture = json!({"stream":[{"type":"RUN_STARTED","threadId":"wrong-thread","runId":"wrong-run"}],"input":{
+        "threadId":"authored-thread","runId":"authored-run","parentRunId":"parent","messages":[],"state":[1,null],
+        "context":[{"description":"locale","value":"en"}],"tools":[{"name":"tool","description":"tool description","parameters":{}}],
+        "forwardedProps":{"nested":null},"protocolVersion":"1.0","resume":[{"interruptId":"approval","status":"resolved","payload":false}]
+    }});
+    let actual = serde_json::to_value(fixture_input(&fixture)).unwrap();
+    oracle::subset(&actual, &fixture["input"], "input").unwrap();
 }

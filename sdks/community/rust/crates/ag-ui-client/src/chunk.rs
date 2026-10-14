@@ -187,7 +187,7 @@ impl ChunkExpander {
                     output.push(Event::TextMessageStart(TextMessageStartEvent {
                         base: base(owner.clone(), chunk.base.metadata.clone(), None),
                         message_id: id.clone(),
-                        role,
+                        role: Some(role),
                         name: chunk.name.clone(),
                     }));
                     (id, true)

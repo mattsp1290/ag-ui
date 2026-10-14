@@ -116,8 +116,8 @@ pub struct TextMessageStartEvent {
     pub base: BaseEvent,
     #[serde(rename = "messageId")]
     pub message_id: MessageId,
-    #[serde(default = "Role::assistant")]
-    pub role: Role, // "assistant"
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub role: Option<Role>, // Absent means assistant.
     #[serde(
         skip_serializing_if = "Option::is_none",
         deserialize_with = "crate::types::non_null_option",
@@ -742,9 +742,7 @@ pub enum EventValidationError {
 /// Validate text message content event
 impl TextMessageContentEvent {
     pub fn validate(&self) -> Result<(), EventValidationError> {
-        if self.delta.is_empty() {
-            return Err(EventValidationError::EmptyDelta);
-        }
+        // Empty deltas are valid AG-UI 1.0 strings.
         Ok(())
     }
 }
@@ -760,7 +758,7 @@ impl TextMessageStartEvent {
                 subagent_run_id: None,
             },
             message_id: message_id.into(),
-            role: Role::Assistant,
+            role: Some(Role::Assistant),
             name: None,
         }
     }

@@ -1,0 +1,15 @@
+[package]
+name = "ag-ui-encoder"
+version = "0.2.0"
+edition = "2024"
+rust-version = "1.88"
+description = "Framework-independent AG-UI 1.0 JSON/SSE producer encoder."
+license = "MIT"
+
+[dependencies]
+ag-ui-core = "0.2.0"
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+jsonschema = { version = "0.33", default-features = false }

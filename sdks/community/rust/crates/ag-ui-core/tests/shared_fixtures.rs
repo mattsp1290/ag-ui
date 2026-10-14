@@ -1,6 +1,6 @@
 use ag_ui_core::{event::Event, types::AgentCapabilities};
 use serde_json::Value;
-use std::{fs, path::PathBuf};
+use std::{collections::BTreeSet, fs, path::PathBuf};
 
 fn shared_fixture(name: &str) -> Value {
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -10,9 +10,23 @@ fn shared_fixture(name: &str) -> Value {
 }
 
 #[test]
-fn null_omission_fixtures_roundtrip() {
+fn null_omission_typed_representation_fixtures_roundtrip() {
     let fixture = shared_fixture("null-omission.json");
     let cases = fixture["stream"].as_array().unwrap();
+    assert_eq!(
+        cases.len(),
+        35,
+        "reconcile changed shared fixture inventory"
+    );
+    let names: BTreeSet<_> = cases
+        .iter()
+        .map(|case| case["name"].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        names.len(),
+        cases.len(),
+        "duplicate null-omission fixture names"
+    );
     let mut failures = Vec::new();
     for case in cases {
         let name = case["name"].as_str().unwrap();
@@ -41,6 +55,20 @@ fn null_omission_fixtures_roundtrip() {
 fn agent_capabilities_fixtures_roundtrip() {
     let fixture = shared_fixture("agent-capabilities.json");
     let cases = fixture["cases"].as_array().unwrap();
+    assert_eq!(
+        cases.len(),
+        4,
+        "reconcile changed capability fixture inventory"
+    );
+    let names: BTreeSet<_> = cases
+        .iter()
+        .map(|case| case["name"].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        names.len(),
+        cases.len(),
+        "duplicate capability fixture names"
+    );
     for case in cases {
         let name = case["name"].as_str().unwrap();
         let produced_by = case["producedBy"].as_array().unwrap();

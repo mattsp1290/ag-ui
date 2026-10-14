@@ -32,7 +32,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     }
                 }
             }
-            Err(err) => eprintln!("Error: {}", err),
+            Err(err) => eprintln!("Error: {err}"),
         }
     }
     Ok(())

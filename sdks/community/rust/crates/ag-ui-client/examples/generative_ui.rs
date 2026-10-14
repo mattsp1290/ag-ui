@@ -95,7 +95,7 @@ impl AgentSubscriber<Plan, ()> for GenerativeUiSubscriber {
                                 "pending" => "[ ]",
                                 _ => "[?]",
                             };
-                            info!("   {} Step status updated to: {}", status_icon, status);
+                            info!("   {status_icon} Step status updated to: {status}");
                         } else if path.contains("/description") {
                             info!(
                                 "   Step description updated to: {}",
@@ -104,7 +104,7 @@ impl AgentSubscriber<Plan, ()> for GenerativeUiSubscriber {
                         }
                     }
                 }
-                Some(op) => info!("   Operation: {}", op),
+                Some(op) => info!("   Operation: {op}"),
                 None => info!("   Unknown operation"),
             }
         }

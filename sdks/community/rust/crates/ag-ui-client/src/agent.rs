@@ -41,7 +41,10 @@ where
 /// Parameters for running an agent.
 #[derive(Debug, Clone, Default)]
 pub struct RunAgentParams<StateT: AgentState = JsonValue, FwdPropsT: FwdProps = JsonValue> {
+    /// Omit to start a fresh thread; supply this for subsequent turns.
+    pub thread_id: Option<ThreadId>,
     pub run_id: Option<RunId>,
+    pub parent_run_id: Option<RunId>,
     pub resume: Option<Vec<ResumeEntry>>,
     pub tools: Vec<Tool>,
     pub context: Vec<Context>,
@@ -61,7 +64,9 @@ where
     /// If you do not need this level of customization, use [RunAgentParams::new].
     pub fn new_typed() -> Self {
         Self {
+            thread_id: None,
             run_id: None,
+            parent_run_id: None,
             resume: None,
             tools: Vec::new(),
             context: Vec::new(),
@@ -71,6 +76,14 @@ where
         }
     }
 
+    pub fn with_thread_id(mut self, thread_id: ThreadId) -> Self {
+        self.thread_id = Some(thread_id);
+        self
+    }
+    pub fn with_parent_run_id(mut self, parent_run_id: RunId) -> Self {
+        self.parent_run_id = Some(parent_run_id);
+        self
+    }
     pub fn with_run_id(mut self, run_id: RunId) -> Self {
         self.run_id = Some(run_id);
         self
@@ -121,9 +134,24 @@ impl RunAgentParams<JsonValue, JsonValue> {
     }
 }
 
+/// The last run segment's producer-reported terminal status.
+/// Consumer protocol, transport, and callback failures are returned as `Err` instead.
+#[derive(Debug, Clone, PartialEq)]
+pub enum RunTerminalStatus {
+    Finished { thread_id: ThreadId, run_id: RunId },
+    ProducerError(crate::core::event::RunErrorEvent),
+}
+
 #[derive(Debug, Clone)]
 pub struct RunAgentResult<StateT: AgentState> {
+    /// Convenience projection of `output`, using null when output is absent.
     pub result: JsonValue,
+    /// The producer's optional output, independently of whether the run succeeded.
+    pub output: Option<JsonValue>,
+    pub terminal_status: RunTerminalStatus,
+    /// Complete reconciled history. Use this collection for the next turn.
+    /// Unlike `new_messages`, this preserves replacements and deletions.
+    pub messages: Vec<Message>,
     pub outcome: Option<crate::core::types::RunFinishedOutcome>,
     pub usage: Option<Vec<crate::core::types::TokenUsage>>,
     pub new_messages: Vec<Message>,
@@ -160,12 +188,15 @@ where
     StateT: AgentState,
     FwdPropsT: FwdProps,
 {
+    /// Low-level event stream. This does not apply state, expand chunks, verify
+    /// lifecycle completion, or call subscribers. Prefer [`Agent::run_input`].
     async fn run(
         &self,
         input: &RunAgentInput<StateT, FwdPropsT>,
     ) -> Result<EventStream<'async_trait, StateT>, AgentError>;
 
-    /// Triggers an Agent run.
+    /// Runs an agent, creating a fresh thread unless `params.thread_id` is set.
+    /// For complete control over input identity and continuation, use [`Agent::run_input`].
     ///
     /// # Parameters
     /// * `params`: The run parameters as given in [RunAgentParams]
@@ -202,7 +233,7 @@ where
         subscribers: impl IntoSubscribers<StateT, FwdPropsT>,
     ) -> Result<RunAgentResult<StateT>, AgentError> {
         let input = RunAgentInput {
-            thread_id: ThreadId::random(),
+            thread_id: params.thread_id.clone().unwrap_or_else(ThreadId::random),
             run_id: params.run_id.clone().unwrap_or_else(RunId::random),
             state: params.state.clone(),
             messages: params.messages.clone(),
@@ -210,78 +241,80 @@ where
             context: Some(params.context.clone()),
             forwarded_props: params.forwarded_props.clone(),
             protocol_version: Some("1.0".to_owned()),
-            parent_run_id: None,
+            parent_run_id: params.parent_run_id.clone(),
             resume: params.resume.clone(),
         };
-        let current_message_ids: HashSet<&MessageId> =
-            params.messages.iter().map(|m| m.id()).collect();
+        self.run_input(&input, subscribers).await
+    }
 
-        // Initialize event handler with the current state
-        let subscribers = subscribers.into_subscribers();
+    /// Execute a complete input through chunk expansion, lifecycle verification,
+    /// reduction and subscriber callbacks. Supply the returned `messages` and
+    /// `new_state` as the next turn's history/state, keeping `thread_id` and choosing
+    /// a new `run_id`. Activity remains in the result but HTTP filters it from wire
+    /// history. Producer RUN_ERROR is an explicit terminal status, not a consumer error.
+    /// Every subscriber is finalized once, including when another callback fails.
+    async fn run_input(
+        &self,
+        input: &RunAgentInput<StateT, FwdPropsT>,
+        subscribers: impl IntoSubscribers<StateT, FwdPropsT>,
+    ) -> Result<RunAgentResult<StateT>, AgentError> {
+        let current_message_ids: HashSet<_> =
+            input.messages.iter().map(|m| m.id().clone()).collect();
         let mut event_handler = EventHandler::new(
-            params.messages.clone(),
-            params.state.clone(),
-            &input,
-            subscribers,
+            input.messages.clone(),
+            input.state.clone(),
+            input,
+            subscribers.into_subscribers(),
         );
-
-        let mut stream = self.run(&input).await?.fuse();
-        let mut chunks = ChunkExpander::default();
-
-        while let Some(event_result) = stream.next().await {
-            match event_result {
-                Ok(event) => {
-                    let expanded_events = match chunks.expand(event) {
-                        Ok(events) => events,
-                        Err(error) => {
-                            event_handler.on_error(&error).await?;
-                            event_handler.on_finalize().await?;
-                            return Err(error);
-                        }
-                    };
-                    for expanded in expanded_events {
-                        let mutation = match event_handler.handle_event(&expanded).await {
-                            Ok(mutation) => mutation,
-                            Err(error) => {
-                                event_handler.on_error(&error).await?;
-                                event_handler.on_finalize().await?;
-                                return Err(error);
-                            }
-                        };
-                        event_handler.apply_mutation(mutation).await?;
-                    }
-                }
-                Err(e) => {
-                    event_handler.on_error(&e).await?;
-                    event_handler.on_finalize().await?;
-                    return Err(e);
+        // Keep cleanup outside this block: no callback failure may bypass or repeat
+        // finalization, including errors opening the stream or applying mutations.
+        let execution = async {
+            let prepared = crate::core::processing::prepare_run_input(input)?;
+            event_handler.state =
+                serde_json::from_value(prepared.effective_state).map_err(|_| {
+                    AgentError::config(
+                        "Application state cannot represent the effective input baseline",
+                    )
+                })?;
+            event_handler.on_initialize().await?;
+            let mut stream = self.run(input).await?.fuse();
+            let mut chunks = ChunkExpander::default();
+            while let Some(event) = stream.next().await {
+                for expanded in chunks.expand(event?)? {
+                    let mutation = event_handler.handle_event(&expanded).await?;
+                    event_handler.apply_mutation(mutation).await?;
                 }
             }
+            event_handler.check_completion()
         }
-
-        if !event_handler.terminal_received() {
-            let error = AgentError::exec("AG-UI stream ended before RUN_FINISHED or RUN_ERROR");
-            event_handler.on_error(&error).await?;
-            event_handler.on_finalize().await?;
+        .await;
+        if let Err(error) = &execution {
+            // The original failure is authoritative, but all failure/finalization
+            // callbacks still run even if an individual subscriber also fails.
+            let _ = event_handler.on_error(error).await;
+        }
+        let finalized = event_handler.on_finalize().await;
+        execution?;
+        if let Err(error) = finalized {
+            let _ = event_handler.on_error(&error).await;
             return Err(error);
         }
-
-        // Finalize the run
-        event_handler.on_finalize().await?;
-
-        // Collect new messages
         let new_messages = event_handler
             .messages
             .iter()
-            .filter(|m| !current_message_ids.contains(&m.id()))
+            .filter(|m| !current_message_ids.contains(m.id()))
             .cloned()
             .collect();
-
         Ok(RunAgentResult {
             result: event_handler.result,
+            output: event_handler.output,
+            terminal_status: event_handler
+                .terminal_status
+                .expect("completion checked terminal status"),
             outcome: event_handler.outcome,
             usage: event_handler.usage,
             new_messages,
+            messages: event_handler.messages,
             new_state: event_handler.state,
         })
     }
@@ -398,7 +431,12 @@ mod result_tests {
         ]);
         let seen = std::sync::Arc::new(std::sync::Mutex::new(Observations::default()));
         let result = script
-            .run_agent(&RunAgentParams::new(), (Observer(seen.clone()),))
+            .run_agent(
+                &RunAgentParams::new()
+                    .with_thread_id("t".into())
+                    .with_run_id("r".into()),
+                (Observer(seen.clone()),),
+            )
             .await
             .unwrap();
         let messages: Vec<_> = result
@@ -445,7 +483,12 @@ mod result_tests {
             ]);
             assert!(
                 ScriptedAgent(values)
-                    .run_agent(&RunAgentParams::new(), ())
+                    .run_agent(
+                        &RunAgentParams::new()
+                            .with_thread_id("t".into())
+                            .with_run_id("r".into()),
+                        ()
+                    )
                     .await
                     .is_ok()
             );
@@ -465,7 +508,12 @@ mod result_tests {
         ] {
             assert!(
                 ScriptedAgent(values)
-                    .run_agent(&RunAgentParams::new(), ())
+                    .run_agent(
+                        &RunAgentParams::new()
+                            .with_thread_id("t".into())
+                            .with_run_id("r".into()),
+                        ()
+                    )
                     .await
                     .is_err()
             );
@@ -492,11 +540,16 @@ mod result_tests {
                 json!({"type":"RUN_FINISHED","threadId":"t","runId":"r"}),
             ]);
             let result = ScriptedAgent(values)
-                .run_agent(&RunAgentParams::new(), ())
+                .run_agent(
+                    &RunAgentParams::new()
+                        .with_thread_id("t".into())
+                        .with_run_id("r".into()),
+                    (),
+                )
                 .await;
             assert_eq!(
                 result.is_ok(),
-                tool_owner == Some("s"),
+                tool_owner != Some("other"),
                 "tool owner {tool_owner:?}: {result:?}"
             );
         }
@@ -511,7 +564,12 @@ mod result_tests {
         let seen = std::sync::Arc::new(std::sync::Mutex::new(Observations::default()));
         assert!(
             ScriptedAgent(values)
-                .run_agent(&RunAgentParams::new(), (Observer(seen.clone()),))
+                .run_agent(
+                    &RunAgentParams::new()
+                        .with_thread_id("t".into())
+                        .with_run_id("r".into()),
+                    (Observer(seen.clone()),)
+                )
                 .await
                 .is_err()
         );
@@ -534,7 +592,12 @@ mod result_tests {
             let seen = std::sync::Arc::new(std::sync::Mutex::new(Observations::default()));
             assert!(
                 ScriptedAgent(values)
-                    .run_agent(&RunAgentParams::new(), (Observer(seen.clone()),))
+                    .run_agent(
+                        &RunAgentParams::new()
+                            .with_thread_id("t".into())
+                            .with_run_id("r".into()),
+                        (Observer(seen.clone()),)
+                    )
                     .await
                     .is_ok()
             );
@@ -554,7 +617,12 @@ mod result_tests {
             let seen = std::sync::Arc::new(std::sync::Mutex::new(Observations::default()));
             assert!(
                 ScriptedAgent(values)
-                    .run_agent(&RunAgentParams::new(), (Observer(seen.clone()),))
+                    .run_agent(
+                        &RunAgentParams::new()
+                            .with_thread_id("t".into())
+                            .with_run_id("r".into()),
+                        (Observer(seen.clone()),)
+                    )
                     .await
                     .is_err()
             );
@@ -650,7 +718,12 @@ mod result_tests {
     async fn chunk_callbacks_expand_before_subscribers_and_close_on_terminals() {
         let seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
         let result = ChunkAgent
-            .run_agent(&RunAgentParams::new(), (EventOrder(seen.clone()),))
+            .run_agent(
+                &RunAgentParams::new()
+                    .with_thread_id("t".into())
+                    .with_run_id("r".into()),
+                (EventOrder(seen.clone()),),
+            )
             .await
             .unwrap();
         assert_eq!(
@@ -686,7 +759,12 @@ mod result_tests {
     #[tokio::test]
     async fn run_result_exposes_messages_state_result_outcome_and_usage() {
         let result = OfflineAgent
-            .run_agent(&RunAgentParams::new(), ())
+            .run_agent(
+                &RunAgentParams::new()
+                    .with_thread_id("t".into())
+                    .with_run_id("r".into()),
+                (),
+            )
             .await
             .unwrap();
         assert_eq!(result.result, json!({"ok":true}));

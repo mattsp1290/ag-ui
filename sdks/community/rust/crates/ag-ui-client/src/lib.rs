@@ -8,8 +8,7 @@ pub mod http;
 pub mod sse;
 pub(crate) mod stream;
 pub mod subscriber;
-mod thinking;
-pub use agent::{Agent, RunAgentParams};
+pub use agent::{Agent, RunAgentParams, RunAgentResult, RunTerminalStatus};
 pub use http::HttpAgent;
 
 pub use ag_ui_core as core;

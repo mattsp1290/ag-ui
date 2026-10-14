@@ -1,24 +1,94 @@
 # AG-UI Rust Client 0.2.0
 
-`ag-ui-client` connects to AG-UI 1.0 agents over HTTP SSE. It depends on `ag-ui-core` 0.2.0. This is a breaking upgrade from 0.1.0; see [CHANGELOG.md](CHANGELOG.md).
+HTTP/SSE client for AG-UI 1.0 with explicit lifecycle, canonical event processing,
+complete application history, structured diagnostics, and bounded transport.
 
-`Agent::run_agent` returns `RunAgentResult` with `new_messages`, `new_state`, a JSON `result` (null when absent), and optional `outcome` and `usage`. `RunAgentParams::with_resume` supplies interrupt responses. Subscribers can observe lifecycle, text, tool, state, activity, reasoning, and subagent events. Legacy `THINKING_*` wire events are translated to reasoning events with warnings.
+## Same-thread turns
 
-## Live examples
+Use [`Agent::run_input`] with a complete [`core::types::RunAgentInput`]. Each turn
+has a new run ID, while the thread ID stays stable. Reuse the complete public
+`messages` collection and `new_state`; `new_messages` only reports additions and
+cannot reconstruct snapshot replacements/deletions.
 
-From `integrations/server-starter-all-features/python/examples`, install dependencies and start the Python starter at port 3001:
+```no_run
+use ag_ui_client::{Agent, HttpAgent, RunTerminalStatus};
+use ag_ui_client::core::types::RunAgentInput;
+use serde_json::json;
 
-```bash
-PORT=3001 uv run --no-sync dev
+# #[tokio::main]
+# async fn main() -> Result<(), Box<dyn std::error::Error>> {
+let agent = HttpAgent::builder()
+    .with_url_str("http://127.0.0.1:3000/agent")?
+    .build()?;
+let mut input = RunAgentInput::new(
+    "thread-1", "run-1", json!({}), vec![], vec![], vec![], json!({}),
+);
+let first = agent.run_input(&input, ()).await?;
+if let RunTerminalStatus::ProducerError(error) = &first.terminal_status {
+    return Err(format!("producer error: {}", error.message).into());
+}
+input.messages = first.messages;
+input.state = first.new_state;
+input.parent_run_id = Some(input.run_id.clone());
+input.run_id = "run-2".into();
+let second = agent.run_input(&input, ()).await?;
+# let _ = second;
+# Ok(())
+# }
 ```
 
-Then, from `sdks/community/rust`:
+`run_input` preserves IDs, parent, tools, context, resume, and forwarded properties
+and uses the same verifier/reducer/subscriber pipeline as `run_agent`.
+`RunAgentParams::with_thread_id` makes a convenience call use an explicit thread;
+otherwise `run_agent` creates a fresh thread. [`Agent::run`] is a low-level event
+stream without the helper's completion guarantees.
 
-```bash
-cargo run --example basic_agent
-cargo run --example shared_state
-```
+## Results and application state
 
-`basic_agent` posts to `/agentic_chat` and prints the assistant message and its string ID. `shared_state` posts to `/shared_state` and prints its state snapshot, JSON Patch delta, and final patched recipe. Both examples default to `http://127.0.0.1:3001`; set `AG_UI_BASE_URL` to use another host or port.
+`RunAgentResult` exposes complete `messages`, `new_state`, `terminal_status`,
+optional `output`, `outcome`, and `usage`. `result` is a convenience JSON value
+that defaults to null when output is absent. The latest producer segment controls
+terminal status: a `RUN_ERROR` is a producer error even after an earlier finish;
+a later requested run can complete after historical segments. Consumer protocol,
+transport, identity, and callback failures return `Err`. Finalization runs once
+per helper call, including failure paths.
 
-See [examples](examples) and the [Rust SDK reference](/sdk/rust/overview).
+An absent/whole-null optional input state is omitted and starts from `{}`.
+Required null snapshots stay null. Carry `new_state` normally into the next input;
+normalization reestablishes the wire rule. The default JSON state accepts scalars,
+arrays, and nested nulls. Custom application types can explicitly fail conversion.
+
+Activity messages stay in application history and are filtered from outgoing
+conversation history. Roles, IDs, metadata, media, tool-result correlation,
+opaque values, and subagent attribution remain intact. Message snapshots use
+role-aware reconciliation and preserve established positions. State/activity
+patches apply on a copy and commit atomically. Use full messages for next-turn
+history; text-only helpers cannot preserve these semantics.
+
+## Transport and diagnostics
+
+HTTP sends JSON input and requests SSE, overriding conflicting custom
+`Content-Type`/`Accept`. It rejects non-success statuses and missing/wrong
+response media types before event application. The decoder tolerates arbitrary
+UTF-8 byte partitions, LF/CRLF/CR, an initial BOM, multiple frames, and keepalives.
+Malformed/truncated tails fail even after an earlier terminal event.
+
+Defaults bound lines to 16 MiB and frames to 16 MiB + 1024 bytes. Set
+`HttpAgentBuilder::with_sse_limits` to override. Non-success response reading is
+bounded by 64 KiB and two seconds by default (`with_error_body_limits`); response
+contents are not echoed into errors. Dropping a stream releases local resources
+without claiming remote cancellation.
+
+`with_diagnostic_handler` observes structured core processing diagnostics.
+Subscribers receive lifecycle/reducer diagnostics. Paths are RFC 6901 pointers,
+categories are structured, and details exclude opaque payloads. Current AG-UI
+1.0 forward compatibility is supported; retired era translation, reconnect,
+protobuf, and server persistence are not provided.
+
+## Optional live starter examples
+
+The hermetic test suite does not require a separately launched service. For the
+optional `basic_agent` and `shared_state` examples, run the repository's Python
+server starter at port 3001, then run `cargo run --example basic_agent` or
+`cargo run --example shared_state` from the Rust workspace. Set `AG_UI_BASE_URL`
+to select another host. These live examples are separate from CI evidence.

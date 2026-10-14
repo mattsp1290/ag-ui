@@ -22,7 +22,7 @@ pub enum SkillLevel {
 
 impl Display for SkillLevel {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:?}", self)
+        write!(f, "{self:?}")
     }
 }
 
@@ -43,7 +43,7 @@ pub enum SpecialPreferences {
 
 impl Display for SpecialPreferences {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:?}", self)
+        write!(f, "{self:?}")
     }
 }
 
@@ -64,7 +64,7 @@ pub enum CookingTime {
 
 impl Display for CookingTime {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:?}", self)
+        write!(f, "{self:?}")
     }
 }
 
@@ -160,7 +160,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         "I want to bake a loaf of bread, can you give me a recipe?",
     ));
 
-    info!("Starting agent run with input: {:#?}", params);
+    info!("Starting agent run with input: {params:#?}");
 
     let result = agent.run_agent(&params, [subscriber]).await?;
 

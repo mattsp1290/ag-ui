@@ -2,6 +2,7 @@
 
 pub mod error;
 pub mod event;
+pub mod processing;
 pub mod replay;
 mod state;
 pub mod types;

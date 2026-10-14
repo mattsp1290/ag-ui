@@ -40,26 +40,9 @@ or native file IDs; each part retains its source block at
 text representation of the complete JSON block plus this metadata, rather than a
 truncated preview or placeholder. RAW retains the complete event envelope as well.
 
-## App state and rich UI events
-
-The input state is emitted as `STATE_SNAPSHOT`. Backend tools may return a result envelope:
-
-- TypeScript: `BackendToolResult` with `content: string` and optional `events`.
-- Python: `BackendToolResult(content="...", events=[...])`.
-- .NET: `ManagedAgentsBackendTool.ResultHandler` returns `ManagedAgentsBackendToolResult`.
-  When set, it takes precedence over the existing string-returning `Handler`.
-
-Existing string-returning handlers are unchanged. The event list accepts state snapshots,
-state deltas, activity snapshots/deltas, custom events and raw events. Lifecycle and
-message/tool events are rejected as an invalid handler result. Only `content` is sent to
-Claude as the tool result. App events are emitted in order after that send succeeds;
-a failed handler or failed delivery does not emit its app events.
-
-Use `STATE_SNAPSHOT` for full replacement and `STATE_DELTA` for explicit RFC 6902 patches.
-The adapter does not infer a merge from an arbitrary tool JSON object. The app or
-Intelligence must retain the state and provide the next run's state. Likewise, middleware
-UI artifacts only exist in native history if they were actually part of a native saved
-payload. This API does not add native state/UI writeback for historical import.
+The existing input-state snapshot behavior is unchanged. State is owned and persisted
+separately by the application or Intelligence; this adapter does not derive state updates
+from tool results or write state/UI artifacts into native history.
 
 ## Companions and validation boundary
 
@@ -74,4 +57,4 @@ and [session files](https://platform.claude.com/docs/en/managed-agents/files).
 
 ## Intelligence compatibility blocker
 
-Intelligence baseline [`7ec248a8f`](https://github.com/CopilotKit/Intelligence/blob/7ec248a8f/pnpm-lock.yaml) uses `@ag-ui/client` 0.0.57, whose `ToolCallResultEventSchema` rejects `ContentPart[]`. Its live recorder and reconstruction path require a companion upgrade to consume this adapter's AG-UI 1.0 multipart results. Companion ownership is pending a user decision; this branch is not product-review-ready until that compatibility work is established and validated.
+Intelligence baseline [`7ec248a8f`](https://github.com/CopilotKit/Intelligence/blob/7ec248a8f/pnpm-lock.yaml) uses `@ag-ui/client` 0.0.57, whose `ToolCallResultEventSchema` rejects `ContentPart[]`. Its raw gateway accepts maps, but reconstruction's `stringifyContent` converts multipart arrays into JSON text. [PNI-663](https://linear.app/copilotkit/issue/PNI-663) owns the separate live recorder and reconstruction compatibility work. This branch is not product-review-ready until that companion is implemented and validated.

@@ -344,33 +344,13 @@ export async function runTurn(opts: TurnOptions): Promise<TurnOutcome> {
     input: unknown,
   ): Promise<TurnOutcome | undefined> => {
     let text: string;
-    let appEvents: BaseEvent[] = [];
     let isError = false;
     try {
-      const result = await raceAbort(
+      text = await raceAbort(
         () => tool.handler(input),
         signal,
         (error) => report("abandoned_backend_tool", error),
       );
-      text = typeof result === "string" ? result : result.content;
-      appEvents = typeof result === "string" ? [] : (result.events ?? []);
-      if (
-        appEvents.some(
-          (event) =>
-            ![
-              "STATE_SNAPSHOT",
-              "STATE_DELTA",
-              "ACTIVITY_SNAPSHOT",
-              "ACTIVITY_DELTA",
-              "CUSTOM",
-              "RAW",
-            ].includes(event.type),
-        )
-      ) {
-        throw new Error(
-          "Backend tool events must be state, activity, custom, or raw events.",
-        );
-      }
     } catch (err) {
       if (signal.aborted) {
         await postCustomToolResult(id, INTERRUPTED_TOOL_TEXT, true).catch(
@@ -381,9 +361,7 @@ export async function runTurn(opts: TurnOptions): Promise<TurnOutcome> {
       text = err instanceof Error ? err.message : String(err);
       isError = true;
     }
-    const outcome = await answerCustomToolUse(id, text, isError);
-    if (!outcome && !isError) for (const event of appEvents) emit(event);
-    return outcome;
+    return answerCustomToolUse(id, text, isError);
   };
 
   const consume = async (): Promise<TurnOutcome> => {

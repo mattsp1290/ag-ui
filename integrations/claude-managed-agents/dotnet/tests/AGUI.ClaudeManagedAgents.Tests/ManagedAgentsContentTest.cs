@@ -71,20 +71,4 @@ public class ManagedAgentsContentTest
         Assert.True(JsonElement.DeepEquals(JsonSerializer.SerializeToElement(content), JsonSerializer.SerializeToElement(preserved)));
         Assert.Equal("AAEC/w==", Assert.IsType<AGUIInputContentDataSource>(Assert.IsType<AGUIImageInputContent>(result.Content[1]).Source).Value);
     }
-    [Fact]
-    public async Task AppEventsAreEmittedWithoutNativeWriteback()
-    {
-        var fake = new FakeManagedAgentsClient(["""{"type":"agent.custom_tool_use","id":"state-call","name":"update","input":{}}""", Idle]);
-        var delta = new StateDeltaEvent { Delta = JsonSerializer.SerializeToElement(new[] {new {op = "replace", path = "/cart/total", value = 43}}) };
-        var tool = new ManagedAgentsBackendTool { Name = "update", Description = "update", Parameters = JsonSerializer.SerializeToElement(new {}), ResultHandler = _ => Task.FromResult(new ManagedAgentsBackendToolResult { Content = "updated", Events = [delta, new CustomEvent { Name = "a2ui", Value = JsonSerializer.SerializeToElement(new { surface = "dashboard" }) }] }) };
-        var turn = new ManagedAgentsTurn(fake, "sesn", [ManagedAgentsSessionEvents.UserMessage("hello")], new Dictionary<string, string>(), new Dictionary<string, ManagedAgentsBackendTool> { ["update"] = tool }, null, streamDeltas: false);
-        var events = new List<BaseEvent>();
-        await foreach (var e in turn.RunAsync()) events.Add(e);
-        Assert.Same(delta, events[^2]);
-        Assert.IsType<CustomEvent>(events[^1]);
-        var nativeResult = fake.Sent[^1][0];
-        Assert.Equal("updated", nativeResult.GetProperty("content")[0].GetProperty("text").GetString());
-        Assert.False(nativeResult.TryGetProperty("events", out _));
-    }
-
 }

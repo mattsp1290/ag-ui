@@ -28,7 +28,6 @@ from .tools import custom_tool_from, normalize_tool_name
 from .turn import run_turn
 from .types import (
     BackendTool,
-    BackendToolResult,
     ErrorHandler,
     SessionRecord,
     SessionStore,
@@ -49,7 +48,6 @@ __all__ = [
     "TOOL_NAME_MAX_LENGTH",
     "TOOL_RESULT_MAX_CHARS",
     "BackendTool",
-    "BackendToolResult",
     "ErrorHandler",
     "InMemorySessionStore",
     "ManagedAgentsAgent",

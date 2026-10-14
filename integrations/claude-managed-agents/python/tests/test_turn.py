@@ -1201,11 +1201,3 @@ async def test_records_whether_the_interrupt_it_sent_actually_landed() -> None:
         [IDLE_UNKNOWN_ACTION], {"send_failures": {1: RuntimeError("interrupt rejected")}}
     )
     assert failed == TurnOutcome(status="errored", session_interrupted=False)
-
-async def test_app_events_emitted_after_tool_result_without_native_writeback():
-    from ag_ui.core import StateDeltaEvent, CustomEvent
-    from ag_ui_claude_managed_agents import BackendToolResult
-    app_events = [StateDeltaEvent(delta=[{"op": "replace", "path": "/cart/total", "value": 43}]), CustomEvent(name="a2ui", value={"surface": "dashboard"})]
-    emitted, _, fake = await collect([{"type": "agent.custom_tool_use", "id": "state-call", "name": "update", "input": {}}, IDLE_END_TURN], backend_tools={"update": BackendTool(name="update", description="update", parameters={}, handler=lambda _: BackendToolResult(content="updated", events=app_events))})
-    assert emitted[-2:] == app_events
-    assert fake.sent[-1]["events"] == [{"type": "user.custom_tool_result", "custom_tool_use_id": "state-call", "content": [{"type": "text", "text": "updated"}], "is_error": False}]

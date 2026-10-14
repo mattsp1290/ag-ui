@@ -36,7 +36,7 @@ from .constants import (
 )
 from .text import text_of
 from .content import tool_content, plain
-from .types import BackendTool, BackendToolResult, ErrorHandler, TurnOutcome
+from .types import BackendTool, ErrorHandler, TurnOutcome
 
 INTERRUPTED_TOOL_RESULT_TEXT = "Tool execution was interrupted."
 """Posted for a backend tool cut off by a timeout or client disconnect, so
@@ -350,9 +350,8 @@ async def _consume(
         Returns the terminal outcome when the result could not be delivered.
         """
         is_error = False
-        app_events = []
         try:
-            result = (
+            text = str(
                 await _call_backend_handler(
                     tool.handler,
                     tool_input,
@@ -361,10 +360,6 @@ async def _consume(
                     ),
                 )
             )
-            text = result.content if isinstance(result, BackendToolResult) else str(result)
-            app_events = result.events if isinstance(result, BackendToolResult) else []
-            if any(e.type.value not in ("STATE_SNAPSHOT", "STATE_DELTA", "ACTIVITY_SNAPSHOT", "ACTIVITY_DELTA", "CUSTOM", "RAW") for e in app_events):
-                raise ValueError("Backend tool events must be state, activity, custom, or raw events.")
         except asyncio.CancelledError as err:
             task = asyncio.current_task()
             if task is None or task.cancelling() > 0:
@@ -379,11 +374,7 @@ async def _consume(
         except Exception as err:  # noqa: BLE001 - the tool's failure is reported to the agent
             is_error = True
             text = str(err) or err.__class__.__name__
-        outcome = await answer_custom_tool_use(tool_use_id, text, is_error)
-        if outcome is None and not is_error:
-            for event in app_events:
-                emit(event)
-        return outcome
+        return await answer_custom_tool_use(tool_use_id, text, is_error)
 
     async def consume() -> TurnOutcome:
         async for event in stream:

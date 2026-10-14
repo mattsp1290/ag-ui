@@ -508,22 +508,14 @@ internal sealed class ManagedAgentsTurn
     private async Task RunBackendToolAsync(string toolUseId, ManagedAgentsBackendTool tool, string inputJson, CancellationToken cancellationToken)
     {
         string text;
-        IReadOnlyList<BaseEvent> appEvents = [];
         var isError = false;
         try
         {
             using var input = JsonDocument.Parse(inputJson);
-            async Task<ManagedAgentsBackendToolResult> InvokeAsync(JsonElement args) => tool.ResultHandler is not null
-                ? await tool.ResultHandler(args).ConfigureAwait(false)
-                : new ManagedAgentsBackendToolResult { Content = await tool.Handler(args).ConfigureAwait(false) };
-            var handlerTask = InvokeAsync(input.RootElement.Clone());
+            var handlerTask = tool.Handler(input.RootElement.Clone());
             try
             {
-                var result = await handlerTask.WaitAsync(cancellationToken).ConfigureAwait(false);
-                text = result.Content;
-                appEvents = result.Events;
-                if (appEvents.Any(e => e is not (StateSnapshotEvent or StateDeltaEvent or ActivitySnapshotEvent or ActivityDeltaEvent or CustomEvent or RawEvent)))
-                    throw new InvalidOperationException("Backend tool events must be state, activity, custom, or raw events.");
+                text = await handlerTask.WaitAsync(cancellationToken).ConfigureAwait(false);
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
@@ -573,8 +565,6 @@ internal sealed class ManagedAgentsTurn
         }
 
         await AnswerCustomToolUseAsync(toolUseId, text, isError).ConfigureAwait(false);
-        if (!isError && !_done)
-            foreach (var appEvent in appEvents) Emit(appEvent);
     }
 
     /// <summary>

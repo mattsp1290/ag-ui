@@ -68,6 +68,31 @@ function serve(profiles: ReturnType<typeof profile>[]) {
   return { api, nameFilter };
 }
 
+/** Omnara listing two pages; like Omnara, an unknown cursor is rejected. */
+function servePages(first: unknown[], second: unknown[]) {
+  const fetch = vi.fn(async (input: RequestInfo | URL) => {
+    const url = new URL(input instanceof Request ? input.url : String(input));
+    const cursor = url.searchParams.get("cursor");
+    if (cursor !== null && cursor !== "page-2")
+      return new Response(null, { status: 400 });
+    const last = cursor === "page-2";
+    const body = {
+      data: last ? second : first,
+      next_cursor: last ? null : "page-2",
+    };
+    return new Response(JSON.stringify(body), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  });
+  vi.stubGlobal("fetch", fetch);
+  return createOmnaraApi({
+    apiKey: "key",
+    orgId: id("org"),
+    projectId: id("proj"),
+  });
+}
+
 afterEach(() => vi.unstubAllGlobals());
 
 describe("profile lookup", () => {
@@ -106,33 +131,34 @@ describe("subagents", () => {
     // More than a page of idle ones, newest first; the running one is older.
     const first = Array.from({ length: 100 }, (_, n) => child(n, "idle"));
     const running = child(100, "running");
-    const fetch = vi.fn(async (input: RequestInfo | URL) => {
-      const url = new URL(input instanceof Request ? input.url : String(input));
-      const cursor = url.searchParams.get("cursor");
-      // Like Omnara, an unknown cursor is rejected.
-      if (cursor !== null && cursor !== "page-2")
-        return new Response(null, { status: 400 });
-      const second = cursor === "page-2";
-      const body = {
-        data: second ? [running] : first,
-        next_cursor: second ? null : "page-2",
-      };
-      return new Response(JSON.stringify(body), {
-        status: 200,
-        headers: { "content-type": "application/json" },
-      });
-    });
-    vi.stubGlobal("fetch", fetch);
-    const api = createOmnaraApi({
-      apiKey: "key",
-      orgId: id("org"),
-      projectId: id("proj"),
-    });
+    const api = servePages(first, [running]);
     const children = await api.listChildren(id("agt", "p"));
     expect(children).toHaveLength(101);
     expect(children.at(-1)).toMatchObject({
       id: running.id,
       activity: { state: "running" },
     });
+  });
+});
+
+describe("backlog", () => {
+  it("lists every page of an agent's backlog", async () => {
+    // This request's message is queued behind more than a page of others.
+    const input = (key: string) => ({
+      id: id("ain"),
+      agent_id: id("agt", "p"),
+      state: "received",
+      delivery_mode: "queued",
+      input_kind: "content",
+      queued_at: at,
+      input_idempotency_key: key,
+    });
+    const api = servePages(
+      Array.from({ length: 100 }, (_, n) => input(`other-${n}`)),
+      [input("agui:u-1")],
+    );
+    const backlog = await api.listBacklog(id("agt", "p"));
+    expect(backlog).toHaveLength(101);
+    expect(backlog.at(-1)?.input_idempotency_key).toBe("agui:u-1");
   });
 });

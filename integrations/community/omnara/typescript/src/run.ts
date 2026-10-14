@@ -32,6 +32,7 @@ import {
   messageText,
   parseSource,
   pickToolShape,
+  storable,
   userBlocks,
   withoutMedia,
 } from "./inputs";
@@ -39,9 +40,9 @@ import { answersFor, toInterrupt } from "./interrupts";
 import {
   clientIdOf,
   inputKey,
+  inputText,
   reasoningId,
   snapshotMessages,
-  inputText,
   toolResultText,
   visibleText,
   type Author,
@@ -124,8 +125,9 @@ export class OmnaraRun {
   // Following.
   private readonly pendingKeys = new Set<string>();
   private submitted = false;
-  private turnEnded = false;
-  /** The turn was cancelled while this run followed it (someone pressed Stop elsewhere). */
+  /** A new agent has no turn under way. */
+  private turnEnded = true;
+  /** The agent's latest turn was cancelled (someone pressed Stop elsewhere). */
   private cancelled = false;
   private lastSequence = 0;
   private modelError?: string;
@@ -140,6 +142,8 @@ export class OmnaraRun {
   private openText?: string;
   private openReasoning?: string;
   private readonly previews = new Map<string, Preview>();
+  /** The first reasoning message this run showed. */
+  private shownReasoning?: string;
   private readonly authors = new Map<string, Promise<Author>>();
 
   constructor(
@@ -215,7 +219,11 @@ export class OmnaraRun {
     if (this.stopped) return this.endStopped();
     const log = await this.deps.api.listEvents(agent.id);
     await this.syncTools(agent, log);
-    for (const e of log) this.noteToolCalls(e);
+    // By the same rules as while following.
+    for (const e of log) {
+      this.noteToolCalls(e);
+      this.noteTurn(e);
+    }
     // With nothing new to send (a reconnect), the run still follows the
     // agent's current work to its end.
     const work = this.newWork(log);
@@ -226,8 +234,6 @@ export class OmnaraRun {
     // can start while earlier answers are submitted.
     for (const m of work.messages) this.pendingKeys.add(inputKey(m.id));
     const last = log.at(-1);
-    // By the same rules as while following; a new agent has no turn under way.
-    this.turnEnded = log.reduce((over, e) => turnOver(e, over), true);
     this.lastSequence = last?.sequence ?? 0;
     const followed = this.follow(agent.id, last?.sequence ?? 0);
     try {
@@ -415,11 +421,16 @@ export class OmnaraRun {
       }
     }
     const all = this.input.messages;
+    const context = contextBlock(this.input.context);
     return {
-      // A message of the user's that the agent doesn't have yet.
+      // A message of the user's that the agent doesn't have yet. Omnara
+      // takes no empty input: an empty message with no app context is skipped.
       messages: all.filter(
         (m): m is UserMessage =>
-          m.role === "user" && !known.has(m.id) && !keys.has(inputKey(m.id)),
+          m.role === "user" &&
+          !known.has(m.id) &&
+          !keys.has(inputKey(m.id)) &&
+          userBlocks(m, context).blocks.length > 0,
       ),
       // The page answers only its own (browser) tools.
       results: all.filter((m): m is ToolMessage => {
@@ -577,28 +588,19 @@ export class OmnaraRun {
 
   private async onEvent(event: AgentEvent): Promise<void> {
     this.noteToolCalls(event);
+    this.noteTurn(event);
     this.lastSequence = Math.max(this.lastSequence, event.sequence);
-    this.turnEnded = turnOver(event, this.turnEnded);
     if (event.event_kind === "agent_input") {
       if (event.input_kind === "content") {
-        this.cancelled = false;
         const key = event.input_idempotency_key;
         if (key && this.pendingKeys.delete(key) && this.pendingKeys.size === 0)
           void this.check();
         if (clientIdOf(event) === undefined) await this.emitOtherInput(event);
       } else if (event.input_kind === "control") {
-        this.cancelled = true;
         void this.check();
       }
     } else if (event.event_kind === "model_output") {
       this.emitModelOutput(event);
-      this.modelError =
-        event.stop_reason === "error"
-          ? event.content_blocks
-              .map((b) => (b.type === "error" ? b.text : ""))
-              .join("\n")
-          : undefined;
-      this.cancelled = false;
       if (this.turnEnded) void this.check();
     } else if (event.event_kind === "tool_result") {
       const call = this.toolNames.get(event.tool_call_id);
@@ -613,6 +615,27 @@ export class OmnaraRun {
           role: "tool",
         });
       }
+    }
+  }
+
+  /** What an event says about the agent's turn: over, failed, cancelled. A message starts a new one. */
+  private noteTurn(event: AgentEvent): void {
+    this.turnEnded = turnOver(event, this.turnEnded);
+    if (event.event_kind === "agent_input") {
+      if (event.input_kind === "content") {
+        this.cancelled = false;
+        this.modelError = undefined;
+      } else if (event.input_kind === "control") {
+        this.cancelled = true;
+      }
+    } else if (event.event_kind === "model_output") {
+      this.modelError =
+        event.stop_reason === "error"
+          ? event.content_blocks
+              .map((b) => (b.type === "error" ? b.text : ""))
+              .join("\n")
+          : undefined;
+      this.cancelled = false;
     }
   }
 
@@ -697,6 +720,8 @@ export class OmnaraRun {
       (host ? hostCalls : subagentBrowserCalls).push(c);
     }
     if (hostCalls.length || subagentBrowserCalls.length) {
+      // Stopped (or the client left) while this looked: nothing starts now.
+      if (this.following.signal.aborted) return null;
       await Promise.all([
         ...hostCalls.map((c) => this.runBackendTool(c)),
         ...subagentBrowserCalls.map((c) =>
@@ -820,7 +845,7 @@ export class OmnaraRun {
     outcome: "succeeded" | "failed",
     text: string,
   ): Promise<void> {
-    let block = { type: "text" as const, text };
+    let block = { type: "text" as const, text: storable(text) };
     if (contentBytes([block]) > MAX_CONTENT_BYTES) {
       await this.report(
         "result_too_large",
@@ -935,6 +960,7 @@ export class OmnaraRun {
       role: "reasoning",
     });
     this.openReasoning = id;
+    this.shownReasoning ??= id;
   }
 
   /** Live previews. Only a model call seen from its first delta is previewed; a gap stops it. */
@@ -1166,6 +1192,18 @@ export class OmnaraRun {
       const events = await this.deps.api.listEvents(this.agentId);
       for (const e of events) this.noteToolCalls(e);
       const messages = await this.history(events, this.input.messages);
+      // A snapshot without reasoning leaves the client's reasoning in place
+      // (AG-UI's rule), so reasoning from an attempt Omnara didn't keep (a
+      // failed first try, a canceled call), shown now or held from an earlier
+      // request, would stay. Carrying one of those ids, emptied, makes the
+      // snapshot the record: the client blanks that one and drops the rest.
+      if (!messages.some((m) => m.role === "reasoning")) {
+        const stale =
+          this.input.messages.find((m) => m.role === "reasoning")?.id ??
+          this.shownReasoning;
+        if (stale !== undefined)
+          messages.push({ id: stale, role: "reasoning", content: "" });
+      }
       this.emit({ type: EventType.MESSAGES_SNAPSHOT, messages });
     } catch (error) {
       await this.report("snapshot", error);

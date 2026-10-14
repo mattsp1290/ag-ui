@@ -9,6 +9,7 @@ import {
   type AgentConfig,
   type AgentEvent,
   type AgentEventStreamFrame,
+  type AgentInput,
   type AgentInteraction,
   type CreateAgentInputContentBlock,
   type ExternalActorParams,
@@ -61,7 +62,7 @@ export interface OmnaraApi {
   listEvents(agentId: string): Promise<AgentEvent[]>;
   /** Whether the log has events after `sequence`. */
   hasEventsAfter(agentId: string, sequence: number): Promise<boolean>;
-  /** Inputs stored but not yet started (queued messages, undelivered subagent reports). */
+  /** All inputs stored but not yet started (queued messages, undelivered subagent reports). */
   listBacklog(
     agentId: string,
   ): Promise<Array<{ id: string; input_idempotency_key?: string }>>;
@@ -237,12 +238,18 @@ export function createOmnaraApi(options: {
       return data.data.length > 0;
     },
     async listBacklog(agentId) {
-      const { data } = await sdk.listQueuedBacklogInputs({
-        client,
-        path: agent(agentId),
-        query: { limit: PAGE_LIMIT },
-      });
-      return data.data;
+      const inputs: AgentInput[] = [];
+      let cursor: string | undefined;
+      for (;;) {
+        const { data } = await sdk.listQueuedBacklogInputs({
+          client,
+          path: agent(agentId),
+          query: { limit: PAGE_LIMIT, cursor },
+        });
+        inputs.push(...data.data);
+        if (!data.next_cursor || data.data.length === 0) return inputs;
+        cursor = data.next_cursor;
+      }
     },
     async cancelQueuedInput(agentId, inputId) {
       await sdk.cancelQueuedBacklogInput({

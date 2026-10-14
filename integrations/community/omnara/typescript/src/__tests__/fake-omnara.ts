@@ -11,6 +11,10 @@ import type {
 type Call = { method: string; args: unknown[] };
 type Block = Record<string, unknown> & { type: string };
 
+/** Omnara stores no U+0000 in text. */
+const hasNul = (blocks: Block[]) =>
+  blocks.some((b) => typeof b.text === "string" && b.text.includes("\0"));
+
 /** An Omnara error as the SDK throws it. */
 export class FakeApiError extends Error {
   constructor(
@@ -321,6 +325,8 @@ export class FakeOmnara implements OmnaraApi {
     key: string,
   ) {
     this.record("postInput", [agentId, body, key]);
+    if (!body.content_blocks.length || hasNul(body.content_blocks))
+      throw new FakeApiError(400);
     // A repeated key returns the existing input (no new event); other content conflicts.
     const content = JSON.stringify(body.content_blocks);
     const existing = this.inputs.get(key);
@@ -414,6 +420,7 @@ export class FakeOmnara implements OmnaraApi {
     content: Block[],
   ) {
     this.record("submitResult", [agentId, toolCallId, outcome, content]);
+    if (hasNul(content)) throw new FakeApiError(400);
     this.readyCalls = this.readyCalls.filter((c) => c.id !== toolCallId);
     this.later(() => {
       this.result(toolCallId, String(content[0]?.text ?? ""), outcome);

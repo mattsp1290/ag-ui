@@ -252,6 +252,97 @@ describe("chat", () => {
     ]);
   });
 
+  it("clears the reasoning of a failed attempt when the retry has none", async () => {
+    const { fake, agent } = setup();
+    fake.onInput = () => {
+      // The first attempt streams two reasoning blocks, then fails.
+      fake.delta("mcc_r", 1, {
+        kind: "block_start",
+        block_index: 0,
+        block: { kind: "thinking" },
+      });
+      fake.delta("mcc_r", 2, {
+        kind: "thinking_delta",
+        block_index: 0,
+        delta: "First idea",
+      });
+      fake.delta("mcc_r", 3, { kind: "block_stop", block_index: 0 });
+      fake.delta("mcc_r", 4, {
+        kind: "block_start",
+        block_index: 1,
+        block: { kind: "thinking" },
+      });
+      fake.delta("mcc_r", 5, {
+        kind: "thinking_delta",
+        block_index: 1,
+        delta: "Second idea",
+      });
+      fake.delta("mcc_r", 6, { kind: "error", error: { message: "boom" } });
+      // Omnara's retry isn't streamed, and records a text-only answer.
+      fake.output("mcc_r", [{ type: "text", text: "Answer" }]);
+    };
+    await run(agent, { text: "q" });
+    expect(summary(agent.messages)).toEqual([
+      ["user", "u-0", "q", undefined],
+      ["reasoning", "mcc_r:block:0", "", undefined],
+      ["assistant", "mcc_r", "Answer", undefined],
+    ]);
+  });
+
+  it("clears a failed attempt's reasoning the chat kept from an earlier request", async () => {
+    const { fake, agent } = setup();
+    // The client left mid-reasoning; the attempt failed and the retry answered.
+    fake.push({
+      event_kind: "agent_input",
+      input_kind: "content",
+      input_idempotency_key: "agui:u-0",
+      content_blocks: [{ type: "text", text: "q" }],
+    });
+    fake.output("mcc_r", [{ type: "text", text: "Answer" }]);
+    agent.addMessage({ id: "u-0", role: "user", content: "q" });
+    agent.addMessage({
+      id: "mcc_r:block:0",
+      role: "reasoning",
+      content: "Dead end",
+    });
+    // A reconnect with nothing new.
+    await run(agent);
+    expect(summary(agent.messages)).toEqual([
+      ["user", "u-0", "q", undefined],
+      ["reasoning", "mcc_r:block:0", "", undefined],
+      ["assistant", "mcc_r", "Answer", undefined],
+    ]);
+  });
+
+  it("clears a failed attempt's reasoning on the next request when the snapshot couldn't be read", async () => {
+    const { fake, agent, onError } = setup();
+    fake.onInput = () => {
+      fake.delta("mcc_r", 1, {
+        kind: "block_start",
+        block_index: 0,
+        block: { kind: "thinking" },
+      });
+      fake.delta("mcc_r", 2, {
+        kind: "thinking_delta",
+        block_index: 0,
+        delta: "Dead end",
+      });
+      fake.delta("mcc_r", 3, { kind: "error", error: { message: "boom" } });
+      fake.output("mcc_r", [{ type: "text", text: "Answer" }]);
+      // The end-of-request snapshot's read fails once.
+      fake.failNext.set("listEvents", 503);
+    };
+    await run(agent, { text: "q" });
+    expect(onError).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ operation: "snapshot" }),
+    );
+    replies(fake);
+    await run(agent, { text: "next" });
+    const reasoning = agent.messages.filter((m) => m.role === "reasoning");
+    expect(reasoning.map((m) => m.content)).toEqual([""]);
+  });
+
   it("shows no reasoning for a thinking block that streams no text", async () => {
     const { fake, agent } = setup();
     // OpenAI reasoning without summaries: an empty block, then the answer.
@@ -723,6 +814,49 @@ describe("chat", () => {
     );
   });
 
+  it.each(["", "\0"])(
+    "doesn't send a message Omnara can't take (%j), and the chat carries on",
+    async (content) => {
+      const { fake, agent } = setup();
+      replies(fake);
+      agent.addMessage({ id: "u-e", role: "user", content });
+      expect(finished(await run(agent))?.outcome).toEqual({ type: "success" });
+      expect(fake.called("postInput")).toEqual([]);
+      const events = await run(agent, { text: "hello" });
+      expect(finished(events)?.outcome).toEqual({ type: "success" });
+      expect(fake.called("postInput")).toHaveLength(1);
+    },
+  );
+
+  it("sends an empty message with the app's context", async () => {
+    const { fake, agent } = setup();
+    replies(fake);
+    agent.addMessage({ id: "u-e", role: "user", content: "" });
+    const events = await run(agent, {
+      context: [{ description: "page", value: "home" }],
+    });
+    expect(finished(events)?.outcome).toEqual({ type: "success" });
+    expect(fake.called("postInput")).toHaveLength(1);
+  });
+
+  it("sends a message and context without U+0000, which Omnara can't store", async () => {
+    const { fake, agent } = setup();
+    replies(fake);
+    const events = await run(agent, {
+      text: "a\0b",
+      context: [{ description: "page", value: "x\0y" }],
+    });
+    expect(finished(events)?.outcome).toEqual({ type: "success" });
+    const [, body] = fake.called("postInput")[0] as [
+      string,
+      { content_blocks: Array<{ text: string }> },
+    ];
+    expect(body.content_blocks.map((b) => b.text)).toEqual([
+      "ab",
+      "Context from the app:\n- page: xy",
+    ]);
+  });
+
   it("ends the chat when its agent was archived", async () => {
     const { fake, agent } = setup();
     fake.agent = { ...fake.agent, state: "archived" };
@@ -1172,6 +1306,37 @@ describe("backend tools", () => {
       expect.anything(),
       expect.objectContaining({ operation: "result_too_large" }),
     );
+    expect(finished(events)?.outcome).toEqual({ type: "success" });
+  });
+
+  it("returns a host tool's result without U+0000, which Omnara can't store", async () => {
+    const handler = vi.fn(async () => "21\0 degrees");
+    const { fake, agent } = setup({
+      backendTools: [{ name: "get_weather", description: "Weather.", handler }],
+    });
+    fake.onInput = () => {
+      fake.output(
+        "mcc_t",
+        [
+          {
+            type: "tool_call",
+            tool_call_id: "tcl_w",
+            tool_type: "custom",
+            name: "get_weather",
+            input: {},
+          },
+        ],
+        "tool_use",
+      );
+      fake.readyCall("tcl_w", "get_weather");
+      fake.update("tcl_w", "ready");
+    };
+    fake.onResult = () =>
+      fake.output("mcc_done", [{ type: "text", text: "21 degrees" }]);
+    const events = await run(agent, { text: "weather?" });
+    expect(fake.called("submitResult")).toEqual([
+      ["agt_1", "tcl_w", "succeeded", [{ type: "text", text: "21 degrees" }]],
+    ]);
     expect(finished(events)?.outcome).toEqual({ type: "success" });
   });
 });
@@ -2081,6 +2246,53 @@ describe("subagents and stop", () => {
       undefined,
     ]);
   });
+
+  /** The earlier request left; the agent's turn on its message then ended this way. */
+  const endedWhileAway = (fake: FakeOmnara, ending: "failed" | "cancelled") => {
+    fake.push({
+      event_kind: "agent_input",
+      input_kind: "content",
+      input_idempotency_key: "agui:u-0",
+      content_blocks: [{ type: "text", text: "q" }],
+    });
+    if (ending === "failed")
+      fake.output("mcc_e", [{ type: "error", text: "boom" }], "error");
+    else
+      fake.push({
+        event_kind: "agent_input",
+        input_kind: "control",
+        control_type: "cancel_current",
+        content_blocks: [],
+      });
+  };
+
+  it("a reconnect with nothing new ends with the error of a turn that failed meanwhile", async () => {
+    const { fake, agent } = setup();
+    endedWhileAway(fake, "failed");
+    agent.addMessage({ id: "u-0", role: "user", content: "q" });
+    const events = await run(agent).catch(() => []);
+    expect(errored(events)?.code).toBe("model_error");
+  });
+
+  it("a reconnect with nothing new ends as cancelled after a Stop elsewhere", async () => {
+    const { fake, agent } = setup();
+    endedWhileAway(fake, "cancelled");
+    agent.addMessage({ id: "u-0", role: "user", content: "q" });
+    const events = await run(agent);
+    expect(finished(events)?.outcome).toEqual({ type: "cancelled" });
+  });
+
+  it.each(["failed", "cancelled"] as const)(
+    "a new message after a turn that %s ends in success",
+    async (ending) => {
+      const { fake, agent } = setup();
+      replies(fake);
+      endedWhileAway(fake, ending);
+      agent.addMessage({ id: "u-0", role: "user", content: "q" });
+      const events = await run(agent, { text: "again" });
+      expect(finished(events)?.outcome).toEqual({ type: "success" });
+    },
+  );
 });
 
 describe("races and Stop", () => {
@@ -2520,4 +2732,59 @@ describe("races and Stop", () => {
       ),
     ).toBe(false);
   });
+
+  it.each(["Stop", "the client leaving"])(
+    "starts no host tool after %s, even while looking for one",
+    async (ending) => {
+      const handler = vi.fn(async () => ({ temperature: 21 }));
+      const { fake, agent } = setup({
+        backendTools: [
+          { name: "get_weather", description: "Weather.", handler },
+        ],
+      });
+      fake.onInput = () => {
+        fake.output(
+          "mcc_t",
+          [
+            {
+              type: "tool_call",
+              tool_call_id: "tcl_w",
+              tool_type: "custom",
+              name: "get_weather",
+              input: {},
+            },
+          ],
+          "tool_use",
+        );
+        fake.readyCall("tcl_w", "get_weather");
+        fake.update("tcl_w", "ready");
+      };
+      // The run ends while Omnara answers which calls are ready.
+      let ended!: () => void;
+      const end = new Promise<void>((resolve) => (ended = resolve));
+      const ready = fake.readyCustomCalls.bind(fake);
+      fake.readyCustomCalls = async (agentId) => {
+        const calls = await ready(agentId);
+        if (calls.length) {
+          if (ending === "Stop") agent.abortRun();
+          else subscription.unsubscribe();
+          ended();
+        }
+        return calls;
+      };
+      agent.addMessage({ id: "u-0", role: "user", content: "weather?" });
+      const subscription = agent
+        .run({
+          threadId: "thread-1",
+          runId: "r1",
+          messages: agent.messages,
+          tools: [],
+          context: [],
+        })
+        .subscribe();
+      await end;
+      await new Promise((r) => setTimeout(r, 20));
+      expect(handler).not.toHaveBeenCalled();
+    },
+  );
 });

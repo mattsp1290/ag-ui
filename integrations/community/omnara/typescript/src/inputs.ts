@@ -72,13 +72,18 @@ export function messageText(
     : content.map((p) => (p.type === "text" ? (p.text ?? "") : "")).join("");
 }
 
+/** Omnara stores no U+0000 in text. */
+export const storable = (text: string): string => text.replaceAll("\0", "");
+
 export function contextBlock(
   context: RunAgentInput["context"],
 ): CreateAgentInputContentBlock | undefined {
   if (!context?.length) return undefined;
   return {
     type: "text",
-    text: `Context from the app:\n${context.map((c) => `- ${c.description}: ${c.value}`).join("\n")}`,
+    text: storable(
+      `Context from the app:\n${context.map((c) => `- ${c.description}: ${c.value}`).join("\n")}`,
+    ),
     metadata: { omnara_hidden: "true" },
   };
 }
@@ -102,7 +107,8 @@ export function userBlocks(
       : message.content;
   for (const part of parts) {
     if (part.type === "text") {
-      if (part.text) blocks.push({ type: "text", text: part.text });
+      const text = storable(part.text);
+      if (text) blocks.push({ type: "text", text });
     } else if (
       (part.type === "image" || part.type === "document") &&
       part.source.type === "data"

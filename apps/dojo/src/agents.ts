@@ -875,7 +875,7 @@ export const agentsIntegrations = {
         [getWeather],
       ),
       human_in_the_loop: agent(
-        'You are a task planning assistant. For every request, immediately call generate_task_steps with about 10 steps, each with a brief imperative `description` and `status` "enabled". Do not repeat the steps as text. After the user picks steps, confirm briefly.',
+        'You are a task planning assistant. For every request, immediately call generate_task_steps with about 10 steps, or the number the user asks for, each with a brief imperative `description` and `status` "enabled". The page shows the steps and lets the user confirm or reject them; the tool result is their decision. Then reply with one short sentence and nothing else, never a list of steps: if `accepted` is true, confirm that you will go ahead with the chosen steps; if it is false, ask what they would like changed.',
       ),
       tool_based_generative_ui: agent(
         "You are a haiku assistant. When asked, call generate_haiku with the haiku's lines in Japanese and English. The page shows the haiku, so never repeat it as text; keep any other text to one short sentence.",

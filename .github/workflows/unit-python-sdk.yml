@@ -29,8 +29,6 @@ on:
       - "integrations/langroid/python/**"
       - "integrations/crew-ai/python/**"
       - "integrations/claude-managed-agents/python/**"
-      # claude-agent-sdk has no test lane, but it ships a committed lockfile
-      # that the `lockfiles` job below verifies.
       - "integrations/agent-spec/python/**"
       - "integrations/claude-agent-sdk/python/**"
       - "integrations/antigravity/python/**"
@@ -1160,6 +1158,30 @@ jobs:
         # under .../assert-lockfiles-unchanged". That lands AFTER the real error and
         # reads as though the guard itself is broken, which is precisely the misleading
         # signal action.yml's header argues against.
+        if: ${{ !cancelled() && steps.checkout.outcome == 'success' }}
+        uses: ./.github/actions/assert-lockfiles-unchanged
+
+  claude-agent-sdk-python:
+    name: claude-agent-sdk-python
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        id: checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install uv
+        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          version: ${{ env.UV_VERSION }}
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Install dependencies
+        working-directory: integrations/claude-agent-sdk/python
+        run: uv sync --locked --group dev
+      - name: Run tests
+        working-directory: integrations/claude-agent-sdk/python
+        run: uv run --locked python -m pytest tests/ -v
+      - name: Assert no lockfile was rewritten
         if: ${{ !cancelled() && steps.checkout.outcome == 'success' }}
         uses: ./.github/actions/assert-lockfiles-unchanged
 

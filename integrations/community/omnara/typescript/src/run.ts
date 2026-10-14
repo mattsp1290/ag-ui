@@ -116,6 +116,10 @@ export class OmnaraRun {
     string,
     { name: string; type: string }
   >();
+  /** The agent's `type: self` subagent keys; its `self` copies share them. */
+  private selfKeys = new Set<string>();
+  /** Whether each subagent asked about has the agent's tools. */
+  private readonly copies = new Map<string, boolean>();
 
   // Following.
   private readonly pendingKeys = new Set<string>();
@@ -335,6 +339,12 @@ export class OmnaraRun {
         ? parseSource(await api.getConfig(launchId.agent_config_id))
         : current;
     this.launchCustomTools = new Set(customToolNames(launch));
+    // Our writes keep `subagents`: this is the map every subagent was spawned under.
+    const subagents =
+      (current.subagents as Record<string, { type?: unknown }> | null) ?? {};
+    this.selfKeys = new Set(
+      Object.keys(subagents).filter((k) => subagents[k]?.type === "self"),
+    );
 
     // A tool the agent's own definition declares (built in, or custom with its
     // permission, say) is left as the definition has it.
@@ -670,19 +680,22 @@ export class OmnaraRun {
       return { type: "interrupt", interrupts: interactions.map(toInterrupt) };
     }
     const ready = await api.readyCustomCalls(agentId);
-    const hostCalls = ready.filter(
-      (c) => backendTools.has(c.name) && !this.handledCalls.has(c.id),
-    );
-    // `type: self` subagents inherit the page's tools but can't reach the page.
-    // Other custom tools on subagents (a profile's own) are left to their workers.
     const pageTools = new Set((this.input.tools ?? []).map((t) => t.name));
-    const subagentBrowserCalls = ready.filter(
-      (c) =>
+    const hostCalls: ToolCall[] = [];
+    const subagentBrowserCalls: ToolCall[] = [];
+    for (const c of ready) {
+      if (this.handledCalls.has(c.id)) continue;
+      const host = backendTools.has(c.name);
+      // `type: self` subagents inherit the page's tools but can't reach the page.
+      const page =
         c.agent_id !== agentId &&
         pageTools.has(c.name) &&
-        this.isBrowserCall(c.name, c.type) &&
-        !this.handledCalls.has(c.id),
-    );
+        this.isBrowserCall(c.name, c.type);
+      // A tool of the same name on a subagent launched from a profile (even
+      // this agent's) is that profile's own, left to its worker.
+      if (!(host || page) || !(await this.hasOurTools(c.agent_id))) continue;
+      (host ? hostCalls : subagentBrowserCalls).push(c);
+    }
     if (hostCalls.length || subagentBrowserCalls.length) {
       await Promise.all([
         ...hostCalls.map((c) => this.runBackendTool(c)),
@@ -698,6 +711,40 @@ export class OmnaraRun {
     if (pending.length)
       return { type: "success", pendingToolCallIds: pending.map((c) => c.id) };
     return undefined;
+  }
+
+  /**
+   * Whether an agent has this agent's tools (the page's and `backendTools`):
+   * the agent itself, or a subagent spawned under a `type: self` key at every
+   * step up to it, each a copy of its parent's config. A subagent launched
+   * from a profile, even this agent's, has that profile's tools. False while
+   * Omnara can't say; the next check asks again.
+   */
+  private async hasOurTools(agentId: string): Promise<boolean> {
+    const chain: string[] = [];
+    let id = agentId;
+    let copy: boolean | undefined;
+    try {
+      while (
+        id !== this.agentId &&
+        (copy = this.copies.get(id)) === undefined
+      ) {
+        const subagent = await this.deps.api.getAgent(id);
+        chain.push(id);
+        const key = subagent.subagent_key;
+        if (!key || !this.selfKeys.has(key) || !subagent.parent_agent_id) {
+          copy = false;
+          break;
+        }
+        id = subagent.parent_agent_id;
+      }
+    } catch (error) {
+      await this.report("get_agent", error);
+      return false;
+    }
+    copy ??= true;
+    for (const c of chain) this.copies.set(c, copy);
+    return copy;
   }
 
   /**

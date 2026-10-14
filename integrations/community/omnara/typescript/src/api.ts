@@ -48,6 +48,7 @@ export interface OmnaraApi {
     body: { config: string; profile?: string; name: string },
     idempotencyKey: string,
   ): Promise<{ agent: Agent; created: boolean }>;
+  getAgent(agentId: string): Promise<Agent>;
   /** All of the agent's unarchived subagents. */
   listChildren(agentId: string): Promise<Agent[]>;
   setConfig(
@@ -183,6 +184,10 @@ export function createOmnaraApi(options: {
         headers: { "Idempotency-Key": idempotencyKey },
       });
       return { agent: data.agent, created: response.status === 201 };
+    },
+    async getAgent(agentId) {
+      const { data } = await sdk.getAgent({ client, path: agent(agentId) });
+      return data.agent;
     },
     async listChildren(agentId) {
       const children: Agent[] = [];

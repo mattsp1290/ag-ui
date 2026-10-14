@@ -26,6 +26,9 @@ instruction: test
 model: { provider_config: p, name: m }
 tools:
   profile_tool: { type: custom, description: From the profile, input_schema: { type: object } }
+subagents:
+  helper: { type: self }
+  lookup: { type: profile, profile: lookup }
 `;
 
 /**
@@ -283,6 +286,18 @@ export class FakeOmnara implements OmnaraApi {
   async hasEventsAfter(agentId: string, sequence: number) {
     this.record("hasEventsAfter", [agentId, sequence]);
     return this.events.some((e) => e.sequence > sequence);
+  }
+  async getAgent(agentId: string) {
+    this.record("getAgent", [agentId]);
+    if (agentId === this.agent.id) return this.agent;
+    // Unless a listed subagent says otherwise, a `self` copy of the agent.
+    return {
+      ...this.agent,
+      parent_agent_id: this.agent.id,
+      subagent_key: "helper",
+      ...this.children.find((c) => c.id === agentId),
+      id: agentId,
+    };
   }
   async listBacklog(agentId: string) {
     this.record("listBacklog", [agentId]);

@@ -2289,6 +2289,109 @@ describe("races and Stop", () => {
     expect(finished(events)?.outcome).toEqual({ type: "success" });
   });
 
+  /**
+   * A helper spawned under `key` calls its tool `name`, nested under one
+   * spawned under `parentKey` if given. Helpers share the agent's profile; one
+   * that isn't a chain of `self` copies has its own worker answer it.
+   */
+  function helperCalls(
+    fake: FakeOmnara,
+    name: string,
+    key = "helper",
+    parentKey?: string,
+  ) {
+    const chain = parentKey
+      ? [
+          { id: "agt_child", subagent_key: parentKey },
+          { id: "agt_grand", subagent_key: key, parent_agent_id: "agt_child" },
+        ]
+      : [{ id: "agt_child", subagent_key: key }];
+    const copy = [key, parentKey ?? "helper"].every((k) => k === "helper");
+    const helpers = (state: string) =>
+      chain.map((h) => ({ ...fake.agent, ...h, activity: { state } }) as never);
+    const finish = () => {
+      fake.readyCalls = [];
+      fake.children = helpers("idle");
+      fake.output("mcc_final", [{ type: "text", text: "The helper is done." }]);
+    };
+    fake.onInput = () => {
+      fake.output(
+        "mcc_s",
+        [
+          {
+            type: "tool_call",
+            tool_call_id: "tcl_spawn",
+            tool_type: "built_in",
+            name: "spawn_agent",
+            input: {},
+          },
+        ],
+        "tool_use",
+      );
+      fake.result("tcl_spawn", "spawned");
+      fake.children = helpers("running");
+      fake.output("mcc_wait", [{ type: "text", text: "Asked a helper." }]);
+      fake.readyCall("tcl_own", name, chain.at(-1)!.id);
+      fake.update("tcl_own", "ready");
+      if (!copy) setTimeout(finish, 100);
+    };
+    fake.onResult = (id) => {
+      if (id === "tcl_own") finish();
+    };
+  }
+
+  it("leaves a profile subagent's own tool to its worker when a page tool has its name, even under the agent's own profile", async () => {
+    const { fake, agent } = setup();
+    helperCalls(fake, "change_background", "lookup");
+    const events = await run(agent, { text: "delegate", tools: [BACKGROUND] });
+    expect(fake.called("submitResult")).toEqual([]);
+    expect(finished(events)?.outcome).toEqual({ type: "success" });
+  });
+
+  it("leaves a profile subagent's own tool to its worker when a backend tool has its name, even under the agent's own profile", async () => {
+    const handler = vi.fn(async () => "ours");
+    const { fake, agent } = setup({
+      backendTools: [{ name: "get_weather", description: "Weather.", handler }],
+    });
+    helperCalls(fake, "get_weather", "lookup");
+    const events = await run(agent, { text: "delegate" });
+    expect(handler).not.toHaveBeenCalled();
+    expect(fake.called("submitResult")).toEqual([]);
+    expect(finished(events)?.outcome).toEqual({ type: "success" });
+  });
+
+  it("runs a backend tool a self subagent calls", async () => {
+    const handler = vi.fn(async () => ({ temperature: 21 }));
+    const { fake, agent } = setup({
+      backendTools: [{ name: "get_weather", description: "Weather.", handler }],
+    });
+    helperCalls(fake, "get_weather");
+    const events = await run(agent, { text: "delegate" });
+    expect(handler).toHaveBeenCalledWith({}, { toolCallId: "tcl_own" });
+    expect(fake.called("submitResult")[0]?.slice(0, 3)).toEqual([
+      "agt_child",
+      "tcl_own",
+      "succeeded",
+    ]);
+    expect(finished(events)?.outcome).toEqual({ type: "success" });
+  });
+
+  it.each([
+    ["a self copy of a self copy has", "helper", true],
+    ["a self copy of a profile subagent doesn't have", "lookup", false],
+  ])("%s the page's tools", async (_, parentKey, ours) => {
+    const { fake, agent } = setup();
+    helperCalls(fake, "change_background", "helper", parentKey);
+    const events = await run(agent, {
+      text: "delegate",
+      tools: [BACKGROUND],
+    });
+    expect(fake.called("submitResult").map((args) => args[0])).toEqual(
+      ours ? ["agt_grand"] : [],
+    );
+    expect(finished(events)?.outcome).toEqual({ type: "success" });
+  });
+
   it("Stop during setup still cancels the agent's work, nested subagents included", async () => {
     const { fake, agent } = setup();
     // Helpers from an earlier request: one running, and an idle one whose own

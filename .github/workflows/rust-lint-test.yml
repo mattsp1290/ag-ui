@@ -76,9 +76,9 @@ jobs:
       - name: Client package contents diagnostic (not registry readiness)
         # Core 0.2.0 is not yet released. This explicitly does not verify that
         # consumers of the packaged client resolve a registry dependency graph.
-        run: cargo +${{ matrix.toolchain }} publish -p ag-ui-client --dry-run --no-verify --locked
+        run: cargo +${{ matrix.toolchain }} --config 'patch.crates-io.ag-ui-core.path="crates/ag-ui-core"' --config 'patch.crates-io.ag-ui-encoder.path="crates/ag-ui-encoder"' publish -p ag-ui-client --dry-run --no-verify --locked
       - name: Encoder package contents diagnostic (not registry readiness)
-        run: cargo +${{ matrix.toolchain }} publish -p ag-ui-encoder --dry-run --no-verify --locked
+        run: cargo +${{ matrix.toolchain }} --config 'patch.crates-io.ag-ui-core.path="crates/ag-ui-core"' publish -p ag-ui-encoder --dry-run --no-verify --locked
 
   interop-and-git-consumer:
     name: Real TypeScript/Rust HTTP and immutable Git consumer

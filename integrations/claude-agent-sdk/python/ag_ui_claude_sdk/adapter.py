@@ -1071,7 +1071,7 @@ class ClaudeAgentAdapter:
                         if tool_use_id:
                             upsert_message(build_agui_tool_message(tool_use_id, block_content, bool(getattr(block, "is_error", False))))
                         parent_id = getattr(message, 'parent_tool_use_id', None)
-                        async for event in handle_tool_result_block(block, thread_id, run_id, parent_id):
+                        async for event in handle_tool_result_block(block, thread_id, run_id, parent_id, getattr(message, "tool_use_result", None), getattr(message, "uuid", None)):
                             yield event
             
             elif isinstance(message, SystemMessage):

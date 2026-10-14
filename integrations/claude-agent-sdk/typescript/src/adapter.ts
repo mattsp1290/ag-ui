@@ -846,7 +846,12 @@ export class ClaudeAgentAdapter extends AbstractAgent {
                   messageId: toolMsg.id,
                   toolCallId: toolUseId,
                   content: toolMsg.content!,
-                  rawEvent: block,
+                  rawEvent: {
+                    ...block,
+                    uuid: userMsg.uuid,
+                    parent_tool_use_id: userMsg.parent_tool_use_id,
+                    tool_use_result: message.tool_use_result,
+                  },
                   role: "tool",
                 });
               }

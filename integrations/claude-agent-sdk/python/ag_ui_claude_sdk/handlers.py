@@ -157,6 +157,8 @@ async def handle_tool_result_block(
     thread_id: str,
     run_id: str,
     parent_tool_use_id: Optional[str] = None,
+    sdk_result: Any = None,
+    sdk_message_id: Optional[str] = None,
 ) -> AsyncIterator[BaseEvent]:
     """
     Handle ToolResultBlock from Claude SDK.
@@ -199,6 +201,10 @@ async def handle_tool_result_block(
         raw_event = {"tool_use_id": tool_use_id, "content": content, "is_error": is_error}
         if parent_tool_use_id:
             raw_event["parent_tool_use_id"] = parent_tool_use_id
+        if sdk_result is not None:
+            raw_event["tool_use_result"] = sdk_result
+        if sdk_message_id is not None:
+            raw_event["uuid"] = sdk_message_id
         yield ToolCallResultEvent(
             type=EventType.TOOL_CALL_RESULT,
             thread_id=thread_id,

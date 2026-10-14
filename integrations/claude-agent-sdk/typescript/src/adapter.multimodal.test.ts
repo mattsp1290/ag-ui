@@ -613,3 +613,28 @@ it("forwards UTF-8 text documents with their filename", async () => {
     },
   ]);
 });
+
+it("retains the native structured tool result and record identity", async () => {
+  const result = {
+    structuredContent: { chart: [1, 2] },
+    _meta: { ui: { resourceUri: "ui://chart" } },
+  };
+  queryMock.mockImplementation(() =>
+    (async function* () {
+      yield {
+        type: "user",
+        uuid: "record-original",
+        tool_use_result: result,
+        message: {
+          content: [
+            { type: "tool_result", tool_use_id: "original", content: "ok" },
+          ],
+        },
+      };
+    })(),
+  );
+  const events = await runAdapter([]);
+  expect(
+    events.find((e) => e.type === "TOOL_CALL_RESULT")?.rawEvent,
+  ).toMatchObject({ uuid: "record-original", tool_use_result: result });
+});

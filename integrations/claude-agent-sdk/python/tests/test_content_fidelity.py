@@ -87,3 +87,12 @@ async def test_text_document_filename_and_explicit_unsupported_notice(make_input
     assert unsupported_input_parts(inp)[0]["contentIndex"] == 1
     assert inp.messages[0].content[1].metadata["filename"] == "audio.wav"
     assert frontend_result_blocks([{"type": "image", "source": {"type": "data", "value": "AQID", "mimeType": "image/png"}}]) == [{"type": "image", "data": "AQID", "mimeType": "image/png"}]
+
+
+@pytest.mark.asyncio
+async def test_native_structured_result_and_record_identity_are_retained():
+    block = SimpleNamespace(tool_use_id="original", content="ok", is_error=False)
+    raw = {"structuredContent": {"chart": [1, 2]}, "_meta": {"ui": {"resourceUri": "ui://chart"}}}
+    events = [e async for e in handle_tool_result_block(block, "thread", "run", None, raw, "record-original")]
+    assert events[0].raw_event["tool_use_result"] == raw
+    assert events[0].raw_event["uuid"] == "record-original"

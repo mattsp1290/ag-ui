@@ -3,6 +3,14 @@
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any, Literal, Protocol, runtime_checkable
+from ag_ui.core import BaseEvent
+
+
+@dataclass
+class BackendToolResult:
+    """App events are recorded by AG-UI/Intelligence, never written into Claude."""
+    content: str
+    events: list[BaseEvent] = field(default_factory=list)
 
 
 @dataclass
@@ -19,7 +27,7 @@ class BackendTool:
     description: str
     parameters: dict[str, Any]
     """JSON Schema for the tool input."""
-    handler: Callable[[Any], Awaitable[str] | str]
+    handler: Callable[[Any], Awaitable[str | BackendToolResult] | str | BackendToolResult]
 
 
 ErrorHandler = Callable[[BaseException, dict[str, Any]], Awaitable[None] | None]

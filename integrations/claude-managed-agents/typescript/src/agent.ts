@@ -1,4 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
+import { userContent, UnsupportedContentError } from "./content";
 import type {
   BetaManagedAgentsEventParams,
   BetaManagedAgentsUserCustomToolResultEventParams,
@@ -39,98 +40,30 @@ type OverrideTools = NonNullable<
   >["tools"]
 >;
 
-/**
- * The text of the given user message (string or multimodal content). Non-text
- * parts are dropped; only the delivery site passes `warn`, so each is warned
- * about once.
- */
-const userText = (
-  message: Extract<Message, { role: "user" }>,
-  { warn = false }: { warn?: boolean } = {},
-): string => {
-  if (typeof message.content === "string") return message.content;
-  return (message.content ?? [])
-    .map((part) => {
-      if ("text" in part && typeof part.text === "string") return part.text;
-      if (warn) {
-        console.warn(
-          `[claude-managed-agents] Dropping ${String(part.type)} user-message content: this adapter forwards only text to a managed session`,
-        );
-      }
-      return "";
-    })
-    .join("");
-};
-
-/** Whether any user message in the run carries text. */
+/** Presence check; only undelivered content is converted. */
 const hasUserText = (messages: Message[]): boolean =>
   messages.some(
-    (message) => message.role === "user" && userText(message).trim().length > 0,
+    (m) =>
+      m.role === "user" &&
+      (typeof m.content === "string"
+        ? m.content.trim().length > 0
+        : m.content.length > 0),
   );
 
-/**
- * A tool message's payload as the content blocks Claude accepts in a tool
- * result. A string result is one text block, with the error text appended on
- * its own line as before. A list of parts (AG-UI 1.0) maps each part onto its
- * block: text to a text block, an image or document to the matching block with
- * a base64 or URL source. Audio and video have no place in a Claude tool
- * result, and neither does a `file` source — a handle only the provider that
- * minted it can resolve, which this adapter has no way to forward. All three
- * are dropped with a warning, as the specification says a producer does with a
- * part its model cannot take; the call is still answered, with an empty text
- * block if nothing else remains.
- */
+/** Send supported tool parts without flattening or dropping them. */
 const toolResultBlocks = (
   message: Extract<Message, { role: "tool" }>,
 ): ToolResultBlock[] => {
-  const { content, error } = message;
-  if (typeof content === "string") {
+  if (typeof message.content === "string")
     return [
-      { type: "text", text: [content, error].filter(Boolean).join("\n") },
+      {
+        type: "text",
+        text: [message.content, message.error].filter(Boolean).join("\n"),
+      },
     ];
-  }
-  const blocks: ToolResultBlock[] = [];
-  for (const part of content) {
-    if (part.type === "text") {
-      blocks.push({ type: "text", text: part.text });
-    } else if (part.type === "image" || part.type === "document") {
-      if (part.source.type === "data") {
-        blocks.push({
-          type: part.type,
-          source: {
-            type: "base64",
-            media_type: part.source.mimeType,
-            data: part.source.value,
-          },
-        } as ToolResultBlock);
-      } else if (part.source.type === "url") {
-        blocks.push({
-          type: part.type,
-          source: { type: "url", url: part.source.value },
-        } as ToolResultBlock);
-      } else {
-        // A `file` source names bytes already held by a model provider, under a
-        // handle only that provider can resolve. It is NOT a URL, and the
-        // else-branch that used to catch it put the opaque handle into
-        // `source.url` — a fetch of a nonsense address, or silently the wrong
-        // attachment. This adapter has no provider-handle path in 1.0, so the
-        // part is dropped and announced, exactly as the audio and video parts
-        // below it are: "A producer that cannot use a content part MUST NOT
-        // fail the run because of it; it skips the part and continues, and
-        // SHOULD warn."
-        console.warn(
-          `[claude-managed-agents] Dropping ${part.type} tool-result content: a provider file handle cannot be forwarded by this adapter`,
-        );
-      }
-    } else {
-      console.warn(
-        `[claude-managed-agents] Dropping ${String(part.type)} tool-result content: a Claude tool result cannot carry it`,
-      );
-    }
-  }
-  if (error) blocks.push({ type: "text", text: error });
-  if (blocks.length === 0) blocks.push({ type: "text", text: "" });
-  return blocks;
+  const blocks = userContent(message);
+  if (message.error) blocks.push({ type: "text", text: message.error });
+  return blocks.length ? blocks : [{ type: "text", text: "" }];
 };
 
 const runError = (message: string, code: string): BaseEvent =>
@@ -303,6 +236,10 @@ export class ManagedAgentsAgent extends AbstractAgent {
             );
             return;
           }
+          if (err instanceof UnsupportedContentError) {
+            emit(runError(err.message, "unsupported_content"));
+            return;
+          }
           // Detail to the hook, not to the client: see RUN_FAILED_MESSAGE.
           await this.report("run_failed", err, { threadId: input.threadId });
           emit(runError(RUN_FAILED_MESSAGE, "run_failed"));
@@ -339,6 +276,7 @@ export class ManagedAgentsAgent extends AbstractAgent {
       threadId,
       runId,
       protocolVersion: PROTOCOL_VERSION,
+      input,
     } as BaseEvent);
     if (input.state !== undefined && input.state !== null) {
       emit({
@@ -373,8 +311,10 @@ export class ManagedAgentsAgent extends AbstractAgent {
     if (!this.hasSendableContent(input.messages)) {
       // The newest user message is the one this run would have delivered:
       // announce the media it is refused for, as the delivery site would.
-      const newestUser = input.messages.findLast((message) => message.role === "user");
-      if (newestUser) userText(newestUser, { warn: true });
+      const newestUser = input.messages.findLast(
+        (message) => message.role === "user",
+      );
+      if (newestUser) userContent(newestUser);
       emit(
         runError(
           "There is nothing to send: this run has no user message or tool result.",
@@ -641,11 +581,11 @@ export class ManagedAgentsAgent extends AbstractAgent {
         ? userMessages.slice(deliveredIndex + 1)
         : userMessages.slice(-1);
     for (const message of undelivered) {
-      const text = userText(message, { warn: true }).trim();
-      if (!text) continue;
+      const content = userContent(message);
+      if (!content.length) continue;
       followUps.push({
         type: "user.message",
-        content: [{ type: "text", text }],
+        content,
       });
       lastUserMessageId = message.id;
     }
@@ -682,6 +622,8 @@ export class ManagedAgentsAgent extends AbstractAgent {
   ): Promise<SessionRecord | undefined> {
     const existing = await this.store.get(key);
     if (existing) return existing;
+    const newestUser = input.messages.findLast((m) => m.role === "user");
+    if (newestUser) userContent(newestUser);
 
     // A tool result only answers a pending call on an existing session;
     // never create a session to receive one.

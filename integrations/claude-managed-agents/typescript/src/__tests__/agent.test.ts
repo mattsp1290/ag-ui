@@ -39,7 +39,9 @@ const collect = async (
   agent: ManagedAgentsAgent,
   input: RunAgentInput,
 ): Promise<BaseEvent[]> =>
-  (await lastValueFrom(agent.run(input).pipe(toArray()))) as BaseEvent[];
+  (await lastValueFrom(agent.run(input).pipe(toArray()))).filter(
+    (e) => e.type !== EventType.RAW,
+  ) as BaseEvent[];
 
 const types = (events: BaseEvent[]) => events.map((event) => event.type);
 
@@ -440,10 +442,6 @@ describe("ManagedAgentsAgent", () => {
                 type: "image",
                 source: { type: "url", value: "https://example.com/scan.png" },
               },
-              {
-                type: "audio",
-                source: { type: "url", value: "https://example.com/a.wav" },
-              },
             ],
           },
         ],
@@ -689,49 +687,57 @@ describe("ManagedAgentsAgent", () => {
           {
             id: "u1",
             role: "user",
-            content: [{ type: "text", text: "Look here" }] as never,
+            content: [
+              { type: "text", text: "Look here" },
+              {
+                type: "image",
+                source: { type: "url", value: "https://x/y.png" },
+              },
+            ],
           },
         ],
       }),
     );
 
     expect(fake.sent[0].events).toEqual([
-      { type: "user.message", content: [{ type: "text", text: "Look here" }] },
+      {
+        type: "user.message",
+        content: [
+          { type: "text", text: "Look here" },
+          { type: "image", source: { type: "url", url: "https://x/y.png" } },
+        ],
+      },
     ]);
   });
 
-  it("errors with empty_run for an image-only user message, warns once, and creates no session", async () => {
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+  it("delivers an image-only user message", async () => {
     const fake = createFakeClient({ streams: [[idleEndTurn]] });
-    const events = await collect(
-      newAgent(fake),
-      baseInput({
-        messages: [
-          {
-            id: "u1",
-            role: "user",
-            content: [
-              {
-                type: "image",
-                source: { type: "url", value: "https://x/y.png" },
-              },
-            ] as never,
-          },
-        ],
-      }),
-    );
-
-    expect(events.at(-1)).toMatchObject({
-      type: EventType.RUN_ERROR,
-      code: "empty_run",
+    const input = baseInput({
+      messages: [
+        {
+          id: "image-user",
+          role: "user",
+          content: [
+            {
+              type: "image",
+              source: { type: "url", value: "https://x/y.png" },
+              metadata: { filename: "y.png" },
+            },
+          ],
+        },
+      ],
     });
-    expect(fake.spies.create).not.toHaveBeenCalled();
-    expect(
-      warn.mock.calls.filter((call) =>
-        String(call[0]).includes("Dropping image user-message content"),
-      ),
-    ).toHaveLength(1);
-    warn.mockRestore();
+    const events = await collect(newAgent(fake), input);
+    expect(events[0]).toMatchObject({ input });
+    expect(events.at(-1)?.type).toBe(EventType.RUN_FINISHED);
+    expect(fake.sent[0].events).toEqual([
+      {
+        type: "user.message",
+        content: [
+          { type: "image", source: { type: "url", url: "https://x/y.png" } },
+        ],
+      },
+    ]);
   });
 
   it("abandons parked tool calls when the user sends a new message instead", async () => {
@@ -1999,7 +2005,7 @@ describe("ManagedAgentsAgent", () => {
   // put an opaque handle into Anthropic's `source.url`. This adapter has no
   // provider-handle path in 1.0, so the part is dropped and announced, and the
   // tool call is still answered with what remains.
-  it("drops a file-sourced tool-result part, keeps the text, and warns", async () => {
+  it("sends an Anthropic file-sourced tool result without flattening", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const fake = createFakeClient({ streams: [[idleEndTurn]] });
     const store = new InMemorySessionStore();
@@ -2041,15 +2047,17 @@ describe("ManagedAgentsAgent", () => {
         {
           type: "user.custom_tool_result",
           custom_tool_use_id: "ctu_1",
-          content: [{ type: "text", text: "Invoice attached." }],
+          content: [
+            { type: "text", text: "Invoice attached." },
+            {
+              type: "document",
+              source: { type: "file", file_id: "file_abc123" },
+            },
+          ],
           is_error: false,
         },
       ]);
-      // The handle never reaches the provider, as a url block or otherwise.
-      expect(JSON.stringify(fake.sent[0].events)).not.toContain("file_abc123");
-      const warned = warn.mock.calls.map((call) => String(call[0])).join("\n");
-      expect(warned).toContain("document");
-      expect(warned).toMatch(/file handle/i);
+      expect(warn).not.toHaveBeenCalled();
       // The run survives the part it could not use.
       expect(types(events)).not.toContain(EventType.RUN_ERROR);
       expect(events.at(-1)?.type).toBe(EventType.RUN_FINISHED);
@@ -2058,7 +2066,7 @@ describe("ManagedAgentsAgent", () => {
     }
   });
 
-  it("warns once when user-message media is dropped, and still sends the text", async () => {
+  it("sends user media alongside text", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const fake = createFakeClient({ streams: [[idleEndTurn]] });
 
@@ -2083,16 +2091,59 @@ describe("ManagedAgentsAgent", () => {
       );
 
       expect(fake.sent[0].events).toEqual([
-        { type: "user.message", content: [{ type: "text", text: "Look here" }] },
+        {
+          type: "user.message",
+          content: [
+            { type: "text", text: "Look here" },
+            { type: "image", source: { type: "url", url: "https://x/y.png" } },
+          ],
+        },
       ]);
       const dropped = warn.mock.calls
         .map((call) => String(call[0]))
         .filter((message) => message.includes("user-message content"));
-      expect(dropped).toEqual([
-        "[claude-managed-agents] Dropping image user-message content: this adapter forwards only text to a managed session",
-      ]);
+      expect(dropped).toEqual([]);
     } finally {
       warn.mockRestore();
     }
   });
+});
+
+it("answers pending tools despite unsupported media already in session history", async () => {
+  const fake = createFakeClient({ streams: [[idleEndTurn]] });
+  const store = new InMemorySessionStore();
+  await store.set(SESSION_KEY, {
+    sessionId: "sesn_1",
+    toolNames: [],
+    pendingClientToolUseIds: ["ctu_1"],
+    lastUserMessageId: "u1",
+  });
+  const events = await collect(
+    newAgent(fake, store),
+    baseInput({
+      messages: [
+        {
+          id: "u1",
+          role: "user",
+          content: [
+            {
+              type: "audio",
+              source: { type: "url", value: "https://example.test/audio" },
+            },
+          ],
+        },
+        { id: "t1", role: "tool", toolCallId: "ctu_1", content: "answered" },
+      ],
+    }),
+  );
+  expect(types(events).at(-1)).toBe(EventType.RUN_FINISHED);
+  expect(fake.sent[0].events).toEqual([
+    {
+      type: "user.custom_tool_result",
+      custom_tool_use_id: "ctu_1",
+      content: [{ type: "text", text: "answered" }],
+      is_error: false,
+    },
+  ]);
+  expect(fake.spies.create).not.toHaveBeenCalled();
 });

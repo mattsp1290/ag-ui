@@ -20,6 +20,7 @@ from ag_ui_claude_managed_agents import (
 )
 
 from ag_ui_claude_managed_agents.agent import _tool_result_blocks
+from ag_ui_claude_managed_agents.content import UnsupportedContentError
 from ag_ui_claude_managed_agents.types import SessionStore
 
 from .fake_client import FakeAPIError, FakeClient
@@ -51,7 +52,7 @@ def base_input(**overrides: Any) -> RunAgentInput:
 
 
 async def collect(agent: ManagedAgentsAgent, run_input: RunAgentInput) -> list[Any]:
-    return [event async for event in agent.run(run_input)]
+    return [event async for event in agent.run(run_input) if event.type.value != "RAW"]
 
 
 def types(events: list[Any]) -> list[str]:
@@ -452,7 +453,7 @@ def test_parts_shaped_tool_result_becomes_claude_content_blocks():
         {"type": "image", "source": {"type": "url", "value": "https://example.com/scan.png"}},
         {"type": "audio", "source": {"type": "url", "value": "https://example.com/a.wav"}},
     ]
-    assert _tool_result_blocks(parts, None) == [
+    assert _tool_result_blocks(parts[:3], None) == [
         {"type": "text", "text": "Invoice attached."},
         {"type": "document", "source": {"type": "base64", "media_type": "application/pdf", "data": "JVBERi0x"}},
         {"type": "image", "source": {"type": "url", "url": "https://example.com/scan.png"}},
@@ -462,13 +463,14 @@ def test_parts_shaped_tool_result_becomes_claude_content_blocks():
         {"type": "text", "text": "boom"},
     ]
     # Nothing Claude can take still answers the call, with an empty text block.
-    assert _tool_result_blocks(parts[3:], None) == [{"type": "text", "text": ""}]
+    with pytest.raises(UnsupportedContentError):
+        _tool_result_blocks(parts[3:], None)
     # A string result keeps its shape, error appended on its own line as before.
     assert _tool_result_blocks("done", None) == [{"type": "text", "text": "done"}]
     assert _tool_result_blocks("done", "boom") == [{"type": "text", "text": "done\nboom"}]
 
 
-def test_tool_result_file_source_is_dropped_with_a_warning_not_sent_as_a_url(
+def test_tool_result_file_source_is_forwarded_as_a_native_handle(
     caplog: pytest.LogCaptureFixture,
 ):
     # A `file` source is a provider handle, not a URL: it must not be sent as one.
@@ -479,11 +481,11 @@ def test_tool_result_file_source_is_dropped_with_a_warning_not_sent_as_a_url(
     ]
     with caplog.at_level(logging.WARNING, logger="ag_ui_claude_managed_agents"):
         blocks = _tool_result_blocks(parts, None)
-    assert blocks == [{"type": "text", "text": "Here it is."}]
-    assert sum("provider file handle" in r.getMessage() for r in caplog.records) == 2
+    assert blocks == [{"type": "text", "text": "Here it is."}, {"type": "image", "source": {"type": "file", "file_id": "file_011abc"}}, {"type": "document", "source": {"type": "file", "file_id": "file_022def"}}]
+    assert sum("provider file handle" in r.getMessage() for r in caplog.records) == 0
 
 
-async def test_warns_when_user_message_media_is_dropped(caplog: pytest.LogCaptureFixture):
+async def test_forwards_user_message_media(caplog: pytest.LogCaptureFixture):
     fake = FakeClient(streams=[[IDLE_END_TURN]])
     with caplog.at_level(logging.WARNING, logger="ag_ui_claude_managed_agents"):
         await collect(
@@ -503,17 +505,15 @@ async def test_warns_when_user_message_media_is_dropped(caplog: pytest.LogCaptur
         )
     # The text still goes through; the image is announced, once.
     assert fake.sent[0]["events"] == [
-        {"type": "user.message", "content": [{"type": "text", "text": "Look here"}]}
+        {"type": "user.message", "content": [{"type": "text", "text": "Look here"}, {"type": "image", "source": {"type": "url", "url": "https://x/y.png"}}]}
     ]
     dropped = [
         r.getMessage() for r in caplog.records if "user-message content" in r.getMessage()
     ]
-    assert dropped == [
-        "Dropping image user-message content: this adapter forwards only text to a managed session"
-    ]
+    assert dropped == []
 
 
-async def test_warns_when_media_only_user_message_is_rejected(
+async def test_delivers_media_only_user_message(
     caplog: pytest.LogCaptureFixture,
 ):
     fake = FakeClient(streams=[[IDLE_END_TURN]])
@@ -532,11 +532,11 @@ async def test_warns_when_media_only_user_message_is_rejected(
                 ]
             ),
         )
-    assert events[-1].code == "empty_run"
+    assert isinstance(events[-1], RunFinishedEvent)
     assert sum(
         "Dropping image user-message content" in record.getMessage()
         for record in caplog.records
-    ) == 1
+    ) == 0
 
 
 async def test_default_session_store_persists_across_runs():
@@ -756,7 +756,7 @@ async def test_whitespace_only_user_message_is_an_empty_run():
     assert fake.create_calls == []
 
 
-async def test_image_only_user_message_is_an_empty_run():
+async def test_image_only_user_message_creates_a_session():
     fake = FakeClient(streams=[[IDLE_END_TURN]])
     events = await collect(
         new_agent(fake),
@@ -775,9 +775,8 @@ async def test_image_only_user_message_is_an_empty_run():
             ]
         ),
     )
-    assert isinstance(events[-1], RunErrorEvent)
-    assert events[-1].code == "empty_run"
-    assert fake.create_calls == []
+    assert isinstance(events[-1], RunFinishedEvent)
+    assert len(fake.create_calls) == 1
 
 
 async def test_updates_session_tools_when_frontend_adds_new_one():

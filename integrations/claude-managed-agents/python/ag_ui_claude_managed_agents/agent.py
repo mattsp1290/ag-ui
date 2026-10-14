@@ -1,7 +1,6 @@
 """ManagedAgentsAgent: an AG-UI agent backed by Claude Managed Agents."""
 
 import asyncio
-import logging
 from collections.abc import AsyncIterator, Callable, Sequence
 from dataclasses import dataclass, field
 from typing import Any, ClassVar, Literal
@@ -20,6 +19,7 @@ from anthropic import AsyncAnthropic
 
 from ._util import get, maybe_await, report_swallowed_failure, schedule_detached
 from .constants import BEST_EFFORT_SEND_TIMEOUT_S, DEFAULT_TURN_TIMEOUT_S
+from .content import user_content, UnsupportedContentError
 from .sessions import InMemorySessionStore
 from .tools import custom_tool_from, normalize_tool_name, tools_fingerprint
 from .turn import Emit, run_turn
@@ -30,8 +30,6 @@ from .types import (
     SessionStore,
     TurnOutcome,
 )
-
-_logger = logging.getLogger(__name__)
 
 _DONE = object()
 
@@ -49,90 +47,19 @@ this plus the machine-readable `code`.
 """
 
 
-def _user_text(message: Any, *, warn: bool = False) -> str:
-    """The text of a user message (string content or multimodal parts).
+def _has_user_content(message: Any) -> bool:
+    # Presence check only. Conversion happens on undelivered messages.
+    content = get(message, "content")
+    return bool(content.strip()) if isinstance(content, str) else bool(content)
 
-    Non-text parts are dropped: a message carrying only those has no text and
-    errors as an empty run. Only the delivery site passes ``warn``, so each
-    dropped part is warned about once.
-    """
-    content = getattr(message, "content", None)
+
+def _tool_result_blocks(content: Any, error: str | None) -> list[dict[str, Any]]:
     if isinstance(content, str):
-        return content
-    parts: list[str] = []
-    for part in content or []:
-        text = getattr(part, "text", None)
-        if isinstance(text, str):
-            parts.append(text)
-        elif warn:
-            _logger.warning(
-                "Dropping %s user-message content: this adapter forwards only text to a managed session",
-                get(part, "type") or "non-text",
-            )
-    return "".join(parts)
-
-
-_MEDIA_BLOCK_TYPES = {"image": "image", "document": "document"}
-
-
-def _tool_result_blocks(content: Any, error_text: str | None) -> list[dict[str, Any]]:
-    """Anthropic content blocks for a tool result.
-
-    A string result is one text block, with the error text appended on its own
-    line as before. A list of parts (AG-UI 1.0) maps each part onto the block
-    Claude accepts in a tool result: text to a text block, an image or document
-    to the matching block with a base64 or URL source. Audio and video have no
-    place in a Claude tool result, and neither does a ``file`` source -- a
-    handle only the provider that minted it can resolve, which this adapter has
-    no way to forward. All three are dropped with a warning, as the
-    specification says a producer does with a part its model cannot take; the
-    call is still answered, with an empty text block if nothing else remains.
-    """
-    blocks: list[dict[str, Any]] = []
-    if isinstance(content, str) or content is None:
-        text = "\n".join(part for part in (content or "", error_text or "") if part)
-        return [{"type": "text", "text": text}]
-    for part in content:
-        part_type = get(part, "type")
-        if part_type == "text":
-            blocks.append({"type": "text", "text": get(part, "text") or ""})
-            continue
-        block_type = _MEDIA_BLOCK_TYPES.get(part_type)
-        source = get(part, "source")
-        if block_type is None:
-            _logger.warning(
-                "Dropping %s tool-result content: a Claude tool result cannot carry it",
-                part_type,
-            )
-            continue
-        if source is None:
-            continue
-        source_type = get(source, "type")
-        if source_type == "data":
-            blocks.append(
-                {
-                    "type": block_type,
-                    "source": {
-                        "type": "base64",
-                        "media_type": get(source, "mime_type") or get(source, "mimeType"),
-                        "data": get(source, "value"),
-                    },
-                }
-            )
-        elif source_type == "url":
-            blocks.append({"type": block_type, "source": {"type": "url", "url": get(source, "value")}})
-        else:
-            # A `file` source is a provider handle, not a URL, and this
-            # adapter cannot forward it (same as the TypeScript adapter).
-            _logger.warning(
-                "Dropping %s tool-result content: a provider file handle cannot be forwarded by this adapter",
-                block_type,
-            )
-    if error_text:
-        blocks.append({"type": "text", "text": error_text})
-    if not blocks:
-        blocks.append({"type": "text", "text": ""})
-    return blocks
+        return [{"type": "text", "text": "\n".join(p for p in (content, error) if p)}]
+    blocks = user_content({"content": content})
+    if error:
+        blocks.append({"type": "text", "text": error})
+    return blocks or [{"type": "text", "text": ""}]
 
 
 @dataclass
@@ -269,6 +196,8 @@ class ManagedAgentsAgent:
             # the turn ran past its configured limit.
             async with asyncio.timeout(self.turn_timeout_s) as turn_deadline:
                 await self._run_turn_for_input(input, emit, state)
+        except UnsupportedContentError as exc:
+            emit(RunErrorEvent(message=str(exc), code="unsupported_content"))
         except asyncio.TimeoutError as timeout_error:
             if not turn_deadline.expired():
                 # An inner bounded operation (a best-effort send) timed out.
@@ -387,6 +316,7 @@ class ManagedAgentsAgent:
                 thread_id=thread_id,
                 run_id=run_id,
                 protocol_version=PROTOCOL_VERSION,
+                input=input,
             )
         )
         if input.state is not None:
@@ -418,7 +348,7 @@ class ManagedAgentsAgent:
             # announce the media it is refused for, as the delivery site would.
             user_messages = [m for m in input.messages if getattr(m, "role", None) == "user"]
             if user_messages:
-                _user_text(user_messages[-1], warn=True)
+                user_content(user_messages[-1])
             emit(
                 RunErrorEvent(
                     message="There is nothing to send: this run has no user message or tool result.",
@@ -526,7 +456,7 @@ class ManagedAgentsAgent:
             role = getattr(message, "role", None)
             if role == "tool":
                 return True
-            if role == "user" and _user_text(message).strip():
+            if role == "user" and _has_user_content(message):
                 return True
         return False
 
@@ -632,11 +562,11 @@ class ManagedAgentsAgent:
             else user_messages[-1:]
         )
         for message in undelivered:
-            text = _user_text(message, warn=True).strip()
-            if not text:
+            content = user_content(message)
+            if not content:
                 continue
             events.append(
-                {"type": "user.message", "content": [{"type": "text", "text": text}]}
+                {"type": "user.message", "content": content}
             )
             last_user_message_id = message.id
 
@@ -672,11 +602,14 @@ class ManagedAgentsAgent:
         existing = await maybe_await(self.store.get(store_key))
         if existing is not None:
             return existing
+        newest_user = next((m for m in reversed(input.messages) if get(m, "role") == "user"), None)
+        if newest_user is not None:
+            user_content(newest_user)
 
         # A tool result only answers a pending call on an existing session;
         # never create a session to receive one.
         if not any(
-            getattr(m, "role", None) == "user" and _user_text(m).strip()
+            getattr(m, "role", None) == "user" and _has_user_content(m)
             for m in input.messages
         ):
             return None

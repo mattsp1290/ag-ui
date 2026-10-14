@@ -1,5 +1,5 @@
 import type Anthropic from "@anthropic-ai/sdk";
-import type { AgentConfig } from "@ag-ui/client";
+import type { BaseEvent, AgentConfig } from "@ag-ui/client";
 
 /**
  * A tool the agent may call, executed on this server rather than in the
@@ -7,12 +7,20 @@ import type { AgentConfig } from "@ag-ui/client";
  * agent calls it we run `handler`, stream the call and result to the UI,
  * and post the result back into the session.
  */
+/** App-owned events accompanying a tool result. These are not stored in Claude. */
+export interface BackendToolResult {
+  content: string;
+  events?: BaseEvent[];
+}
+
 export interface BackendCustomTool {
   name: string;
   description: string;
   /** JSON Schema for the tool input. */
   parameters: Record<string, unknown>;
-  handler: (input: unknown) => Promise<string> | string;
+  handler: (
+    input: unknown,
+  ) => Promise<string | BackendToolResult> | string | BackendToolResult;
 }
 
 /** What a swallowed failure was doing when it failed. */
@@ -65,7 +73,9 @@ export interface SessionRecord {
  * store that partitions by caller if you need multi-tenant isolation.
  */
 export interface SessionStore {
-  get(key: string): Promise<SessionRecord | undefined> | SessionRecord | undefined;
+  get(
+    key: string,
+  ): Promise<SessionRecord | undefined> | SessionRecord | undefined;
   set(key: string, record: SessionRecord): Promise<void> | void;
   delete(key: string): Promise<void> | void;
 }

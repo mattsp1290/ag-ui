@@ -8,6 +8,7 @@ from typing import Any
 
 from ag_ui.core import (
     BaseEvent,
+    RawEvent,
     ReasoningEndEvent,
     ReasoningMessageEndEvent,
     ReasoningMessageStartEvent,
@@ -32,10 +33,10 @@ from ._util import (
 from .constants import (
     BEST_EFFORT_SEND_TIMEOUT_S,
     PARKED_RETRY_DELAYS_S,
-    TOOL_RESULT_MAX_CHARS,
 )
-from .text import describe_tool_result, text_of
-from .types import BackendTool, ErrorHandler, TurnOutcome
+from .text import text_of
+from .content import tool_content, plain
+from .types import BackendTool, BackendToolResult, ErrorHandler, TurnOutcome
 
 INTERRUPTED_TOOL_RESULT_TEXT = "Tool execution was interrupted."
 """Posted for a backend tool cut off by a timeout or client disconnect, so
@@ -200,10 +201,10 @@ async def _consume(
         emit(ToolCallArgsEvent(tool_call_id=tool_call_id, delta=delta))
         emit(ToolCallEndEvent(tool_call_id=tool_call_id))
 
-    def emit_tool_result(tool_use_id: str, content: str) -> None:
+    def emit_tool_result(tool_use_id: str, content: Any, message_id: str | None = None) -> None:
         emit(
             ToolCallResultEvent(
-                message_id=f"result_{tool_use_id}",
+                message_id=message_id or f"result_{tool_use_id}",
                 tool_call_id=tool_use_id,
                 content=content,
                 role="tool",
@@ -349,8 +350,9 @@ async def _consume(
         Returns the terminal outcome when the result could not be delivered.
         """
         is_error = False
+        app_events = []
         try:
-            text = str(
+            result = (
                 await _call_backend_handler(
                     tool.handler,
                     tool_input,
@@ -359,6 +361,10 @@ async def _consume(
                     ),
                 )
             )
+            text = result.content if isinstance(result, BackendToolResult) else str(result)
+            app_events = result.events if isinstance(result, BackendToolResult) else []
+            if any(e.type.value not in ("STATE_SNAPSHOT", "STATE_DELTA", "ACTIVITY_SNAPSHOT", "ACTIVITY_DELTA", "CUSTOM", "RAW") for e in app_events):
+                raise ValueError("Backend tool events must be state, activity, custom, or raw events.")
         except asyncio.CancelledError as err:
             task = asyncio.current_task()
             if task is None or task.cancelling() > 0:
@@ -373,11 +379,17 @@ async def _consume(
         except Exception as err:  # noqa: BLE001 - the tool's failure is reported to the agent
             is_error = True
             text = str(err) or err.__class__.__name__
-        return await answer_custom_tool_use(tool_use_id, text, is_error)
+        outcome = await answer_custom_tool_use(tool_use_id, text, is_error)
+        if outcome is None and not is_error:
+            for event in app_events:
+                emit(event)
+        return outcome
 
     async def consume() -> TurnOutcome:
         async for event in stream:
             event_type = get(event, "type")
+            if event_type.startswith(("agent.", "user.")):
+                emit(RawEvent(source="claude-managed-agents", event=plain(event)))
 
             if event_type == "event_start":
                 preview = get(event, "event")
@@ -513,13 +525,15 @@ async def _consume(
             elif event_type == "agent.tool_result":
                 emit_tool_result(
                     get(event, "tool_use_id"),
-                    describe_tool_result(get(event, "content"))[:TOOL_RESULT_MAX_CHARS],
+                    tool_content(get(event, "content")),
+                    get(event, "id"),
                 )
 
             elif event_type == "agent.mcp_tool_result":
                 emit_tool_result(
                     get(event, "mcp_tool_use_id"),
-                    describe_tool_result(get(event, "content"))[:TOOL_RESULT_MAX_CHARS],
+                    tool_content(get(event, "content")),
+                    get(event, "id"),
                 )
 
             elif event_type == "span.model_request_end":

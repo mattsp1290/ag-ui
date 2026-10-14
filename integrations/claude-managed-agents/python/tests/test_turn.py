@@ -58,7 +58,7 @@ async def collect(
     }
     options.update(overrides)
     outcome = await run_turn(**options)
-    return emitted, outcome, fake
+    return [e for e in emitted if e.type.value != "RAW"], outcome, fake
 
 
 def types(events: list[Any]) -> list[str]:
@@ -217,7 +217,7 @@ async def test_streams_builtin_tool_calls_and_their_results():
         ToolCallArgsEvent(tool_call_id="tu_1", delta='{"command":"ls"}'),
         ToolCallEndEvent(tool_call_id="tu_1"),
         ToolCallResultEvent(
-            message_id="result_tu_1",
+            message_id="tr_1",
             tool_call_id="tu_1",
             content="file.txt",
             role="tool",
@@ -248,7 +248,7 @@ async def test_maps_mcp_tool_calls_with_server_qualified_name():
         tool_call_id="mcp_1", tool_call_name="docs: search"
     )
     assert emitted[3] == ToolCallResultEvent(
-        message_id="result_mcp_1", tool_call_id="mcp_1", content="found", role="tool"
+        message_id="mr_1", tool_call_id="mcp_1", content="found", role="tool"
     )
 
 
@@ -276,20 +276,12 @@ async def test_flattens_mixed_tool_result_content():
             IDLE_END_TURN,
         ]
     )
-    assert emitted == [
-        ToolCallResultEvent(
-            message_id="result_tu_1",
-            tool_call_id="tu_1",
-            # The text block is literal tool output and stays verbatim; only
-                # the search result, whose body comes from HTML, is decoded.
-                content=(
-                    "Caf&eacute; &amp; &#39;more&#39; &lt;b&gt;\n"
-                    "[search result] Docs & guides — https://example.com\n"
-                    "body text\n[image]"
-                ),
-            role="tool",
-        )
-    ]
+    import json
+    assert emitted[-1].message_id == "tr_1"
+    blocks = [part.metadata["claudeManagedAgents"] for part in emitted[-1].content]
+    assert blocks[0]["text"] == "Caf&eacute; &amp; &#39;more&#39; &lt;b&gt;"
+    assert blocks[1]["title"] == "Docs &amp; guides"
+    assert blocks[2]["type"] == "image"
 
 
 async def test_runs_backend_tool_and_posts_result_back_into_session():
@@ -708,7 +700,7 @@ async def test_does_not_emit_empty_content_delta():
     )
 
 
-async def test_truncates_long_tool_results():
+async def test_preserves_long_tool_results():
     emitted, _, _ = await collect(
         [
             {
@@ -724,9 +716,9 @@ async def test_truncates_long_tool_results():
     )
     assert emitted == [
         ToolCallResultEvent(
-            message_id="result_tu_1",
+            message_id="tr_1",
             tool_call_id="tu_1",
-            content="x" * TOOL_RESULT_MAX_CHARS,
+            content="x" * (TOOL_RESULT_MAX_CHARS + 500),
             role="tool",
         )
     ]
@@ -1209,3 +1201,11 @@ async def test_records_whether_the_interrupt_it_sent_actually_landed() -> None:
         [IDLE_UNKNOWN_ACTION], {"send_failures": {1: RuntimeError("interrupt rejected")}}
     )
     assert failed == TurnOutcome(status="errored", session_interrupted=False)
+
+async def test_app_events_emitted_after_tool_result_without_native_writeback():
+    from ag_ui.core import StateDeltaEvent, CustomEvent
+    from ag_ui_claude_managed_agents import BackendToolResult
+    app_events = [StateDeltaEvent(delta=[{"op": "replace", "path": "/cart/total", "value": 43}]), CustomEvent(name="a2ui", value={"surface": "dashboard"})]
+    emitted, _, fake = await collect([{"type": "agent.custom_tool_use", "id": "state-call", "name": "update", "input": {}}, IDLE_END_TURN], backend_tools={"update": BackendTool(name="update", description="update", parameters={}, handler=lambda _: BackendToolResult(content="updated", events=app_events))})
+    assert emitted[-2:] == app_events
+    assert fake.sent[-1]["events"] == [{"type": "user.custom_tool_result", "custom_tool_use_id": "state-call", "content": [{"type": "text", "text": "updated"}], "is_error": False}]

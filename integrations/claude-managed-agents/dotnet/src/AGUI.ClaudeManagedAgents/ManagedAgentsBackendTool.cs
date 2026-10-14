@@ -1,4 +1,5 @@
 using System.Text.Json;
+using AGUI.Abstractions;
 
 namespace AGUI.ClaudeManagedAgents;
 
@@ -29,5 +30,16 @@ public sealed class ManagedAgentsBackendTool
     /// Gets or sets the handler that executes the tool. It receives the tool input as JSON and
     /// returns the result text posted back to the agent.
     /// </summary>
+    /// <summary>Optional handler returning app-owned state/activity events alongside content.
+    /// When present this takes precedence over Handler. App events are not sent to Claude.</summary>
+    public Func<JsonElement, Task<ManagedAgentsBackendToolResult>>? ResultHandler { get; set; }
+
     public Func<JsonElement, Task<string>> Handler { get; set; } = static _ => Task.FromResult(string.Empty);
+}
+
+/// <summary>A backend tool result plus app-owned events for AG-UI/Intelligence.</summary>
+public sealed class ManagedAgentsBackendToolResult
+{
+    public string Content { get; set; } = string.Empty;
+    public IReadOnlyList<BaseEvent> Events { get; set; } = [];
 }

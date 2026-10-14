@@ -1,3 +1,4 @@
+import { toolContent } from "./content";
 import type Anthropic from "@anthropic-ai/sdk";
 import type {
   BetaManagedAgentsEventParams,
@@ -7,9 +8,12 @@ import { accumulateManagedAgentsEvent } from "@anthropic-ai/sdk/lib/sessions/acc
 import type { AccumulatedEvent } from "@anthropic-ai/sdk/lib/sessions/accumulate";
 import { EventType } from "@ag-ui/client";
 import type { BaseEvent } from "@ag-ui/client";
-import { BEST_EFFORT_SEND_TIMEOUT_MS, PARKED_RETRY_DELAYS_MS, TOOL_RESULT_MAX_CHARS } from "./constants";
+import {
+  BEST_EFFORT_SEND_TIMEOUT_MS,
+  PARKED_RETRY_DELAYS_MS,
+} from "./constants";
 import { reportSwallowedFailure } from "./report";
-import { describeToolResult, textOf } from "./text";
+import { textOf } from "./text";
 import type { BackendCustomTool, ManagedAgentsErrorHandler } from "./types";
 
 export interface TurnOptions {
@@ -101,7 +105,9 @@ export async function runTurn(opts: TurnOptions): Promise<TurnOutcome> {
     sessionId,
     // "agent.thinking" opts into the live thinking indicator (event_start);
     // thinking carries no text deltas today.
-    opts.streamDeltas ? { event_deltas: ["agent.message", "agent.thinking"] } : {},
+    opts.streamDeltas
+      ? { event_deltas: ["agent.message", "agent.thinking"] }
+      : {},
     { signal },
   );
 
@@ -119,7 +125,11 @@ export async function runTurn(opts: TurnOptions): Promise<TurnOutcome> {
   const sendFollowUps = async () => {
     for (let attempt = 0; ; attempt++) {
       try {
-        await client.beta.sessions.events.send(sessionId, { events: followUps }, { signal });
+        await client.beta.sessions.events.send(
+          sessionId,
+          { events: followUps },
+          { signal },
+        );
         return;
       } catch (err) {
         const delayMs = PARKED_RETRY_DELAYS_MS[attempt];
@@ -131,7 +141,11 @@ export async function runTurn(opts: TurnOptions): Promise<TurnOutcome> {
 
   try {
     if (results.length > 0) {
-      await client.beta.sessions.events.send(sessionId, { events: results }, { signal });
+      await client.beta.sessions.events.send(
+        sessionId,
+        { events: results },
+        { signal },
+      );
       await opts.onResultsSent?.();
     }
     if (followUps.length > 0) {
@@ -151,12 +165,22 @@ export async function runTurn(opts: TurnOptions): Promise<TurnOutcome> {
   const askedConfirmations = new Set<string>();
 
   const emitTextStart = (messageId: string) =>
-    emit({ type: EventType.TEXT_MESSAGE_START, messageId, role: "assistant" } as BaseEvent);
+    emit({
+      type: EventType.TEXT_MESSAGE_START,
+      messageId,
+      role: "assistant",
+    } as BaseEvent);
   // Never emit an empty content delta: it is a no-op the schema rejects.
   const emitTextContent = (messageId: string, delta: string) => {
-    if (delta) emit({ type: EventType.TEXT_MESSAGE_CONTENT, messageId, delta } as BaseEvent);
+    if (delta)
+      emit({
+        type: EventType.TEXT_MESSAGE_CONTENT,
+        messageId,
+        delta,
+      } as BaseEvent);
   };
-  const emitTextEnd = (messageId: string) => emit({ type: EventType.TEXT_MESSAGE_END, messageId } as BaseEvent);
+  const emitTextEnd = (messageId: string) =>
+    emit({ type: EventType.TEXT_MESSAGE_END, messageId } as BaseEvent);
 
   const openMessage = (messageId: string): Preview => {
     emitTextStart(messageId);
@@ -180,14 +204,26 @@ export async function runTurn(opts: TurnOptions): Promise<TurnOutcome> {
   };
 
   const emitToolCall = (id: string, name: string, input: unknown) => {
-    emit({ type: EventType.TOOL_CALL_START, toolCallId: id, toolCallName: name } as BaseEvent);
-    emit({ type: EventType.TOOL_CALL_ARGS, toolCallId: id, delta: JSON.stringify(input ?? {}) } as BaseEvent);
+    emit({
+      type: EventType.TOOL_CALL_START,
+      toolCallId: id,
+      toolCallName: name,
+    } as BaseEvent);
+    emit({
+      type: EventType.TOOL_CALL_ARGS,
+      toolCallId: id,
+      delta: JSON.stringify(input ?? {}),
+    } as BaseEvent);
     emit({ type: EventType.TOOL_CALL_END, toolCallId: id } as BaseEvent);
   };
-  const emitToolResult = (toolUseId: string, content: string) => {
+  const emitToolResult = (
+    toolUseId: string,
+    content: ReturnType<typeof toolContent>,
+    messageId = `result_${toolUseId}`,
+  ) => {
     emit({
       type: EventType.TOOL_CALL_RESULT,
-      messageId: `result_${toolUseId}`,
+      messageId,
       toolCallId: toolUseId,
       content,
       role: "tool",
@@ -218,10 +254,21 @@ export async function runTurn(opts: TurnOptions): Promise<TurnOutcome> {
    * the `interrupt()` that preceded it: a landed interrupt invalidates every
    * park recorded this turn, and a failed one leaves the session parked.
    */
-  const fail = (message: string, code?: string, sessionInterrupted = false): TurnOutcome => {
+  const fail = (
+    message: string,
+    code?: string,
+    sessionInterrupted = false,
+  ): TurnOutcome => {
     closeAll();
-    emit({ type: EventType.RUN_ERROR, message, ...(code ? { code } : {}) } as BaseEvent);
-    return { status: "errored", ...(sessionInterrupted ? { sessionInterrupted: true } : {}) };
+    emit({
+      type: EventType.RUN_ERROR,
+      message,
+      ...(code ? { code } : {}),
+    } as BaseEvent);
+    return {
+      status: "errored",
+      ...(sessionInterrupted ? { sessionInterrupted: true } : {}),
+    };
   };
 
   /**
@@ -230,11 +277,22 @@ export async function runTurn(opts: TurnOptions): Promise<TurnOutcome> {
    * is being torn down) but bounded by its own timeout so a stalled connection
    * cannot hold the thread's run gate open.
    */
-  const postCustomToolResult = async (toolUseId: string, text: string, isError: boolean) => {
+  const postCustomToolResult = async (
+    toolUseId: string,
+    text: string,
+    isError: boolean,
+  ) => {
     await client.beta.sessions.events.send(
       sessionId,
       {
-        events: [{ type: "user.custom_tool_result", custom_tool_use_id: toolUseId, content: [{ type: "text", text }], is_error: isError }],
+        events: [
+          {
+            type: "user.custom_tool_result",
+            custom_tool_use_id: toolUseId,
+            content: [{ type: "text", text }],
+            is_error: isError,
+          },
+        ],
       },
       { signal: AbortSignal.timeout(BEST_EFFORT_SEND_TIMEOUT_MS) },
     );
@@ -286,34 +344,75 @@ export async function runTurn(opts: TurnOptions): Promise<TurnOutcome> {
     input: unknown,
   ): Promise<TurnOutcome | undefined> => {
     let text: string;
+    let appEvents: BaseEvent[] = [];
     let isError = false;
     try {
-      text = await raceAbort(() => tool.handler(input), signal, (error) =>
-        report("abandoned_backend_tool", error),
+      const result = await raceAbort(
+        () => tool.handler(input),
+        signal,
+        (error) => report("abandoned_backend_tool", error),
       );
+      text = typeof result === "string" ? result : result.content;
+      appEvents = typeof result === "string" ? [] : (result.events ?? []);
+      if (
+        appEvents.some(
+          (event) =>
+            ![
+              "STATE_SNAPSHOT",
+              "STATE_DELTA",
+              "ACTIVITY_SNAPSHOT",
+              "ACTIVITY_DELTA",
+              "CUSTOM",
+              "RAW",
+            ].includes(event.type),
+        )
+      ) {
+        throw new Error(
+          "Backend tool events must be state, activity, custom, or raw events.",
+        );
+      }
     } catch (err) {
       if (signal.aborted) {
-        await postCustomToolResult(id, INTERRUPTED_TOOL_TEXT, true).catch((error: unknown) =>
-          report("post_interrupted_tool_result", error),
+        await postCustomToolResult(id, INTERRUPTED_TOOL_TEXT, true).catch(
+          (error: unknown) => report("post_interrupted_tool_result", error),
         );
         throw err;
       }
       text = err instanceof Error ? err.message : String(err);
       isError = true;
     }
-    return answerCustomToolUse(id, text, isError);
+    const outcome = await answerCustomToolUse(id, text, isError);
+    if (!outcome && !isError) for (const event of appEvents) emit(event);
+    return outcome;
   };
 
   const consume = async (): Promise<TurnOutcome> => {
     for await (const event of stream as AsyncIterable<StreamEvent>) {
+      if (event.type.startsWith("agent.") || event.type.startsWith("user.")) {
+        emit({
+          type: EventType.RAW,
+          source: "claude-managed-agents",
+          event,
+        } as BaseEvent);
+      }
       switch (event.type) {
         case "event_start": {
           if (event.event.type === "agent.message") {
-            openMessage(event.event.id).snapshot = accumulateManagedAgentsEvent(undefined, event);
+            openMessage(event.event.id).snapshot = accumulateManagedAgentsEvent(
+              undefined,
+              event,
+            );
           } else if (event.event.type === "agent.thinking") {
             openReasoning.add(event.event.id);
-            emit({ type: EventType.REASONING_START, messageId: event.event.id } as BaseEvent);
-            emit({ type: EventType.REASONING_MESSAGE_START, messageId: event.event.id, role: "reasoning" } as BaseEvent);
+            emit({
+              type: EventType.REASONING_START,
+              messageId: event.event.id,
+            } as BaseEvent);
+            emit({
+              type: EventType.REASONING_MESSAGE_START,
+              messageId: event.event.id,
+              role: "reasoning",
+            } as BaseEvent);
           }
           break;
         }
@@ -322,7 +421,10 @@ export async function runTurn(opts: TurnOptions): Promise<TurnOutcome> {
           const preview = previews.get(event.event_id);
           if (!preview) break; // best-effort; the buffered agent.message is canonical
           try {
-            preview.snapshot = accumulateManagedAgentsEvent(preview.snapshot, event);
+            preview.snapshot = accumulateManagedAgentsEvent(
+              preview.snapshot,
+              event,
+            );
           } catch (error) {
             // A gapped or out-of-order delta: drop this preview and let the
             // buffered agent.message reconcile against what was emitted.
@@ -330,7 +432,10 @@ export async function runTurn(opts: TurnOptions): Promise<TurnOutcome> {
             preview.snapshot = undefined;
             break;
           }
-          if (event.delta.type === "content_delta" && event.delta.content.type === "text") {
+          if (
+            event.delta.type === "content_delta" &&
+            event.delta.content.type === "text"
+          ) {
             preview.emitted += event.delta.content.text;
             emitTextContent(event.event_id, event.delta.content.text);
           }
@@ -343,8 +448,14 @@ export async function runTurn(opts: TurnOptions): Promise<TurnOutcome> {
           if (openReasoning.has(event.id)) {
             closeReasoning(event.id);
           } else {
-            emit({ type: EventType.REASONING_START, messageId: event.id } as BaseEvent);
-            emit({ type: EventType.REASONING_END, messageId: event.id } as BaseEvent);
+            emit({
+              type: EventType.REASONING_START,
+              messageId: event.id,
+            } as BaseEvent);
+            emit({
+              type: EventType.REASONING_END,
+              messageId: event.id,
+            } as BaseEvent);
           }
           break;
         }
@@ -358,7 +469,11 @@ export async function runTurn(opts: TurnOptions): Promise<TurnOutcome> {
         case "agent.custom_tool_use": {
           // Report the frontend's original tool name, which may differ from
           // the normalized name registered on the managed agent.
-          emitToolCall(event.id, opts.clientTools.get(event.name) ?? event.name, event.input);
+          emitToolCall(
+            event.id,
+            opts.clientTools.get(event.name) ?? event.name,
+            event.input,
+          );
           if (opts.clientTools.has(event.name)) {
             // The frontend executes this tool. Leave it unanswered; the session
             // will park on it and the next run supplies the result.
@@ -368,7 +483,11 @@ export async function runTurn(opts: TurnOptions): Promise<TurnOutcome> {
           }
           const backend = opts.backendTools.get(event.name);
           if (backend) {
-            const undelivered = await runBackendTool(event.id, backend, event.input);
+            const undelivered = await runBackendTool(
+              event.id,
+              backend,
+              event.input,
+            );
             if (undelivered) return undelivered;
             break;
           }
@@ -384,23 +503,37 @@ export async function runTurn(opts: TurnOptions): Promise<TurnOutcome> {
 
         case "agent.tool_use": {
           emitToolCall(event.id, event.name, event.input);
-          if (event.evaluated_permission === "ask") askedConfirmations.add(event.id);
+          if (event.evaluated_permission === "ask")
+            askedConfirmations.add(event.id);
           break;
         }
 
         case "agent.mcp_tool_use": {
-          emitToolCall(event.id, `${event.mcp_server_name}: ${event.name}`, event.input);
-          if (event.evaluated_permission === "ask") askedConfirmations.add(event.id);
+          emitToolCall(
+            event.id,
+            `${event.mcp_server_name}: ${event.name}`,
+            event.input,
+          );
+          if (event.evaluated_permission === "ask")
+            askedConfirmations.add(event.id);
           break;
         }
 
         case "agent.tool_result": {
-          emitToolResult(event.tool_use_id, describeToolResult(event.content).slice(0, TOOL_RESULT_MAX_CHARS));
+          emitToolResult(
+            event.tool_use_id,
+            toolContent(event.content),
+            event.id,
+          );
           break;
         }
 
         case "agent.mcp_tool_result": {
-          emitToolResult(event.mcp_tool_use_id, describeToolResult(event.content).slice(0, TOOL_RESULT_MAX_CHARS));
+          emitToolResult(
+            event.mcp_tool_use_id,
+            toolContent(event.content),
+            event.id,
+          );
           break;
         }
 
@@ -425,7 +558,10 @@ export async function runTurn(opts: TurnOptions): Promise<TurnOutcome> {
             return { status: "finished" };
           }
           if (stop_reason.type === "retries_exhausted") {
-            return fail("The session gave up after exhausting its retries.", "retries_exhausted");
+            return fail(
+              "The session gave up after exhausting its retries.",
+              "retries_exhausted",
+            );
           }
           // Anything other than requires_action is a stop reason this version
           // does not know how to answer. Reading its (absent) event_ids used to
@@ -442,15 +578,19 @@ export async function runTurn(opts: TurnOptions): Promise<TurnOutcome> {
             );
           }
           // requires_action: work out what the session is blocked on.
-          const blockedOn = (stop_reason.event_ids ?? []).filter((id) => !ackedToolUses.has(id));
+          const blockedOn = (stop_reason.event_ids ?? []).filter(
+            (id) => !ackedToolUses.has(id),
+          );
           if (blockedOn.length === 0) break; // everything is already answered; wait for it to resume
 
-          const confirmations = blockedOn.filter((id) => askedConfirmations.has(id));
+          const confirmations = blockedOn.filter((id) =>
+            askedConfirmations.has(id),
+          );
           if (confirmations.length > 0) {
             if (!opts.toolConfirmation) {
               return fail(
                 "A tool requires confirmation but no confirmation policy is configured. " +
-                  "Set `toolConfirmation` to \"allow\" or \"deny\", or use a permission policy that does not ask.",
+                  'Set `toolConfirmation` to "allow" or "deny", or use a permission policy that does not ask.',
                 "tool_confirmation_required",
                 await interrupt(),
               );
@@ -483,8 +623,12 @@ export async function runTurn(opts: TurnOptions): Promise<TurnOutcome> {
             if (confirmations.length === blockedOn.length) break;
           }
 
-          const clientToolUseIds = blockedOn.filter((id) => clientParks.has(id));
-          const unknown = blockedOn.filter((id) => !askedConfirmations.has(id) && !clientParks.has(id));
+          const clientToolUseIds = blockedOn.filter((id) =>
+            clientParks.has(id),
+          );
+          const unknown = blockedOn.filter(
+            (id) => !askedConfirmations.has(id) && !clientParks.has(id),
+          );
           if (unknown.length > 0) {
             return fail(
               "The agent is waiting on an action this integration cannot answer.",
@@ -503,7 +647,12 @@ export async function runTurn(opts: TurnOptions): Promise<TurnOutcome> {
         case "session.status_terminated":
         case "session.deleted": {
           closeAll();
-          emit({ type: EventType.RUN_ERROR, message: "The managed session ended on the server. Send another message to start a fresh one.", code: "session_ended" } as BaseEvent);
+          emit({
+            type: EventType.RUN_ERROR,
+            message:
+              "The managed session ended on the server. Send another message to start a fresh one.",
+            code: "session_ended",
+          } as BaseEvent);
           return { status: "errored", sessionEnded: true };
         }
 
@@ -513,7 +662,10 @@ export async function runTurn(opts: TurnOptions): Promise<TurnOutcome> {
     }
     closeAll();
     if (signal.aborted) throw new Error("turn aborted");
-    return fail("The session event stream ended before the reply completed.", "stream_ended");
+    return fail(
+      "The session event stream ended before the reply completed.",
+      "stream_ended",
+    );
   };
 
   /** Fold the buffered final `agent.message` into what the preview emitted. */
@@ -568,17 +720,24 @@ const isSentWhileParked = (err: unknown): boolean =>
   typeof err === "object" &&
   err !== null &&
   (err as { status?: unknown }).status === 400 &&
-  String((err as { message?: unknown }).message ?? "").includes(SENT_WHILE_PARKED_MESSAGE);
+  String((err as { message?: unknown }).message ?? "").includes(
+    SENT_WHILE_PARKED_MESSAGE,
+  );
 
 /** Rejects when `signal` aborts, whether it aborts before or during the wait. */
-const abortRejection = <T>(signal: AbortSignal): { promise: Promise<T>; dispose: () => void } => {
+const abortRejection = <T>(
+  signal: AbortSignal,
+): { promise: Promise<T>; dispose: () => void } => {
   let onAbort: () => void = () => {};
   const promise = new Promise<T>((_, reject) => {
     onAbort = () => reject(new Error("turn aborted"));
     if (signal.aborted) onAbort();
     else signal.addEventListener("abort", onAbort, { once: true });
   });
-  return { promise, dispose: () => signal.removeEventListener("abort", onAbort) };
+  return {
+    promise,
+    dispose: () => signal.removeEventListener("abort", onAbort),
+  };
 };
 
 /**
@@ -609,7 +768,10 @@ const raceAbort = async <T>(
 const sleep = async (ms: number, signal: AbortSignal): Promise<void> => {
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
-    await raceAbort(() => new Promise<void>((resolve) => (timer = setTimeout(resolve, ms))), signal);
+    await raceAbort(
+      () => new Promise<void>((resolve) => (timer = setTimeout(resolve, ms))),
+      signal,
+    );
   } finally {
     clearTimeout(timer);
   }

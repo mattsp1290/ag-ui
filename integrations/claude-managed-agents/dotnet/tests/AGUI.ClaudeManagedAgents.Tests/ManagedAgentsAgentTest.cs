@@ -52,7 +52,7 @@ public class ManagedAgentsAgentTest
         var events = new List<BaseEvent>();
         await foreach (var evt in agent.RunAsync(input))
         {
-            events.Add(evt);
+            if (evt is not RawEvent) events.Add(evt);
         }
 
         return events;
@@ -688,7 +688,7 @@ public class ManagedAgentsAgentTest
             await foreach (var evt in agent.RunAsync(
                 BaseInput(input => input.Tools = [ShowChartTool()]), client.Token))
             {
-                events.Add(evt);
+                if (evt is not RawEvent) events.Add(evt);
                 if (evt is ToolCallEndEvent)
                 {
                     await client.CancelAsync();
@@ -1479,7 +1479,7 @@ public class ManagedAgentsAgentTest
             },
         ]));
 
-        AssertJson("""{"type":"user.message","content":[{"type":"text","text":"Look here"}]}""", fake.Sent[0].Single());
+        AssertJson("""{"type":"user.message","content":[{"type":"text","text":"Look here"},{"type":"image","source":{"type":"url","url":"https://x/y.png"}}]}""", fake.Sent[0].Single());
     }
 
     [Fact]

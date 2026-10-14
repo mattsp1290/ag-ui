@@ -23,6 +23,9 @@ export class OmnaraAgent extends AbstractAgent {
   /** `api` replaces the Omnara client (tests). */
   constructor(config: OmnaraAgentConfig, api?: OmnaraApi) {
     super(config);
+    // Part of each thread's launch key. `AbstractAgent` would otherwise give
+    // every instance a random one; CopilotKit sets its registered name.
+    this.agentId ??= "omnara";
     if (Boolean(config.profile) === Boolean(config.definition)) {
       throw new Error(
         "OmnaraAgent: give exactly one of `profile` and `definition`",
@@ -73,6 +76,7 @@ export class OmnaraAgent extends AbstractAgent {
         {
           api: this.api,
           config: this.config,
+          aguiAgentId: this.agentId!,
           backendTools: this.backendTools,
           report: (error, context) => this.report(error, context),
         },

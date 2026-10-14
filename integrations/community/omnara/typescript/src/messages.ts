@@ -1,4 +1,5 @@
 import type { Message, ToolMessage } from "@ag-ui/core";
+import { createHash } from "node:crypto";
 import type { AgentEvent } from "./api";
 
 /**
@@ -10,11 +11,25 @@ import type { AgentEvent } from "./api";
  * - reasoning message: `<model call id>:block:<index>`
  * - tool call: Omnara's tool-call id
  * - tool message: the tool result's event id
- * - user message: the client's id (from the `agui:<id>` input key), or
+ * - user message: the client's id (behind its `agui:` input key), or
  *   Omnara's input id for messages from anyone else (see `Author`)
  */
 
 export const INPUT_KEY_PREFIX = "agui:";
+
+/**
+ * A client message's Omnara idempotency key. An id a header can't carry as is
+ * (non-ASCII, a trailing space, too long) is hashed; `clientIdOf` maps it back
+ * through the client's messages.
+ */
+export function inputKey(messageId: string): string {
+  const key = `${INPUT_KEY_PREFIX}${messageId}`;
+  return key.length <= 255 &&
+    /^[ -~]*$/.test(messageId) &&
+    !messageId.endsWith(" ")
+    ? key
+    : `${INPUT_KEY_PREFIX}${createHash("sha256").update(messageId).digest("hex")}`;
+}
 
 export const reasoningId = (modelCallId: string, index: number) =>
   `${modelCallId}:block:${index}`;
@@ -77,13 +92,18 @@ export function toolResultText(
     .join("\n");
 }
 
-/** The client message id behind an input key, if the input came from this adapter. */
-export function clientIdOf(event: AgentEvent): string | undefined {
+/**
+ * The client message id behind an input key, if the input came from this
+ * adapter. `byKey` maps the keys of the client's messages to their ids.
+ */
+export function clientIdOf(
+  event: AgentEvent,
+  byKey?: ReadonlyMap<string, string>,
+): string | undefined {
   if (event.event_kind !== "agent_input") return undefined;
   const key = event.input_idempotency_key;
-  return key?.startsWith(INPUT_KEY_PREFIX)
-    ? key.slice(INPUT_KEY_PREFIX.length)
-    : undefined;
+  if (!key?.startsWith(INPUT_KEY_PREFIX)) return undefined;
+  return byKey?.get(key) ?? key.slice(INPUT_KEY_PREFIX.length);
 }
 
 /**
@@ -113,6 +133,7 @@ export function snapshotMessages(
   ctx: SnapshotContext,
 ): Message[] {
   const held = new Map(ctx.clientMessages.map((m) => [m.id, m]));
+  const byKey = new Map(ctx.clientMessages.map((m) => [inputKey(m.id), m.id]));
   const clientResults = new Map(
     ctx.clientMessages
       .filter((m): m is ToolMessage => m.role === "tool")
@@ -148,7 +169,7 @@ export function snapshotMessages(
   for (const e of events) {
     if (e.event_kind === "agent_input") {
       if (e.input_kind !== "content") continue;
-      const clientId = clientIdOf(e);
+      const clientId = clientIdOf(e, byKey);
       if (clientId !== undefined) {
         out.push(
           held.get(clientId) ?? {

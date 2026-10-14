@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { BaseEvent, Message, Tool } from "@ag-ui/core";
 import { OmnaraAgent } from "../agent";
+import { inputKey } from "../messages";
 import type { OmnaraAgentConfig } from "../types";
 import { FakeApiError, FakeOmnara } from "./fake-omnara";
 
@@ -164,6 +165,38 @@ describe("chat", () => {
     }
     const keys = [a, b, c].map(({ fake }) => fake.called("launch")[0]![1]);
     expect(new Set(keys).size).toBe(3);
+  });
+
+  it("gives two configured agents on one thread their own agent", async () => {
+    const support = setup({ definition: undefined, profile: "support" });
+    const sales = setup({ definition: undefined, profile: "sales" });
+    // CopilotKit sets each agent's registered name.
+    support.agent.agentId = "support";
+    sales.agent.agentId = "sales";
+    for (const { fake, agent } of [support, sales]) {
+      replies(fake);
+      await run(agent, { text: "x" });
+      await run(agent, { text: "y" });
+    }
+    const keys = (s: typeof support) =>
+      s.fake.called("launch").map((args) => args[1]);
+    expect(new Set(keys(support)).size).toBe(1);
+    expect(new Set(keys(sales)).size).toBe(1);
+    expect(keys(support)[0]).not.toBe(keys(sales)[0]);
+    expect(support.fake.called("getProfile")[0]).toEqual(["support"]);
+    expect(sales.fake.called("getProfile")[0]).toEqual(["sales"]);
+  });
+
+  it("keeps a thread's agent when the agent is built per request without an agentId", async () => {
+    const first = setup();
+    const second = setup();
+    for (const { fake, agent } of [first, second]) {
+      replies(fake);
+      await run(agent, { text: "x" });
+    }
+    expect(first.fake.called("launch")[0]![1]).toBe(
+      second.fake.called("launch")[0]![1],
+    );
   });
 
   it("replaces a failed preview with the recorded reply", async () => {
@@ -630,6 +663,44 @@ describe("chat", () => {
     expect(finished(await run(agent, { text: "q" }))?.outcome).toEqual({
       type: "success",
     });
+  });
+
+  it.each([
+    ["250 characters", "x".repeat(250)],
+    ["251 characters", "x".repeat(251)],
+    ["an emoji", "msg ❤️ 1"],
+    ["a trailing space", "msg-1 "],
+  ])(
+    "keeps a message whose id has %s, with its reply, and doesn't resend it",
+    async (_, id) => {
+      const { fake, agent } = setup();
+      replies(fake);
+      agent.addMessage({ id, role: "user", content: "q" });
+      await run(agent);
+      // A retry with nothing new.
+      await run(agent);
+      expect(fake.called("postInput")).toHaveLength(1);
+      expect(summary(agent.messages)).toEqual([
+        ["user", id, "q", undefined],
+        ["assistant", MCC, "Hi there", undefined],
+      ]);
+    },
+  );
+
+  it("gives every message id an input key a header carries unchanged", () => {
+    for (const id of [
+      "u-1",
+      "x".repeat(251),
+      "msg ❤️ 1",
+      "msg-1 ",
+      "tab\tid",
+    ]) {
+      const key = inputKey(id);
+      expect(
+        new Headers({ "Idempotency-Key": key }).get("Idempotency-Key"),
+      ).toBe(key);
+    }
+    expect(inputKey("u-1")).toBe("agui:u-1");
   });
 
   it("ends with a coded error when the model fails, with the detail sent to onError", async () => {
@@ -1949,6 +2020,54 @@ describe("subagents and stop", () => {
       "tool_use",
     );
     fake.readyCall("tcl_w", "get_weather");
+    fake.onResult = () =>
+      fake.output("mcc_done", [{ type: "text", text: "21 degrees" }]);
+    agent.addMessage({ id: "u-0", role: "user", content: "weather?" });
+    const events = await run(agent);
+    expect(handler).toHaveBeenCalledWith({}, { toolCallId: "tcl_w" });
+    expect(finished(events)?.outcome).toEqual({ type: "success" });
+    expect(summary(agent.messages).at(-1)).toEqual([
+      "assistant",
+      "mcc_done",
+      "21 degrees",
+      undefined,
+    ]);
+  });
+
+  it("a reconnect with nothing new runs a host tool the agent calls after it", async () => {
+    const handler = vi.fn(async () => ({ temperature: 21 }));
+    const { fake, agent } = setup({
+      backendTools: [{ name: "get_weather", description: "Weather.", handler }],
+    });
+    // The earlier request left while the agent was still working.
+    fake.push({
+      event_kind: "agent_input",
+      input_kind: "content",
+      input_idempotency_key: "agui:u-0",
+      content_blocks: [{ type: "text", text: "weather?" }],
+    });
+    // The host tool call comes only once the reconnect is following.
+    const stream = fake.stream.bind(fake);
+    fake.stream = (...args) => {
+      setTimeout(() => {
+        fake.output(
+          "mcc_t",
+          [
+            {
+              type: "tool_call",
+              tool_call_id: "tcl_w",
+              tool_type: "custom",
+              name: "get_weather",
+              input: { city: "Paris" },
+            },
+          ],
+          "tool_use",
+        );
+        fake.readyCall("tcl_w", "get_weather");
+        fake.update("tcl_w", "ready");
+      }, 20);
+      return stream(...args);
+    };
     fake.onResult = () =>
       fake.output("mcc_done", [{ type: "text", text: "21 degrees" }]);
     agent.addMessage({ id: "u-0", role: "user", content: "weather?" });

@@ -85,3 +85,54 @@ describe("profile lookup", () => {
     expect(nameFilter()).toBe("beta\\*v2\\?x\\\\y");
   });
 });
+
+describe("subagents", () => {
+  /** A subagent as Omnara lists it; `n` makes its id unique. */
+  const child = (n: number, state: "idle" | "running") => ({
+    id: `agt_${String(n)
+      .padStart(26, "0")
+      .replace(/\d/g, (d) => "abcdefghij"[Number(d)]!)}`,
+    org_id: id("org"),
+    project_id: id("proj"),
+    parent_agent_id: id("agt", "p"),
+    state: "active",
+    name: "",
+    created_at: at,
+    updated_at: at,
+    activity: { state, last_activity_at: at },
+  });
+
+  it("lists every page of an agent's subagents", async () => {
+    // More than a page of idle ones, newest first; the running one is older.
+    const first = Array.from({ length: 100 }, (_, n) => child(n, "idle"));
+    const running = child(100, "running");
+    const fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(input instanceof Request ? input.url : String(input));
+      const cursor = url.searchParams.get("cursor");
+      // Like Omnara, an unknown cursor is rejected.
+      if (cursor !== null && cursor !== "page-2")
+        return new Response(null, { status: 400 });
+      const second = cursor === "page-2";
+      const body = {
+        data: second ? [running] : first,
+        next_cursor: second ? null : "page-2",
+      };
+      return new Response(JSON.stringify(body), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    });
+    vi.stubGlobal("fetch", fetch);
+    const api = createOmnaraApi({
+      apiKey: "key",
+      orgId: id("org"),
+      projectId: id("proj"),
+    });
+    const children = await api.listChildren(id("agt", "p"));
+    expect(children).toHaveLength(101);
+    expect(children.at(-1)).toMatchObject({
+      id: running.id,
+      activity: { state: "running" },
+    });
+  });
+});

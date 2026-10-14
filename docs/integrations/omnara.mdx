@@ -92,7 +92,7 @@ CopilotKit React application uses `runtimeUrl="/api/copilotkit"` and
 
 ## Threads, runs, and Stop
 
-A thread's agent is keyed by user and thread id and is reused across runs, so
+A thread's agent is keyed by agent, user and thread id and is reused across runs, so
 changing the profile or definition applies to new threads. A closed tab or dropped connection cancels nothing:
 the next run catches the chat up from Omnara's log. `abortRun()` (CopilotKit's
 Stop button) cancels the agent and its running subagents. Thread ids come from

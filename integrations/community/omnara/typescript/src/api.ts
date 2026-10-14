@@ -48,6 +48,7 @@ export interface OmnaraApi {
     body: { config: string; profile?: string; name: string },
     idempotencyKey: string,
   ): Promise<{ agent: Agent; created: boolean }>;
+  /** All of the agent's unarchived subagents. */
   listChildren(agentId: string): Promise<Agent[]>;
   setConfig(
     agentId: string,
@@ -184,12 +185,18 @@ export function createOmnaraApi(options: {
       return { agent: data.agent, created: response.status === 201 };
     },
     async listChildren(agentId) {
-      const { data } = await sdk.listAgents({
-        client,
-        path: project,
-        query: { parent_agent_id: agentId, limit: PAGE_LIMIT },
-      });
-      return data.data;
+      const children: Agent[] = [];
+      let cursor: string | undefined;
+      for (;;) {
+        const { data } = await sdk.listAgents({
+          client,
+          path: project,
+          query: { parent_agent_id: agentId, limit: PAGE_LIMIT, cursor },
+        });
+        children.push(...data.data);
+        if (!data.next_cursor || data.data.length === 0) return children;
+        cursor = data.next_cursor;
+      }
     },
     async setConfig(agentId, source, format, expectedCurrentConfigId) {
       await sdk.updateAgentConfig({

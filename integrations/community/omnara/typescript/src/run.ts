@@ -37,8 +37,8 @@ import {
 } from "./inputs";
 import { answersFor, toInterrupt } from "./interrupts";
 import {
-  INPUT_KEY_PREFIX,
   clientIdOf,
+  inputKey,
   reasoningId,
   snapshotMessages,
   inputText,
@@ -84,6 +84,8 @@ const RESULT_TOO_LARGE =
 interface RunDeps {
   api: OmnaraApi;
   config: OmnaraAgentConfig;
+  /** The AG-UI agent's id (CopilotKit's registered name). */
+  aguiAgentId: string;
   backendTools: ReadonlyMap<string, BackendTool>;
   report: (error: unknown, context: OmnaraErrorContext) => Promise<void>;
 }
@@ -271,13 +273,20 @@ export class OmnaraRun {
       );
       launch = { config: created.id, name };
     }
-    // A thread belongs to one agent per user: the launch key replays the agent
-    // the thread started with, so a changed profile or definition only reaches
-    // new threads.
+    // A thread has one Omnara agent per AG-UI agent and user: the launch key
+    // replays the agent the thread started with, so a changed profile or
+    // definition only reaches new threads.
     const user =
       config.user === "anonymous" ? { id: "anonymous" } : config.user;
     const key = createHash("sha256")
-      .update(JSON.stringify([user.tenant ?? "", user.id, this.input.threadId]))
+      .update(
+        JSON.stringify([
+          user.tenant ?? "",
+          user.id,
+          this.deps.aguiAgentId,
+          this.input.threadId,
+        ]),
+      )
       .digest("hex");
     const { agent, created } = await api.launch(launch, `agui-thread:${key}`);
     this.agentId = agent.id;
@@ -383,13 +392,14 @@ export class OmnaraRun {
   // ---------------------------------------------------------------- submit
 
   private newWork(log: AgentEvent[]): Work {
+    // Omnara's input ids (messages from others the chat holds) and our input keys.
     const known = new Set<string>();
+    const keys = new Set<string>();
     const answered = new Set<string>();
     for (const e of log) {
       if (e.event_kind === "agent_input") {
         known.add(e.agent_input_id);
-        const id = clientIdOf(e);
-        if (id !== undefined) known.add(id);
+        if (e.input_idempotency_key) keys.add(e.input_idempotency_key);
       } else if (e.event_kind === "tool_result") {
         answered.add(e.tool_call_id);
       }
@@ -398,7 +408,8 @@ export class OmnaraRun {
     return {
       // A message of the user's that the agent doesn't have yet.
       messages: all.filter(
-        (m): m is UserMessage => m.role === "user" && !known.has(m.id),
+        (m): m is UserMessage =>
+          m.role === "user" && !known.has(m.id) && !keys.has(inputKey(m.id)),
       ),
       // The page answers only its own (browser) tools.
       results: all.filter((m): m is ToolMessage => {
@@ -1182,11 +1193,4 @@ async function accept409(call: () => Promise<unknown>): Promise<void> {
   } catch (error) {
     if (statusOf(error) !== 409) throw error;
   }
-}
-
-function inputKey(messageId: string): string {
-  const key = `${INPUT_KEY_PREFIX}${messageId}`;
-  return key.length <= 255
-    ? key
-    : `${INPUT_KEY_PREFIX}${createHash("sha256").update(messageId).digest("hex")}`;
 }

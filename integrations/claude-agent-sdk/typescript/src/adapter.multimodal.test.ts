@@ -483,21 +483,21 @@ describe("ClaudeAgentAdapter multimodal input", () => {
     );
   });
 
-  it("warns when tool-result media is flattened to text", () => {
-    const warn = vi.mocked(console.warn);
-    const msg = buildAguiToolMessage("tc1", [
+  it("preserves tool-result media as structured JSON", () => {
+    const blocks = [
       { type: "text", text: "chart attached" },
       {
         type: "image",
         source: { type: "base64", media_type: "image/png", data: "eA==" },
       },
+    ];
+    expect(buildAguiToolMessage("tc1", blocks).content).toMatchObject([
+      { type: "text", text: "chart attached" },
+      {
+        type: "image",
+        source: { type: "data", value: "eA==", mimeType: "image/png" },
+      },
     ]);
-
-    expect(msg.content).toBe("chart attached");
-    expect(warn).toHaveBeenCalledTimes(1);
-    const text = String(warn.mock.calls[0][0]);
-    expect(text).toContain("tc1");
-    expect(text).toContain("image");
   });
 
   it("does not warn for text-only results", () => {
@@ -505,5 +505,68 @@ describe("ClaudeAgentAdapter multimodal input", () => {
     buildAguiToolMessage("tc1", [{ type: "text", text: "ok" }]);
     buildAguiToolMessage("tc1", "ok");
     expect(warn).not.toHaveBeenCalled();
+  });
+});
+
+describe("SDK content identity", () => {
+  it("keeps one native message and all emitted content", async () => {
+    const content = [
+      { type: "text", text: "Hi" },
+      { type: "thinking", thinking: "reason", signature: "sig" },
+      { type: "future_block", payload: [1, 2] },
+    ];
+    queryMock.mockImplementation(() =>
+      (async function* () {
+        yield {
+          type: "stream_event",
+          event: { type: "message_start", message: { id: "msg-native" } },
+        };
+        yield {
+          type: "stream_event",
+          event: {
+            type: "content_block_delta",
+            delta: { type: "text_delta", text: "Hi" },
+          },
+        };
+        yield { type: "stream_event", event: { type: "message_stop" } };
+        yield {
+          type: "assistant",
+          uuid: "record-native",
+          message: { id: "msg-native", content },
+        };
+      })(),
+    );
+    const events = await runAdapter([]);
+    expect(
+      events.find((e) => e.type === "MESSAGES_SNAPSHOT")?.messages,
+    ).toEqual([{ id: "msg-native", role: "assistant", content: "Hi" }]);
+    expect(
+      events.find((e) => e.name === "claude:assistant_content")?.value,
+    ).toMatchObject({
+      messageId: "msg-native",
+      uuid: "record-native",
+      content,
+    });
+  });
+  it("retains unsupported input media and filenames in the recorded input", async () => {
+    queryMock.mockImplementation(() => (async function* () {})());
+    const messages = [
+      {
+        id: "user-native",
+        role: "user",
+        content: [
+          { type: "text", text: "Hi" },
+          {
+            type: "audio",
+            source: { type: "data", mimeType: "audio/wav", value: "AQID" },
+            metadata: { filename: "speech.wav" },
+          },
+        ],
+      },
+    ];
+    const events = await runAdapter(messages);
+    expect(events.find((e) => e.type === "RUN_STARTED")?.input).toMatchObject({
+      messages,
+    });
   });
 });

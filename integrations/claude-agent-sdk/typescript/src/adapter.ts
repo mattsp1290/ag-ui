@@ -40,6 +40,7 @@ import {
   hasState,
   buildAguiAssistantMessage,
   buildAguiToolMessage,
+  mergeStateUpdate,
   isStateManagementTool,
 } from "./utils";
 import { handleToolUseBlock } from "./handlers";
@@ -190,6 +191,7 @@ export class ClaudeAgentAdapter extends AbstractAgent {
         threadId,
         runId,
         protocolVersion: PROTOCOL_VERSION,
+        input,
       });
 
       const { userMessage } = processMessages(input);
@@ -419,6 +421,7 @@ export class ClaudeAgentAdapter extends AbstractAgent {
   ): Promise<void> {
     // Per-run state (local to this invocation)
     let currentMessageId: string | null = null;
+    let lastStreamedMessageId: string | null = null;
     let inReasoningBlock = false;
     let reasoningMessageId: string | null = null;
     let hasStreamedText = false;
@@ -491,7 +494,10 @@ export class ClaudeAgentAdapter extends AbstractAgent {
 
           if (eventType === "message_start") {
             // Defer TEXT_MESSAGE_START until we get actual text (avoids empty messages from thinking-only blocks)
-            currentMessageId = randomUUID();
+            currentMessageId =
+              (event.message as { id?: string } | undefined)?.id ??
+              randomUUID();
+            lastStreamedMessageId = currentMessageId;
             hasStreamedText = false;
             pendingMsg = { id: currentMessageId, content: "", toolCalls: [] };
           } else if (eventType === "content_block_delta") {
@@ -617,28 +623,11 @@ export class ClaudeAgentAdapter extends AbstractAgent {
                 try {
                   const stateArgs = JSON.parse(accumulatedToolJson);
                   if (typeof stateArgs === "object" && stateArgs !== null) {
-                    let updates = stateArgs.state_updates ?? stateArgs;
-
-                    // Parse nested JSON string if needed
-                    if (typeof updates === "string") {
-                      updates = JSON.parse(updates);
-                    }
-
                     const prevStateJson = JSON.stringify(runCtx.currentState);
-
-                    if (
-                      typeof runCtx.currentState === "object" &&
-                      runCtx.currentState !== null &&
-                      typeof updates === "object" &&
-                      updates !== null
-                    ) {
-                      runCtx.currentState = {
-                        ...(runCtx.currentState as Record<string, unknown>),
-                        ...(updates as Record<string, unknown>),
-                      };
-                    } else {
-                      runCtx.currentState = updates;
-                    }
+                    runCtx.currentState = mergeStateUpdate(
+                      runCtx.currentState,
+                      stateArgs,
+                    );
 
                     const newStateJson = JSON.stringify(runCtx.currentState);
 
@@ -755,8 +744,24 @@ export class ClaudeAgentAdapter extends AbstractAgent {
           const assistantMsg = message as SDKAssistantMessage;
           const content = assistantMsg.message?.content ?? [];
 
+          const msgId =
+            assistantMsg.message?.id ??
+            currentMessageId ??
+            lastStreamedMessageId ??
+            assistantMsg.uuid ??
+            randomUUID();
+          lastStreamedMessageId = null;
+          subscriber.next({
+            type: EventType.CUSTOM,
+            name: "claude:assistant_content",
+            value: {
+              messageId: msgId,
+              uuid: assistantMsg.uuid,
+              parentToolUseId: assistantMsg.parent_tool_use_id,
+              content,
+            },
+          });
           {
-            const msgId = currentMessageId ?? randomUUID();
             const aguiMsg = buildAguiAssistantMessage(assistantMsg, msgId);
             if (aguiMsg) {
               upsertMessage(aguiMsg);
@@ -771,7 +776,7 @@ export class ClaudeAgentAdapter extends AbstractAgent {
 
             const { updatedState } = handleToolUseBlock(
               toolBlock,
-              assistantMsg.parent_tool_use_id ?? undefined,
+              msgId,
               threadId,
               runId,
               runCtx.currentState,
@@ -819,7 +824,11 @@ export class ClaudeAgentAdapter extends AbstractAgent {
                 const toolUseId = block.tool_use_id as string;
                 const resultContent = block.content;
 
-                const toolMsg = buildAguiToolMessage(toolUseId, resultContent);
+                const toolMsg = buildAguiToolMessage(
+                  toolUseId,
+                  resultContent,
+                  block.is_error === true,
+                );
                 upsertMessage(toolMsg);
 
                 subscriber.next({
@@ -828,7 +837,8 @@ export class ClaudeAgentAdapter extends AbstractAgent {
                   runId,
                   messageId: toolMsg.id,
                   toolCallId: toolUseId,
-                  content: toolMsg.content as string,
+                  content: toolMsg.content!,
+                  rawEvent: block,
                   role: "tool",
                 });
               }

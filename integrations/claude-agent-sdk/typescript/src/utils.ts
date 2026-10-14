@@ -13,6 +13,8 @@ import type {
   ToolCall,
   Message,
   InputContent,
+  ToolMessage,
+  ContentPart,
 } from "@ag-ui/core";
 import type {
   SDKAssistantMessage,
@@ -548,6 +550,10 @@ function jsonSchemaToZodShape(
  */
 export function convertAguiToolToClaudeSdk(
   toolDef: Tool,
+  resolveFrontendResult?: (
+    name: string,
+    input: Record<string, unknown>,
+  ) => ToolMessage["content"] | Promise<ToolMessage["content"]>,
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
 ): any {
   const toolName = toolDef.name ?? "unknown";
@@ -558,9 +564,15 @@ export function convertAguiToolToClaudeSdk(
   const zodShape = jsonSchemaToZodShape(toolParameters);
 
   // Create stub tool with empty implementation (execution happens client-side)
-  return tool(toolName, toolDescription, zodShape, async () => ({
-    content: [{ type: "text" as const, text: "Tool call forwarded to client" }],
-  }));
+  return tool(toolName, toolDescription, zodShape, async (args) => {
+    if (!resolveFrontendResult) {
+      throw new Error(
+        "Frontend tool result requires a matched deferred tool call",
+      );
+    }
+    const result = await resolveFrontendResult(toolName, args);
+    return { content: frontendResultBlocks(result) };
+  });
 }
 
 /**
@@ -573,7 +585,7 @@ export function convertAguiToolToClaudeSdk(
 export function createStateManagementTool(): any {
   return tool(
     "ag_ui_update_state",
-    "Update the shared application state. Use this to persist changes that should be visible in the UI. Pass the complete updated state object.",
+    "Update the shared application state. Use this to persist changes that should be visible in the UI. Pass a partial object: keys are shallow-merged into current state; nested values replace existing values. The emitted snapshot contains the full merged state.",
     { state_updates: z.record(z.string(), z.unknown()) },
     async () => ({
       content: [{ type: "text" as const, text: "State updated successfully" }],
@@ -698,70 +710,170 @@ export function buildAguiAssistantMessage(
   return msg;
 }
 
-/**
- * Warn when a tool result carries non-text blocks (images, documents, ...).
- *
- * The AG-UI tool message content is a string here, so the result is flattened
- * to text: media blocks are either dropped (when a text block comes first) or
- * serialised as JSON. That is valid, but the media no longer reaches the
- * frontend as media, so say so instead of losing it silently.
- */
-function warnIfToolResultMediaFlattened(
-  toolUseId: string,
-  content: unknown,
-): void {
-  if (!Array.isArray(content)) return;
-  const mediaTypes = new Set<string>();
-  for (const block of content) {
-    if (block && typeof block === "object") {
-      const type = (block as { type?: unknown }).type;
-      if (type !== "text") mediaTypes.add(String(type));
+/** Preserve rich blocks as JSON; unwrap only a single plain text block. */
+export function serializeToolResult(content: unknown, isError = false): string {
+  let value = content ?? "";
+  if (Array.isArray(value) && value.length === 1) {
+    const block = value[0];
+    if (
+      block?.type === "text" &&
+      typeof block.text === "string" &&
+      Object.keys(block).every((key) => key === "type" || key === "text")
+    ) {
+      value = block.text;
     }
   }
-  if (mediaTypes.size > 0) {
-    console.warn(
-      `[ClaudeAdapter] Tool result ${toolUseId} contains non-text content (${[...mediaTypes].sort().join(", ")}); it is flattened to text in the AG-UI tool message and the media is not forwarded`,
-    );
+  if (isError) {
+    let parsed = value;
+    if (typeof value === "string") {
+      try {
+        parsed = JSON.parse(value);
+      } catch {
+        /* Plain text remains text. */
+      }
+    }
+    value =
+      parsed && typeof parsed === "object" && !Array.isArray(parsed)
+        ? { ...parsed, error: true }
+        : { error: true, content: value };
   }
+  return typeof value === "string" ? value : JSON.stringify(value);
 }
 
-/**
- * Build an AG-UI ToolMessage from a Claude SDK tool result block.
- *
- * Extracts the text content from the SDK's content block format and
- * normalises it into a simple string for the AG-UI message.
- */
 export function buildAguiToolMessage(
   toolUseId: string,
   content: unknown,
-): Message {
-  warnIfToolResultMediaFlattened(toolUseId, content);
-
-  let resultStr = "";
-  try {
-    if (Array.isArray(content) && content.length > 0) {
-      const firstBlock = content[0] as Record<string, unknown>;
-      if (firstBlock?.type === "text") {
-        const text = (firstBlock.text as string) ?? "";
-        try {
-          resultStr = JSON.stringify(JSON.parse(text));
-        } catch {
-          resultStr = text;
-        }
-      } else {
-        resultStr = JSON.stringify(content);
-      }
-    } else if (content != null) {
-      resultStr = JSON.stringify(content);
-    }
-  } catch {
-    resultStr = String(content ?? "");
-  }
-
+  isError = false,
+): ToolMessage {
   return {
     id: `${toolUseId}-result`,
-    role: "tool" as const,
-    content: resultStr,
+    role: "tool",
+    content: nativeToolContent(content, isError),
     toolCallId: toolUseId,
   };
+}
+
+/** Tool updates shallow-merge object keys; run input.state is a full snapshot. */
+export function mergeStateUpdate(
+  currentState: unknown,
+  input: Record<string, unknown>,
+): Record<string, unknown> {
+  let updates = Object.prototype.hasOwnProperty.call(input, "state_updates")
+    ? input.state_updates
+    : input;
+  if (typeof updates === "string") updates = JSON.parse(updates);
+  if (!updates || typeof updates !== "object" || Array.isArray(updates)) {
+    throw new Error("state_updates must be an object");
+  }
+  const prior =
+    currentState &&
+    typeof currentState === "object" &&
+    !Array.isArray(currentState)
+      ? currentState
+      : {};
+  return { ...prior, ...updates };
+}
+
+/** Preserve original blocks alongside the standard AG-UI projection. */
+export function nativeToolContent(
+  content: unknown,
+  isError = false,
+): ToolMessage["content"] {
+  if (
+    !Array.isArray(content) ||
+    (content.length === 1 &&
+      content[0]?.type === "text" &&
+      Object.keys(content[0]).every((k) => k === "type" || k === "text"))
+  ) {
+    return serializeToolResult(content, isError);
+  }
+  return content.map((block): ContentPart => {
+    const metadata = { claude: { block, isError } };
+    if (block?.type === "text" && typeof block.text === "string")
+      return { type: "text", text: block.text, metadata };
+    const source = block?.source;
+    if (["image", "audio", "video", "document"].includes(block?.type)) {
+      if (
+        source?.type === "base64" &&
+        typeof source.data === "string" &&
+        typeof source.media_type === "string"
+      ) {
+        return {
+          type: block.type,
+          source: {
+            type: "data",
+            value: source.data,
+            mimeType: source.media_type,
+          },
+          metadata,
+        };
+      }
+      if (source?.type === "url" && typeof source.url === "string") {
+        return {
+          type: block.type,
+          source: {
+            type: "url",
+            value: source.url,
+            ...(source.media_type ? { mimeType: source.media_type } : {}),
+          },
+          metadata,
+        };
+      }
+      if (
+        typeof block.data === "string" &&
+        typeof block.mimeType === "string"
+      ) {
+        return {
+          type: block.type,
+          source: { type: "data", value: block.data, mimeType: block.mimeType },
+          metadata,
+        };
+      }
+    }
+    // The raw payload survives even when AG-UI has no equivalent part type.
+    return {
+      type: "text",
+      text: JSON.stringify(block),
+      metadata: {
+        claude: { block, isError, unsupportedType: block?.type ?? "unknown" },
+      },
+    };
+  });
+}
+
+/** Convert a matched frontend result to MCP content without a placeholder. */
+export function frontendResultBlocks(result: ToolMessage["content"]) {
+  if (typeof result === "string")
+    return [{ type: "text" as const, text: result }];
+  return result.map((part) => {
+    if (part.type === "text") return { type: "text" as const, text: part.text };
+    const source = part.source;
+    if (
+      source.type === "data" &&
+      (part.type === "image" || part.type === "audio")
+    ) {
+      return { type: part.type, data: source.value, mimeType: source.mimeType };
+    }
+    if (source.type === "url") {
+      return {
+        type: "resource_link" as const,
+        uri: source.value,
+        name: part.metadata?.filename ?? source.value,
+        ...(source.mimeType ? { mimeType: source.mimeType } : {}),
+      };
+    }
+    if (source.type === "data") {
+      return {
+        type: "resource" as const,
+        resource: {
+          uri: `data:${source.mimeType};base64,${source.value}`,
+          mimeType: source.mimeType,
+          blob: source.value,
+        },
+      };
+    }
+    throw new Error(
+      `Cannot return unresolved provider file ${source.value} as an SDK tool result`,
+    );
+  });
 }

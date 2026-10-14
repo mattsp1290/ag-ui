@@ -5,6 +5,7 @@ import os
 import logging
 import json
 import uuid
+from dataclasses import asdict, is_dataclass
 from datetime import datetime
 from typing import AsyncIterator, Optional, List, Dict, Any, Union, TYPE_CHECKING
 
@@ -48,6 +49,7 @@ from .utils import (
     strip_mcp_prefix,
     build_agui_assistant_message,
     build_agui_tool_message,
+    merge_state_update,
     _is_state_management_tool,
     fix_surrogates,
     fix_surrogates_deep,
@@ -677,6 +679,7 @@ class ClaudeAgentAdapter:
         """Translate a Claude SDK message stream into AG-UI events."""
         # Per-run state (local to this invocation)
         current_message_id: Optional[str] = None
+        last_streamed_message_id: Optional[str] = None
         in_reasoning_block: bool = False
         reasoning_message_id: Optional[str] = None
         has_streamed_text: bool = False
@@ -765,7 +768,8 @@ class ClaudeAgentAdapter:
                 event_type = event_data.get('type')
                 
                 if event_type == 'message_start':
-                    current_message_id = str(uuid.uuid4())
+                    current_message_id = (event_data.get("message") or {}).get("id") or str(uuid.uuid4())
+                    last_streamed_message_id = current_message_id
                     has_streamed_text = False
                     pending_msg = {"id": current_message_id, "content": "", "tool_calls": []}
                 
@@ -902,28 +906,11 @@ class ClaudeAgentAdapter:
                             try:
                                 state_updates = json.loads(fix_surrogates(accumulated_tool_json))
                                 if isinstance(state_updates, dict):
-                                    updates = state_updates.get("state_updates", state_updates)
-                                    if isinstance(updates, str):
-                                        updates = json.loads(updates)
                                     lock = self._state_locks.setdefault(thread_id, asyncio.Lock())
                                     async with lock:
                                         prior = self._per_thread_state.get(thread_id)
                                         prev_state_json = json.dumps(prior, sort_keys=True, default=str)
-                                        # Merge dict updates onto the prior dict.
-                                        # When there is no prior state (None),
-                                        # treat it as an empty dict so a dict
-                                        # update MERGES onto {} rather than the
-                                        # `else` branch silently replacing state
-                                        # with `updates` (functionally the same
-                                        # for a bare dict, but the explicit form
-                                        # keeps the merge/replace semantics
-                                        # unambiguous and consistent with the
-                                        # non-streaming handler).
-                                        if isinstance(updates, dict) and (prior is None or isinstance(prior, dict)):
-                                            new_state = {**(prior or {}), **updates}
-                                        else:
-                                            new_state = updates
-                                        new_state = fix_surrogates_deep(new_state)
+                                        new_state = merge_state_update(prior, state_updates)
                                         self._per_thread_state[thread_id] = new_state
                                         if json.dumps(self._per_thread_state.get(thread_id), sort_keys=True, default=str) != prev_state_json:
                                             yield StateSnapshotEvent(
@@ -1025,10 +1012,18 @@ class ClaudeAgentAdapter:
                 # msg_id (used below and passed to handle_tool_use_block()) —
                 # not current_message_id, which is only valid inside the
                 # streaming loop and is already None here.
-                msg_id = current_message_id or str(uuid.uuid4())
+                msg_id = getattr(message, "id", None) or current_message_id or last_streamed_message_id or getattr(message, "uuid", None) or str(uuid.uuid4())
                 if isinstance(message, AssistantMessage):
-                    if current_message_id is None:
+                    yield CustomEvent(
+                        type=EventType.CUSTOM,
+                        name="claude:assistant_content",
+                        value={"messageId": msg_id, "uuid": getattr(message, "uuid", None),
+                               "parentToolUseId": getattr(message, "parent_tool_use_id", None),
+                               "content": [asdict(b) if is_dataclass(b) else b for b in message.content]},
+                    )
+                    if current_message_id is None and last_streamed_message_id is None:
                         unstreamed_fallback_ids.add(msg_id)
+                    last_streamed_message_id = None
                     agui_msg = build_agui_assistant_message(message, msg_id)
                     if agui_msg:
                         upsert_message(agui_msg)
@@ -1070,7 +1065,7 @@ class ClaudeAgentAdapter:
                         tool_use_id = getattr(block, 'tool_use_id', None)
                         block_content = getattr(block, 'content', None)
                         if tool_use_id:
-                            upsert_message(build_agui_tool_message(tool_use_id, block_content))
+                            upsert_message(build_agui_tool_message(tool_use_id, block_content, bool(getattr(block, "is_error", False))))
                         parent_id = getattr(message, 'parent_tool_use_id', None)
                         async for event in handle_tool_result_block(block, thread_id, run_id, parent_id):
                             yield event

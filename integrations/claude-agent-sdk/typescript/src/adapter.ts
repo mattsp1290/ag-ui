@@ -1,3 +1,6 @@
+import { startLoopbackMcp } from "./loopback-mcp";
+import { RecoveryRun, type SessionBinding } from "./recovery";
+import { getSessionInfo } from "@anthropic-ai/claude-agent-sdk";
 /**
  * Claude Agent SDK adapter for AG-UI protocol.
  */
@@ -9,6 +12,7 @@ import {
   type BaseEvent,
   type RunAgentInput,
   type Message,
+  type ToolMessage,
 } from "@ag-ui/core";
 
 import { createSdkMcpServer, query } from "@anthropic-ai/claude-agent-sdk";
@@ -16,6 +20,7 @@ import type {
   Query,
   Options,
   SDKResultMessage,
+  SDKMessage,
   SDKPartialAssistantMessage,
   SDKAssistantMessage,
   SDKUserMessage,
@@ -30,6 +35,7 @@ import {
   AG_UI_MCP_SERVER_NAME,
 } from "./config";
 import {
+  type FrontendToolResult,
   processMessages,
   buildStateContextAddendum,
   extractToolNames,
@@ -79,6 +85,8 @@ export class ClaudeAgentAdapter extends AbstractAgent {
   public headers?: Record<string, string>;
 
   private config: ClaudeAgentAdapterConfig;
+  private bindings = new Map<string, SessionBinding>();
+  private admitted = new Set<string>();
   private activeQueries = new Map<string, Query>();
   private sessions = new Map<
     string,
@@ -101,6 +109,7 @@ export class ClaudeAgentAdapter extends AbstractAgent {
     for (const [key, entry] of this.sessions.entries()) {
       if (!entry.active && now - entry.lastUsed > ttlMs) {
         this.sessions.delete(key);
+        this.bindings.delete(key);
       }
     }
 
@@ -113,12 +122,14 @@ export class ClaudeAgentAdapter extends AbstractAgent {
       for (const [key] of idle) {
         if (this.sessions.size <= maxSessions) break;
         this.sessions.delete(key);
+        this.bindings.delete(key);
       }
     }
   }
 
   public clearSession(threadId: string): void {
     this.sessions.delete(threadId);
+    this.bindings.delete(threadId);
   }
 
   public clone(): ClaudeAgentAdapter {
@@ -144,21 +155,17 @@ export class ClaudeAgentAdapter extends AbstractAgent {
         );
       }
 
-      // Inject resume for known threads
-      const threadId = input.threadId ?? "default";
-      let runInput = input;
-      const sessionEntry = this.sessions.get(threadId);
-      if (sessionEntry) {
-        runInput = {
-          ...input,
-          forwardedProps: {
-            ...(input.forwardedProps ?? {}),
-            resume: sessionEntry.sessionId,
-          },
-        };
-        // Mark existing session as active
-        sessionEntry.active = true;
+      const threadId = input.threadId;
+      if (this.admitted.has(threadId)) {
+        subscriber.next({
+          type: EventType.RUN_ERROR,
+          message: "A run is already active for this thread.",
+        });
+        subscriber.complete();
+        return;
       }
+      this.admitted.add(threadId);
+      const runInput = input;
 
       this.translateStream(runInput, subscriber).catch((error) => {
         subscriber.error(error);
@@ -173,6 +180,8 @@ export class ClaudeAgentAdapter extends AbstractAgent {
     const queryKey = input.threadId ?? "default";
     const threadId = input.threadId ?? randomUUID();
     const runId = input.runId ?? randomUUID();
+    let loopback: Awaited<ReturnType<typeof startLoopbackMcp>> | undefined;
+    let releaseResumeInput: (() => void) | undefined;
     let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
 
     const runCtx = {
@@ -195,6 +204,109 @@ export class ClaudeAgentAdapter extends AbstractAgent {
         input,
       });
 
+      this.evictSessions();
+      const cachedSession = this.sessions.get(threadId);
+      if (cachedSession) cachedSession.active = true;
+      const recoveryConfig = this.config.sessionRecovery;
+      let binding = recoveryConfig
+        ? await recoveryConfig.store.load(threadId)
+        : this.bindings.get(threadId);
+      binding = binding ? structuredClone(binding) : undefined;
+      const requested =
+        (input.forwardedProps as Record<string, unknown> | undefined)?.resume ??
+        this.config.resume;
+      if (requested && typeof requested !== "string")
+        throw new Error("resume must be the original session UUID.");
+      if (binding && requested && requested !== binding.sessionId)
+        throw new Error(
+          "Requested session conflicts with the durable thread binding.",
+        );
+      if (!binding && requested)
+        binding = {
+          sessionId: requested as string,
+          profile: recoveryConfig?.profile ?? "default",
+        };
+      const recovery = new RecoveryRun(
+        binding,
+        input,
+        recoveryConfig?.deferTools,
+      );
+      const profile = binding?.profile ?? recoveryConfig?.profile ?? "default";
+      const profileOptions = recoveryConfig
+        ? await recoveryConfig.resolveProfile(profile)
+        : {};
+      const options = this.buildOptions(
+        { ...input, tools: recovery.tools },
+        profileOptions,
+        recovery.resolveFrontendResult,
+      );
+      const proxy = options.mcpServers?.[AG_UI_MCP_SERVER_NAME];
+      if (proxy && typeof proxy === "object" && proxy.type === "sdk") {
+        loopback = await startLoopbackMcp(proxy);
+        options.mcpServers = {
+          ...options.mcpServers,
+          [AG_UI_MCP_SERVER_NAME]: loopback.config,
+        };
+      }
+      if (binding) {
+        if (options.forkSession || options.resumeSessionAt || options.continue)
+          throw new Error(
+            "Original-session recovery cannot fork, rewind or continue the newest session.",
+          );
+        options.resume = binding.sessionId;
+        options.forkSession = false;
+        // Saved tools can replay before SDK callback registration without this
+        // CLI startup barrier (bundled CLI >= 2.1.261).
+        options.extraArgs = { ...options.extraArgs, "await-initialize": null };
+        const info = await getSessionInfo(binding.sessionId, {
+          dir: options.cwd,
+          sessionStore: options.sessionStore,
+        });
+        if (!info)
+          throw new Error(
+            "Original SDK session is unavailable. Restore its transcript/store and original working directory.",
+          );
+      }
+      if (
+        binding?.pending &&
+        Object.entries(options.mcpServers ?? {}).some(
+          ([name, server]) =>
+            typeof server === "object" &&
+            server.type === "sdk" &&
+            binding.pending!.name.startsWith(`mcp__${name}__`),
+        )
+      ) {
+        throw new Error(
+          "This SDK cannot restore a deferred in-process MCP tool before startup. The saved call is retained but is not actionable; use a supported SDK fix before resuming.",
+        );
+      }
+      if (recovery.awaitingDecision) {
+        subscriber.next({
+          type: EventType.RUN_FINISHED,
+          threadId,
+          runId,
+          outcome: recovery.outcome,
+        });
+        subscriber.complete();
+        return;
+      }
+      options.hooks = {
+        ...options.hooks,
+        PreToolUse: [
+          ...(options.hooks?.PreToolUse ?? []),
+          { hooks: [recovery.hook] },
+        ],
+      };
+      // Keep the SDK control channel alive for hook answers without enqueueing
+      // an empty user turn after the CLI automatically replays the deferral.
+      const resumeGate = new Promise<void>((resolve) => {
+        releaseResumeInput = resolve;
+      });
+      const prompt = recovery.resuming
+        ? (async function* (): AsyncIterable<SDKUserMessage> {
+            await resumeGate;
+          })()
+        : processMessages(input).userMessage;
       for (const notice of unsupportedInputParts(input)) {
         subscriber.next({
           type: EventType.CUSTOM,
@@ -202,8 +314,7 @@ export class ClaudeAgentAdapter extends AbstractAgent {
           value: notice,
         });
       }
-      const { userMessage } = processMessages(input);
-      const options = this.buildOptions(input);
+
       const abortController = this.config.queryTimeoutMs
         ? new AbortController()
         : undefined;
@@ -215,7 +326,7 @@ export class ClaudeAgentAdapter extends AbstractAgent {
       }
 
       const messageStream = query({
-        prompt: userMessage,
+        prompt,
         options: {
           ...options,
           model: options.model, // SDK picks default if omitted
@@ -241,7 +352,9 @@ export class ClaudeAgentAdapter extends AbstractAgent {
       }
 
       await this.streamMessages(
-        messageStream,
+        this.observeRecovery(messageStream, recovery, threadId, profile, () =>
+          releaseResumeInput?.(),
+        ),
         threadId,
         runId,
         input,
@@ -250,11 +363,14 @@ export class ClaudeAgentAdapter extends AbstractAgent {
         runCtx,
       );
 
+      await loopback?.close();
+      loopback = undefined;
       subscriber.next({
         type: EventType.RUN_FINISHED,
         threadId,
         runId,
         result: runCtx.lastResultData,
+        ...(recovery.outcome ? { outcome: recovery.outcome } : {}),
       });
 
       subscriber.complete();
@@ -271,8 +387,10 @@ export class ClaudeAgentAdapter extends AbstractAgent {
       });
       subscriber.complete();
     } finally {
+      releaseResumeInput?.();
       if (timeoutHandle !== undefined) clearTimeout(timeoutHandle);
       this.activeQueries.delete(queryKey);
+      this.admitted.delete(queryKey);
 
       // Conversion can fail before streamMessages gets a chance to mark a
       // resumed session idle, so cover every terminal path here as well.
@@ -282,11 +400,70 @@ export class ClaudeAgentAdapter extends AbstractAgent {
         idleEntry.lastUsed = Date.now();
         this.evictSessions();
       }
+      await loopback?.close();
+    }
+  }
+
+  private async *observeRecovery(
+    stream: AsyncIterable<SDKMessage>,
+    recovery: RecoveryRun,
+    threadId: string,
+    profile: string,
+    releaseInput: () => void,
+  ): AsyncIterable<SDKMessage> {
+    for await (const message of stream) {
+      if (message.type === "result") releaseInput();
+      if (message.type === "user" && Array.isArray(message.message.content)) {
+        for (const block of message.message.content) {
+          if (
+            block.type === "tool_result" &&
+            recovery.observeToolResult(block.tool_use_id) &&
+            recovery.binding
+          ) {
+            if (this.config.sessionRecovery)
+              await this.config.sessionRecovery.store.save(
+                threadId,
+                structuredClone(recovery.binding),
+              );
+            this.bindings.set(threadId, structuredClone(recovery.binding));
+          }
+        }
+      }
+      if (
+        (message.type === "system" && message.subtype === "init") ||
+        message.type === "result"
+      ) {
+        recovery.observe(
+          message.session_id,
+          profile,
+          message.type === "result" ? message : undefined,
+        );
+        if (recovery.binding) {
+          if (this.config.sessionRecovery)
+            await this.config.sessionRecovery.store.save(
+              threadId,
+              structuredClone(recovery.binding),
+            );
+          this.bindings.set(threadId, structuredClone(recovery.binding));
+        }
+        if (message.type === "result" && message.is_error)
+          throw new Error(
+            "SDK resume/run failed; check the original files, tools, credentials and execution configuration.",
+          );
+      }
+      yield message;
     }
   }
 
   /** Build Claude SDK Options from base config + RunAgentInput. */
-  public buildOptions(input: RunAgentInput): Options {
+  public buildOptions(
+    input: RunAgentInput,
+    profileOptions: Options = {},
+    resolveFrontendResult?: (
+      name: string,
+      args: Record<string, unknown>,
+    ) => FrontendToolResult,
+  ): Options {
     // Start with sensible defaults
     const merged: Record<string, unknown> = {
       includePartialMessages: true,
@@ -305,6 +482,10 @@ export class ClaudeAgentAdapter extends AbstractAgent {
       initialMessages: _msgs,
       initialState: _state,
       debug: _debug,
+      sessionRecovery: _recovery,
+      maxSessions: _maxSessions,
+      sessionTtlMs: _sessionTtlMs,
+      queryTimeoutMs: _queryTimeoutMs,
       ...sdkOptions
     } = this.config;
 
@@ -313,6 +494,8 @@ export class ClaudeAgentAdapter extends AbstractAgent {
         merged[key] = value;
       }
     }
+
+    Object.assign(merged, profileOptions);
 
     // Append state and context to the system prompt
     const addendum = buildStateContextAddendum(input);
@@ -378,7 +561,9 @@ export class ClaudeAgentAdapter extends AbstractAgent {
       );
       for (const toolDef of input.tools) {
         try {
-          agUiTools.push(convertAguiToolToClaudeSdk(toolDef));
+          agUiTools.push(
+            convertAguiToolToClaudeSdk(toolDef, resolveFrontendResult),
+          );
         } catch (e) {
           console.warn(`[ClaudeAdapter] Failed to convert tool:`, e);
         }
@@ -443,8 +628,6 @@ export class ClaudeAgentAdapter extends AbstractAgent {
 
     const processedToolIds = new Set<string>();
 
-    let haltEventStream = false;
-
     // ── MESSAGES_SNAPSHOT accumulation ──
     const runMessages: Message[] = [];
     // SDK assistant records contain individual blocks, sharing a native message ID.
@@ -507,7 +690,6 @@ export class ClaudeAgentAdapter extends AbstractAgent {
     try {
       for await (const rawMessage of messageStream) {
         messageCount++;
-        if (haltEventStream) break;
 
         const message = rawMessage as Record<string, unknown> & {
           type: string;
@@ -694,41 +876,6 @@ export class ClaudeAgentAdapter extends AbstractAgent {
                 });
               }
 
-              const isFrontendTool =
-                currentToolDisplayName != null &&
-                frontendToolNames.has(currentToolDisplayName);
-
-              if (isFrontendTool) {
-                flushPendingMsg();
-                subscriber.next({
-                  type: EventType.TOOL_CALL_END,
-                  threadId,
-                  runId,
-                  toolCallId: currentToolCallId,
-                });
-
-                if (currentMessageId && hasStreamedText) {
-                  subscriber.next({
-                    type: EventType.TEXT_MESSAGE_END,
-                    threadId,
-                    runId,
-                    messageId: currentMessageId,
-                  });
-                  currentMessageId = null;
-                }
-
-                console.debug(
-                  `[ClaudeAdapter] Frontend tool halt: ${currentToolDisplayName}`,
-                );
-
-                currentToolCallId = null;
-                currentToolCallName = null;
-                currentToolDisplayName = null;
-                accumulatedToolJson = "";
-                haltEventStream = true;
-                continue;
-              }
-
               // For regular backend tools, emit TOOL_CALL_END at content_block_stop.
               // The SDK executes backend tools internally and returns results in
               // a subsequent message (ToolResultBlock in Python, SDKUserMessage in TS).
@@ -826,28 +973,6 @@ export class ClaudeAgentAdapter extends AbstractAgent {
             );
             if (toolBlock.id) processedToolIds.add(toolBlock.id);
             if (updatedState !== null) runCtx.currentState = updatedState;
-
-            // Check for frontend tool halt (same logic as streaming path)
-            const blockDisplayName = stripMcpPrefix(toolBlock.name ?? "");
-            if (blockDisplayName && frontendToolNames.has(blockDisplayName)) {
-              flushPendingMsg();
-
-              if (currentMessageId && hasStreamedText) {
-                subscriber.next({
-                  type: EventType.TEXT_MESSAGE_END,
-                  threadId,
-                  runId,
-                  messageId: currentMessageId,
-                });
-                currentMessageId = null;
-              }
-
-              console.debug(
-                `[ClaudeAdapter] Frontend tool halt (non-streaming): ${blockDisplayName}`,
-              );
-              haltEventStream = true;
-              break;
-            }
           }
         }
         // Handle user messages (tool results)
@@ -907,7 +1032,7 @@ export class ClaudeAgentAdapter extends AbstractAgent {
               this.sessions.set(threadId, {
                 sessionId: sid,
                 lastUsed: Date.now(),
-                active: false,
+                active: true,
               });
               this.evictSessions();
               console.debug(
@@ -1031,10 +1156,20 @@ export class ClaudeAgentAdapter extends AbstractAgent {
 
     // Emit MESSAGES_SNAPSHOT with input messages + new messages from this run
     if (runMessages.length > 0) {
-      const allMessages: Message[] = [
-        ...(input.messages ?? []),
-        ...runMessages,
-      ];
+      // SDK echoes are authoritative for saved content/error projection. Match
+      // frontend answers by call ID, retaining their UI message identity.
+      const allMessages: Message[] = [];
+      for (const message of [...(input.messages ?? []), ...runMessages]) {
+        const index = allMessages.findIndex(
+          (existing) =>
+            existing.id === message.id ||
+            (existing.role === "tool" &&
+              message.role === "tool" &&
+              existing.toolCallId === message.toolCallId),
+        );
+        if (index === -1) allMessages.push(message);
+        else allMessages[index] = { ...message, id: allMessages[index].id };
+      }
       console.debug(
         `[ClaudeAdapter] MESSAGES_SNAPSHOT: ${allMessages.length} msgs (${messageCount} SDK messages processed)`,
       );

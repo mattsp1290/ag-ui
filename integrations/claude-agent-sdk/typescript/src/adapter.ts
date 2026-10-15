@@ -447,6 +447,11 @@ export class ClaudeAgentAdapter extends AbstractAgent {
 
     // ── MESSAGES_SNAPSHOT accumulation ──
     const runMessages: Message[] = [];
+    // SDK assistant records contain individual blocks, sharing a native message ID.
+    const assistantRecords = new Map<
+      string,
+      Map<string, SDKAssistantMessage["message"]["content"]>
+    >();
 
     const upsertMessage = (msg: Message) => {
       const idx = runMessages.findIndex((m) => m.id === msg.id);
@@ -471,13 +476,27 @@ export class ClaudeAgentAdapter extends AbstractAgent {
     const flushPendingMsg = () => {
       if (!pendingMsg) return;
       if (pendingMsg.content || pendingMsg.toolCalls.length > 0) {
+        const previous = runMessages.find(
+          (message) => message.id === pendingMsg!.id,
+        );
+        const prior = previous?.role === "assistant" ? previous : undefined;
+        const text =
+          typeof prior?.content === "string" &&
+          prior.content.length > pendingMsg.content.length
+            ? prior.content
+            : pendingMsg.content;
+        const toolCalls = [
+          ...new Map(
+            [...(prior?.toolCalls ?? []), ...pendingMsg.toolCalls].map(
+              (call) => [call.id, call],
+            ),
+          ).values(),
+        ];
         upsertMessage({
           id: pendingMsg.id,
           role: "assistant" as const,
-          ...(pendingMsg.content ? { content: pendingMsg.content } : {}),
-          ...(pendingMsg.toolCalls.length > 0
-            ? { toolCalls: pendingMsg.toolCalls }
-            : {}),
+          ...(text ? { content: text } : {}),
+          ...(toolCalls.length > 0 ? { toolCalls } : {}),
         });
       }
       pendingMsg = null;
@@ -770,7 +789,22 @@ export class ClaudeAgentAdapter extends AbstractAgent {
             },
           });
           {
-            const aguiMsg = buildAguiAssistantMessage(assistantMsg, msgId);
+            const records = assistantRecords.get(msgId) ?? new Map();
+            records.set(
+              assistantMsg.uuid ?? `${msgId}:${records.size}`,
+              content,
+            );
+            assistantRecords.set(msgId, records);
+            const aguiMsg = buildAguiAssistantMessage(
+              {
+                ...assistantMsg,
+                message: {
+                  ...assistantMsg.message,
+                  content: [...records.values()].flat(),
+                },
+              },
+              msgId,
+            );
             if (aguiMsg) {
               upsertMessage(aguiMsg);
             }

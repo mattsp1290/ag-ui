@@ -138,3 +138,36 @@ async def test_frontend_error_survives_real_sdk_mcp_server():
                 assert result.model_dump(by_alias=True)["isError"] is True
                 assert result.content[0].text == "denied"
             tasks.cancel_scope.cancel()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("text,expected", [("🍝", "🍝"), ("\ud83c\udf5d", "🍝"), ("bad\ud800", "bad?")])
+@pytest.mark.parametrize("rich", [False, True])
+async def test_result_and_snapshot_encode_preserved_payloads(text, expected, rich):
+    from ag_ui.encoder import EventEncoder
+    from ag_ui.core import MessagesSnapshotEvent
+    payload = [{"type": "text", "text": text, "annotations": {"label": text}}] if rich else text
+    block = SimpleNamespace(tool_use_id="unsafe", content=payload, is_error=True)
+    events = [e async for e in handle_tool_result_block(block, "thread", "run", sdk_result={"nested": text})]
+    snapshot = MessagesSnapshotEvent(messages=[build_agui_tool_message("unsafe", payload, True)])
+    for event in [*events, snapshot]:
+        wire = EventEncoder().encode(event)
+        wire.encode("utf-8")
+        decoded = json.loads(wire.removeprefix("data: ").strip())
+        projected = decoded["messages"][0]["content"] if "messages" in decoded else decoded["content"]
+        if rich:
+            assert projected[0]["text"] == expected
+            assert projected[0]["metadata"]["claude"]["block"]["annotations"]["label"] == expected
+        else:
+            assert json.loads(projected)["content"] == expected
+    assert events[0].raw_event["tool_use_result"]["nested"] == expected
+
+
+def test_empty_failure_survives_snapshot_json_roundtrip():
+    from ag_ui.core import MessagesSnapshotEvent
+    success = build_agui_tool_message("success", [], False)
+    failure = build_agui_tool_message("failure", [], True)
+    messages = json.loads(MessagesSnapshotEvent(messages=[success, failure]).model_dump_json())["messages"]
+    assert messages[0].get("error") is None
+    assert messages[1]["error"]
+    assert messages[0]["content"] == messages[1]["content"] == []

@@ -54,8 +54,15 @@ async function collectPrompt(prompt: unknown): Promise<unknown> {
   return messages;
 }
 
-async function runAdapter(messages: unknown[], threadId = "thread-media") {
-  const adapter = new ClaudeAgentAdapter({ model: "claude-haiku-4-5" });
+async function runAdapter(
+  messages: unknown[],
+  threadId = "thread-media",
+  includePartialMessages = true,
+) {
+  const adapter = new ClaudeAgentAdapter({
+    model: "claude-haiku-4-5",
+    includePartialMessages,
+  });
   const events: Array<Record<string, unknown>> = [];
   await new Promise<void>((resolve, reject) => {
     adapter
@@ -638,3 +645,82 @@ it("retains the native structured tool result and record identity", async () => 
     events.find((e) => e.type === "TOOL_CALL_RESULT")?.rawEvent,
   ).toMatchObject({ uuid: "record-original", tool_use_result: result });
 });
+
+it.each([false, true])(
+  "accumulates native assistant records with partial messages=%s",
+  async (partial) => {
+    for (const second of [
+      { type: "text", text: "Second segment." },
+      {
+        type: "tool_use",
+        id: "weather-call",
+        name: "mcp__weather__get_weather",
+        input: { location: "Paris" },
+      },
+    ]) {
+      queryMock.mockImplementation(() =>
+        (async function* () {
+          if (partial) {
+            yield {
+              type: "stream_event",
+              event: { type: "message_start", message: { id: "multi-native" } },
+            };
+            yield {
+              type: "stream_event",
+              event: {
+                type: "content_block_delta",
+                delta: { type: "text_delta", text: "First segment." },
+              },
+            };
+          }
+          yield {
+            type: "assistant",
+            uuid: "record-first",
+            message: {
+              id: "multi-native",
+              content: [{ type: "text", text: "First segment." }],
+            },
+          };
+          if (partial && second.type === "text")
+            yield {
+              type: "stream_event",
+              event: {
+                type: "content_block_delta",
+                delta: { type: "text_delta", text: second.text },
+              },
+            };
+          yield {
+            type: "assistant",
+            uuid: "record-second",
+            message: { id: "multi-native", content: [second] },
+          };
+          if (partial)
+            yield { type: "stream_event", event: { type: "message_stop" } };
+        })(),
+      );
+      const events = await runAdapter([], "thread-media", partial);
+      const snapshot = events.find((e) => e.type === "MESSAGES_SNAPSHOT");
+      expect(snapshot?.messages).toHaveLength(1);
+      expect(snapshot?.messages).toMatchObject([
+        {
+          id: "multi-native",
+          content:
+            second.type === "text"
+              ? "First segment.Second segment."
+              : "First segment.",
+        },
+      ]);
+      if (second.type === "tool_use")
+        expect(snapshot?.messages).toMatchObject([
+          {
+            toolCalls: [
+              {
+                id: "weather-call",
+                function: { name: "mcp__weather__get_weather" },
+              },
+            ],
+          },
+        ]);
+    }
+  },
+);

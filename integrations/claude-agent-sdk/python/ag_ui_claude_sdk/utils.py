@@ -640,6 +640,7 @@ def build_agui_tool_message(tool_use_id: str, content: Any, is_error: bool = Fal
         role="tool",
         content=native_tool_content(content, is_error),
         tool_call_id=tool_use_id,
+        error="Tool execution failed" if is_error else None,
     )
 
 
@@ -654,6 +655,7 @@ def merge_state_update(current_state: Any, tool_input: dict) -> dict:
 
 
 def native_tool_content(content: Any, is_error: bool = False) -> Any:
+    content = fix_surrogates_deep(content)
     if not isinstance(content, list) or (len(content) == 1 and isinstance(content[0], dict) and content[0].get("type") == "text" and set(content[0]) <= {"type", "text"}):
         return serialize_tool_result(content, is_error)
     parts = []

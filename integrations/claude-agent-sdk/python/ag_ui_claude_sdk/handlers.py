@@ -213,5 +213,5 @@ async def handle_tool_result_block(
             tool_call_id=tool_use_id,
             content=result_str,
             role="tool",
-            raw_event=raw_event,
+            raw_event=fix_surrogates_deep(raw_event),
         )

@@ -172,3 +172,16 @@ it("accepts successful rich frontend result envelopes", async () => {
     content: [{ type: "image", data: "AQID", mimeType: "image/png" }],
   });
 });
+
+it("retains empty result failure status after a JSON round trip", () => {
+  const success = JSON.parse(
+    JSON.stringify(buildAguiToolMessage("empty", [], false)),
+  );
+  const failure = JSON.parse(
+    JSON.stringify(buildAguiToolMessage("empty", [], true)),
+  );
+  expect(success.content).toEqual([]);
+  expect(success.error).toBeUndefined();
+  expect(failure.content).toEqual([]);
+  expect(failure.error).toBeTruthy();
+});

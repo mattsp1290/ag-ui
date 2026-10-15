@@ -90,3 +90,13 @@ Input uploads remain in `RUN_STARTED.input` with their original metadata. Image 
 Frontend tool proxies require a result resolver armed for the original tool call by the deferred-tool/session recovery integration. The resolver returns the real frontend result to that call; absent resolution fails explicitly instead of saving a placeholder. Strings retain their bytes; supported structured results become MCP content. This content change must ship with the PNI-659 lifecycle companion. It does not repair historical placeholder results or make arbitrary historical approvals resumable.
 
 Protocol regression tests exercise synthetic SDK streams and proxy callbacks without model calls. They do not establish released support, native persistence across restart, or end-to-end Intelligence replay; those require the lifecycle companion and product validation.
+
+The real SDK block-ordering probe uses a synthetic localhost provider (no model
+credentials or external inference):
+
+```sh
+pnpm exec tsx integrations/claude-agent-sdk/typescript/scripts/probe-assistant-blocks.mjs
+```
+
+It checks two text blocks and text followed by a native tool call, each with
+partial messages enabled and disabled, against the final message snapshot.

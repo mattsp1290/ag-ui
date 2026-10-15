@@ -640,6 +640,10 @@ export const defaultApplyEvents = (
               ...(subagentRunId != null && { subagentRunId }),
             };
 
+            // A correction reassigns ownership, including back to the parent
+            // when its tag is absent, just as the verifier records it.
+            if (subagentRunId == null) delete toolMessage.subagentRunId;
+
             applyEventMetadata(toolMessage, event);
 
             // A resumed run may correct a result already present in history.

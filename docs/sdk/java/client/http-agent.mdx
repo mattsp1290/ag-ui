@@ -29,7 +29,7 @@ new HttpAgent(URI endpoint, Serializer serializer,
 | `serializer` | Encodes the input and decodes events. See [Serialization](/sdk/java/core/overview#serialization). |
 | `httpClient` | The JDK `HttpClient` to use. Set this to configure a proxy, TLS, HTTP version or authenticator. |
 | `executor` | Runs the blocking read of the response and delivers events to the subscriber |
-| `requestTimeout` | Per-request timeout. It covers the whole streamed response, so allow enough time for long runs. |
+| `requestTimeout` | Passed to `HttpRequest.Builder.timeout(...)`. On Java 17, this limits waiting for response headers, not reading the SSE body. It should not be relied upon as a whole-run timeout. |
 
 Reading an SSE response blocks a thread for the whole run. By default, `HttpAgent` uses an unbounded cached thread pool so that many concurrent runs cannot starve a shared bounded pool such as `ForkJoinPool.commonPool()`. If you supply your own executor, make sure it has enough threads for your concurrency. On Java 21+, a virtual-thread executor is a good fit:
 

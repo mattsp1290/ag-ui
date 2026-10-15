@@ -477,9 +477,26 @@ jobs:
   # never ran in CI even when the workflow fired on toolkit edits (#2743).
   # No uv.lock: the package is the lockfiles job's known_missing exception
   # (empty dependencies). unittest is what [tool.ag-ui.scripts] declares.
+  #
+  # Unlike every other Python job, this one runs each minor version its
+  # requires-python admits rather than the pinned PYTHON_VERSION. The package is
+  # pure Python with no dependencies, so the interpreter is the only thing that
+  # can break it, and a range nobody runs is a support claim nobody has checked
+  # (#3057). Keep the list in step with requires-python: widening the range
+  # without adding a lane here leaves the new version as untested as 3.15 was.
+  #
+  # actions/setup-python rather than setup-uv: the suite needs no uv, and the
+  # pinned uv 0.12.1 predates CPython 3.15.0, so asking it for "3.15" silently
+  # resolves to 3.15.0b4 instead of the release.
   a2ui-toolkit-python:
-    name: a2ui-toolkit-python
+    name: a2ui-toolkit-python (${{ matrix.python }})
     runs-on: ubuntu-latest
+    strategy:
+      # One version failing should not hide whether the others pass.
+      fail-fast: false
+      matrix:
+        # Quoted: unquoted, YAML reads 3.10 as the float 3.1.
+        python: ["3.10", "3.11", "3.12", "3.13", "3.14", "3.15"]
 
     steps:
       - name: Checkout code
@@ -488,13 +505,10 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Install uv
-        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+      - name: Setup Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
-          version: ${{ env.UV_VERSION }}
-          python-version: ${{ env.PYTHON_VERSION }}
-          # The unittest suite uses only the standard library, so there is no uv cache.
-          enable-cache: false
+          python-version: ${{ matrix.python }}
 
       - name: Run tests
         working-directory: sdks/python/a2ui_toolkit

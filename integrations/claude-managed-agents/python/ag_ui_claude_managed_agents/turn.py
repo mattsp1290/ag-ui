@@ -169,11 +169,12 @@ async def _consume(
     on_error: ErrorHandler | None = None,
     on_event: Callable[[Any], Any] | None = None,
     recovering: bool = False,
+    acknowledged_tool_use_ids: Sequence[str] = (),
 ) -> TurnOutcome:
     previews: dict[str, str] = {}
     closed_messages: set[str] = set()
     open_reasoning: set[str] = set()
-    acked_tool_uses: set[str] = set()
+    acked_tool_uses: set[str] = set(acknowledged_tool_use_ids)
     client_parks: set[str] = set()
     asked_confirmations: set[str] = set()
     confirmation_events: dict[str, dict[str, Any]] = {}

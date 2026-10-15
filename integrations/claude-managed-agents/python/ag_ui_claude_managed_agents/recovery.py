@@ -16,7 +16,7 @@ from ag_ui.core import (
 
 from ._util import get, maybe_await
 from .turn import _close_stream, _consume, _send_follow_ups
-from .text import describe_tool_result
+from .text import describe_tool_result, text_of
 
 
 def confirmation(event: Any, session_id: str | None = None) -> dict[str, Any]:
@@ -232,6 +232,29 @@ async def recover_turn(
                 )
                 return
             missed = history[cursor_index + 1 :]
+            known_messages = {
+                get(message, "id"): get(message, "content")
+                for message in input.messages
+                if get(message, "role") == "assistant"
+            }
+            replay_text = {}
+            for event in missed:
+                if get(event, "type") != "agent.message":
+                    continue
+                event_id = get(event, "id")
+                content = text_of(get(event, "content"))
+                existing = known_messages.get(event_id)
+                if isinstance(existing, str):
+                    if not content.startswith(existing):
+                        emit(
+                            RunErrorEvent(
+                                message="Saved native text conflicts with the existing message.",
+                                code="history_content_conflict",
+                            )
+                        )
+                        return
+                    content = content[len(existing) :]
+                replay_text[event_id] = content
             for event in missed:
                 raw = (
                     event.model_dump(mode="json")
@@ -275,8 +298,15 @@ async def recover_turn(
                                 role="tool",
                             )
                         )
+                    elif kind == "agent.message":
+                        content = replay_text[get(event, "id")]
+                        if content:
+                            yield {
+                                "id": get(event, "id"),
+                                "type": "agent.message",
+                                "content": [{"type": "text", "text": content}],
+                            }
                     elif kind in (
-                        "agent.message",
                         "agent.thinking",
                         "agent.tool_result",
                         "agent.mcp_tool_result",
@@ -412,6 +442,15 @@ async def recover_turn(
             backend_tools=agent.backend_tools,
             tool_confirmation=None,
             recovering=True,
+            # Native idle events can have been buffered before our result send.
+            # Both history and this successful batch establish acknowledged IDs.
+            acknowledged_tool_use_ids=[
+                *[id for id in answered_ids if id],
+                *[
+                    answer.get("custom_tool_use_id") or answer["tool_use_id"]
+                    for answer in answers
+                ],
+            ],
             emit=emit,
             on_client_park=park,
             on_error=agent.on_error,

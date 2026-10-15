@@ -204,6 +204,7 @@ export async function recoverSession(
     const opened = stream;
     return {
       pending,
+      answeredIds: answered,
       replayedIds: new Set(missed.map((event) => event.id)),
       running,
       stream: {

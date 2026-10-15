@@ -582,3 +582,150 @@ async def test_pending_calls_in_assistant_history_are_not_emitted_twice():
     assert not [e for e in events if e.type.value.startswith("TOOL_CALL")]
     assert events[-1].type.value == "RUN_FINISHED"
     assert not fake.sent
+
+
+async def test_recovered_results_ignore_buffered_requires_action_for_submitted_ids():
+    for kind in ("agent.custom_tool_use", "agent.tool_use", "agent.mcp_tool_use"):
+        fake = RecoveryClient(
+            [[call("c1", kind)]],
+            streams=[
+                [
+                    idle(["c1"]),
+                    {
+                        "id": "reply",
+                        "type": "agent.message",
+                        "content": [{"type": "text", "text": "continued"}],
+                    },
+                    {
+                        "id": "done",
+                        "type": "session.status_idle",
+                        "stop_reason": {"type": "end_turn"},
+                    },
+                ]
+            ],
+        )
+        agent = new_agent(fake, resolve_session=lambda _: SessionBinding("native"))
+        data = {"messages": []}
+        if kind == "agent.custom_tool_use":
+            data["messages"] = [
+                {"id": "result", "role": "tool", "toolCallId": "c1", "content": "ok"}
+            ]
+        else:
+            data["resume"] = [
+                {"interruptId": "c1", "status": "resolved", "payload": "allow"}
+            ]
+        events = await collect(agent, base_input(**data))
+        assert events[-1].type.value == "RUN_FINISHED", kind
+        assert [e.delta for e in events if e.type.value == "TEXT_MESSAGE_CONTENT"] == [
+            "continued"
+        ], kind
+        assert len(fake.sent) == 1 and len(fake.sent[0]["events"]) == 1, kind
+        assert fake.sent[0]["events"][0]["type"] == (
+            "user.custom_tool_result"
+            if kind == "agent.custom_tool_use"
+            else "user.tool_confirmation"
+        )
+
+
+async def test_recovered_text_reconciles_existing_prefix_complete_and_conflict():
+    for displayed, expected in (
+        ("hello", " world"),
+        ("hello world", ""),
+        ("different", None),
+    ):
+        fake = RecoveryClient(
+            [
+                [
+                    {"id": "cursor", "type": "session.status_running"},
+                    {
+                        "id": "message",
+                        "type": "agent.message",
+                        "content": [{"type": "text", "text": "hello world"}],
+                    },
+                    {
+                        "id": "done",
+                        "type": "session.status_idle",
+                        "stop_reason": {"type": "end_turn"},
+                    },
+                ]
+            ]
+        )
+        store = InMemorySessionStore()
+        agent = new_agent(
+            fake,
+            store,
+            resolve_session=lambda _: SessionBinding("native", last_event_id="cursor"),
+        )
+        events = await collect(
+            agent,
+            base_input(
+                messages=[{"id": "message", "role": "assistant", "content": displayed}]
+            ),
+        )
+        text_events = [e for e in events if e.type.value.startswith("TEXT_MESSAGE")]
+        if expected is None:
+            assert events[-1].code == "history_content_conflict"
+            assert store.get(agent._session_key("thread_1")).last_event_id == "cursor"
+            assert not text_events
+        elif expected:
+            assert events[-1].type.value == "RUN_FINISHED"
+            assert [
+                e.delta for e in text_events if e.type.value == "TEXT_MESSAGE_CONTENT"
+            ] == [expected]
+            assert all(e.message_id == "message" for e in text_events)
+        else:
+            assert events[-1].type.value == "RUN_FINISHED"
+            assert not text_events
+        assert not fake.sent
+
+
+async def test_recovered_history_answers_ignore_late_live_requires_action():
+    for kind in ("agent.custom_tool_use", "agent.tool_use", "agent.mcp_tool_use"):
+        answer = (
+            {
+                "id": "answered",
+                "type": "user.custom_tool_result",
+                "custom_tool_use_id": "c1",
+                "content": [{"type": "text", "text": "ok"}],
+            }
+            if kind == "agent.custom_tool_use"
+            else {
+                "id": "answered",
+                "type": "user.tool_confirmation",
+                "tool_use_id": "c1",
+                "result": "allow",
+            }
+        )
+        fake = RecoveryClient(
+            [
+                [
+                    call("c1", kind),
+                    answer,
+                    {"id": "running", "type": "session.status_running"},
+                ]
+            ],
+            streams=[
+                [
+                    idle(["c1"]),
+                    {
+                        "id": "reply",
+                        "type": "agent.message",
+                        "content": [{"type": "text", "text": "continued"}],
+                    },
+                    {
+                        "id": "done",
+                        "type": "session.status_idle",
+                        "stop_reason": {"type": "end_turn"},
+                    },
+                ]
+            ],
+        )
+        events = await collect(
+            new_agent(fake, resolve_session=lambda _: SessionBinding("native")),
+            base_input(),
+        )
+        assert events[-1].type.value == "RUN_FINISHED", kind
+        assert [e.delta for e in events if e.type.value == "TEXT_MESSAGE_CONTENT"] == [
+            "continued"
+        ], kind
+        assert not fake.sent, kind

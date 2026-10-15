@@ -4,7 +4,7 @@ using Xunit;
 
 namespace AGUI.ClaudeManagedAgents.Tests;
 
-public class ManagedAgentsRecoveryTest
+public partial class ManagedAgentsRecoveryTest
 {
     private const string Idle = """{"type":"session.status_idle","id":"done","stop_reason":{"type":"end_turn"}}""";
     private static JsonElement Call(string id, bool confirmation = false) => FakeManagedAgentsClient.Json(
@@ -15,10 +15,10 @@ public class ManagedAgentsRecoveryTest
         ManagedAgentId = "agent", EnvironmentId = "env", Client = client, SessionStore = store,
         ResolveSession = (_, _) => Task.FromResult<ManagedAgentsSessionBinding?>(new() { SessionId = "native", LastUserMessageId = baseline, SessionThreadId = child }),
     });
-    private static async Task<List<BaseEvent>> Collect(ManagedAgentsAgent agent, RunAgentInput input)
+    private static async Task<List<BaseEvent>> Collect(ManagedAgentsAgent agent, RunAgentInput input, CancellationToken cancellationToken = default)
     {
         var result = new List<BaseEvent>();
-        await foreach (var evt in agent.RunAsync(input)) result.Add(evt);
+        await foreach (var evt in agent.RunAsync(input, cancellationToken)) result.Add(evt);
         return result;
     }
 

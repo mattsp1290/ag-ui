@@ -44,6 +44,7 @@ internal sealed class ManagedAgentsTurn
     internal ManagedAgentsEventStream? ConnectedStream { get; set; }
     internal HashSet<string> SeenEventIds { get; } = new(StringComparer.Ordinal);
     internal bool Recovering { get; set; }
+    internal void AcknowledgeHistory(IEnumerable<string> ids) => _ackedToolUses.UnionWith(ids);
     internal Func<string, Task>? OnEventHandled { get; set; }
     internal Dictionary<string, JsonElement> ConfirmationEvents { get; } = new(StringComparer.Ordinal);
     internal IList<string> PendingConfirmations { get; } = new List<string>();
@@ -180,6 +181,11 @@ internal sealed class ManagedAgentsTurn
         if (results.Count > 0)
         {
             await _client.SendEventsAsync(_sessionId, results, cancellationToken).ConfigureAwait(false);
+            foreach (var result in results)
+            {
+                var id = StringPropertyOf(result, "custom_tool_use_id") ?? StringPropertyOf(result, "tool_use_id");
+                if (id is not null) _ackedToolUses.Add(id);
+            }
             if (_onResultsSent is not null)
             {
                 await _onResultsSent().ConfigureAwait(false);
@@ -330,6 +336,7 @@ internal sealed class ManagedAgentsTurn
             {
                 _askedConfirmations.Add(toolUse.ID);
                 ConfirmationEvents[toolUse.ID] = streamEvent.Json;
+                ParkForConfirmation(toolUse.ID);
             }
 
             return;
@@ -342,6 +349,7 @@ internal sealed class ManagedAgentsTurn
             {
                 _askedConfirmations.Add(mcpToolUse.ID);
                 ConfirmationEvents[mcpToolUse.ID] = streamEvent.Json;
+                ParkForConfirmation(mcpToolUse.ID);
             }
 
             return;
@@ -476,6 +484,14 @@ internal sealed class ManagedAgentsTurn
         }
 
         CloseMessage(messageId);
+    }
+
+    private void ParkForConfirmation(string id)
+    {
+        if (!Recovering && _toolConfirmation is not null) return;
+        PendingConfirmations.Add(id);
+        CloseAll();
+        Finish(ManagedAgentsTurnOutcome.Parked(_clientParks.ToList(), PendingConfirmations.ToList()));
     }
 
     private async Task HandleCustomToolUseAsync(string toolUseId, string name, string inputJson, CancellationToken cancellationToken)

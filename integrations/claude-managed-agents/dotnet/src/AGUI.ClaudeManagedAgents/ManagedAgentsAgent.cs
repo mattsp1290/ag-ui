@@ -212,7 +212,7 @@ public sealed partial class ManagedAgentsAgent
                     // A cancelled turn never reaches RecordOutcomeAsync, so reconcile here: the
                     // landed interrupt cancelled the wait, and a park recorded during this turn
                     // would otherwise be answered against a call that no longer exists.
-                    if (run.Record?.PreserveTools != true && await InterruptAsync(run.SessionId).ConfigureAwait(false))
+                    if (!run.Recovering && await InterruptAsync(run.SessionId).ConfigureAwait(false))
                     {
                         await ForgetParkedCallsAsync(run).ConfigureAwait(false);
                     }
@@ -224,7 +224,9 @@ public sealed partial class ManagedAgentsAgent
 
                     errorEvent = new RunErrorEvent
                     {
-                        Message = $"The turn exceeded the {FormatSeconds(_options.TurnTimeout)} limit and was interrupted.",
+                        Message = run.Recovering
+                            ? $"The turn exceeded the {FormatSeconds(_options.TurnTimeout)} limit; the native session remains available for reconnect."
+                            : $"The turn exceeded the {FormatSeconds(_options.TurnTimeout)} limit and was interrupted.",
                         Code = "turn_timeout",
                     };
                     break;
@@ -289,6 +291,7 @@ public sealed partial class ManagedAgentsAgent
         if (record is not null)
         {
             run.SessionId = record.SessionId; run.Record = record; run.ThreadKey = threadKey;
+            run.Recovering = true;
             await foreach (var recovered in RunRecoveredAsync(input, messages, threadKey, record, run, cancellationToken).ConfigureAwait(false)) yield return recovered;
             yield break;
         }
@@ -787,6 +790,8 @@ public sealed partial class ManagedAgentsAgent
 
     private sealed class RunContext
     {
+        internal bool Recovering { get; set; }
+
         internal string? SessionId { get; set; }
 
         internal ManagedAgentsTurn? Turn { get; set; }

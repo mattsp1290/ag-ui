@@ -55,6 +55,137 @@ const agent = (
   });
 
 describe("native session recovery", () => {
+  it.each(["custom", "approval"])(
+    "ignores late requires_action after a recovered %s answer",
+    async (kind) => {
+      const call = kind === "custom" ? custom("c1") : approval("c1");
+      const fake = createFakeClient({
+        histories: [[call]],
+        streams: [
+          [
+            parked(["c1"]),
+            {
+              type: "agent.message",
+              id: "reply",
+              content: [{ type: "text", text: "continued" }],
+            },
+            idle,
+          ],
+        ],
+      });
+      const events = await collect(
+        agent(fake),
+        input(
+          kind === "custom"
+            ? {
+                messages: [
+                  {
+                    role: "tool",
+                    id: "result",
+                    toolCallId: "c1",
+                    content: "answer",
+                  },
+                ],
+              }
+            : {
+                resume: [
+                  { interruptId: "c1", status: "resolved", payload: "allow" },
+                ],
+              },
+        ),
+      );
+      expect(fake.sent.flatMap((send) => send.events)).toHaveLength(1);
+      expect(events.some((event) => event.type === "RUN_ERROR")).toBe(false);
+      expect(events.at(-1)).toMatchObject({ type: "RUN_FINISHED" });
+      expect(events.at(-1)).not.toHaveProperty("outcome");
+    },
+  );
+
+  it("carries historical answer IDs into the live stream", async () => {
+    const fake = createFakeClient({
+      sessionStatus: "running",
+      histories: [
+        [
+          custom("c1"),
+          {
+            type: "user.custom_tool_result",
+            id: "result",
+            custom_tool_use_id: "c1",
+            content: [],
+          },
+        ],
+      ],
+      streams: [[parked(["c1"]), idle]],
+    });
+    const events = await collect(agent(fake));
+    expect(events.some((event) => event.type === "RUN_ERROR")).toBe(false);
+    expect(fake.sent).toEqual([]);
+    expect(events.at(-1)).toMatchObject({ type: "RUN_FINISHED" });
+  });
+
+  it.each(["agent.tool_use", "agent.mcp_tool_use"])(
+    "exposes a live %s approval without global idle and resumes after restart",
+    async (type) => {
+      const call = {
+        ...approval("a1"),
+        type,
+        session_thread_id: "child",
+        mcp_server_name: "server",
+      };
+      const store = new InMemorySessionStore();
+      const first = createFakeClient({
+        sessionStatus: "running",
+        histories: [[]],
+        streams: [[call, new Promise(() => {})]],
+      });
+      const subject = new ManagedAgentsAgent({
+        managedAgentId: "agent",
+        environmentId: "env",
+        client: first.client,
+        sessionStore: store,
+        turnTimeoutMs: 100,
+        resolveSession: () => ({
+          sessionId: "original",
+          lastUserMessageId: "old",
+        }),
+      });
+      const events = await collect(subject);
+      expect(events.at(-1)).toMatchObject({
+        type: "RUN_FINISHED",
+        outcome: {
+          type: "interrupt",
+          interrupts: [
+            {
+              id: "a1",
+              toolCallId: "a1",
+              metadata: { sessionId: "original", sessionThreadId: "child" },
+            },
+          ],
+        },
+      });
+      const restored = new InMemorySessionStore();
+      restored.set(
+        "5:agent|0:|3:env|0:|imported",
+        JSON.parse(JSON.stringify(store.get("5:agent|0:|3:env|0:|imported"))),
+      );
+      const second = createFakeClient({
+        histories: [[call]],
+        streams: [[parked(["a1"]), idle]],
+      });
+      const resumed = await collect(
+        agent(second, restored),
+        input({
+          resume: [{ interruptId: "a1", status: "resolved", payload: "allow" }],
+        }),
+      );
+      expect(second.sent.flatMap((send) => send.events)).toEqual([
+        { type: "user.tool_confirmation", tool_use_id: "a1", result: "allow" },
+      ]);
+      expect(resumed.some((event) => event.type === "RUN_ERROR")).toBe(false);
+      expect(resumed.at(-1)).not.toHaveProperty("outcome");
+    },
+  );
+
   it("does not duplicate saved tool arguments and completes partial text from history", async () => {
     const store = new InMemorySessionStore();
     store.set("5:agent|0:|3:env|0:|imported", {
@@ -566,7 +697,7 @@ describe("native session recovery", () => {
 
   it("does not expose an approval already resolved externally before end_turn", async () => {
     const fake = createFakeClient({
-      streams: [
+      histories: [
         [
           approval("a1"),
           {
@@ -579,12 +710,7 @@ describe("native session recovery", () => {
         ],
       ],
     });
-    const subject = new ManagedAgentsAgent({
-      managedAgentId: "agent",
-      environmentId: "env",
-      client: fake.client,
-    });
-    const events = await collect(subject);
+    const events = await collect(agent(fake));
     expect(events.at(-1)).toMatchObject({ type: "RUN_FINISHED" });
     expect(events.at(-1)).not.toHaveProperty("outcome");
   });

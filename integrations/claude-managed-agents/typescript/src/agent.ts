@@ -342,6 +342,7 @@ export class ManagedAgentsAgent extends AbstractAgent {
     const key = this.sessionKey(threadId);
     let sessionId: string | undefined;
     let recoveredStream: SessionStream | undefined;
+    let recoveredAnswerIds: Set<string> | undefined;
     let recovering = false;
     let sessionGateKey: string | undefined;
     emit({
@@ -450,6 +451,7 @@ export class ManagedAgentsAgent extends AbstractAgent {
           ),
         );
         recoveredStream = recovery.stream;
+        recoveredAnswerIds = recovery.answeredIds;
         running = recovery.running;
         await this.store.set(key, session);
         emit({
@@ -537,6 +539,7 @@ export class ManagedAgentsAgent extends AbstractAgent {
         sessionId: session.sessionId,
         outbound: outbound.events,
         stream: recoveredStream,
+        acknowledgedToolUseIds: recoveredAnswerIds,
         sessionThreadId: session.sessionThreadId,
         preservePending: recovering,
         onNativeEvent: async (id) => {

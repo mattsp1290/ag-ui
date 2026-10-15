@@ -17,7 +17,9 @@ public sealed partial class ManagedAgentsAgent
         var clientTools = new Dictionary<string, string>(StringComparer.Ordinal);
         foreach (var tool in input.Tools ?? []) clientTools[ManagedAgentsCustomTools.NormalizeToolName(tool.Name)] = tool.Name;
         var knownToolCalls = messages.OfType<AGUIAssistantMessage>().SelectMany(message => message.ToolCalls ?? []).Select(call => call.Id).ToHashSet(StringComparer.Ordinal);
-        var knownMessages = messages.Select(message => message.Id).ToHashSet(StringComparer.Ordinal);
+        var knownMessages = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var message in messages.OfType<AGUIAssistantMessage>())
+            if (message.Content is not null) knownMessages[message.Id] = message.Content;
         var knownResults = messages.OfType<AGUIToolMessage>().Select(message => message.ToolCallId).ToHashSet(StringComparer.Ordinal);
         var cursor = record.LastEventId;
         var missed = new List<JsonElement>();
@@ -108,11 +110,26 @@ public sealed partial class ManagedAgentsAgent
             var id = StringOf(evt, "id")!;
             var type = StringOf(evt, "type");
             var blocks = evt.TryGetProperty("content", out var content) && content.ValueKind == JsonValueKind.Array ? content.EnumerateArray().ToList() : null;
-            if (type == "agent.message" && knownMessages.Add(id) && ManagedAgentsText.TextOf(blocks) is { Length: > 0 } text)
+            if (type == "agent.message")
             {
-                yield return new TextMessageStartEvent { MessageId = id, Role = AGUIRoles.Assistant };
-                yield return new TextMessageContentEvent { MessageId = id, Delta = text };
-                yield return new TextMessageEndEvent { MessageId = id };
+                var text = ManagedAgentsText.TextOf(blocks);
+                var suffix = text;
+                if (knownMessages.TryGetValue(id, out var existing))
+                {
+                    if (!text.StartsWith(existing, StringComparison.Ordinal))
+                    {
+                        yield return new RunErrorEvent { Code = "history_content_conflict", Message = "Saved native text conflicts with the existing message." };
+                        yield break;
+                    }
+                    suffix = text[existing.Length..];
+                }
+                knownMessages[id] = text;
+                if (suffix.Length > 0)
+                {
+                    yield return new TextMessageStartEvent { MessageId = id, Role = AGUIRoles.Assistant };
+                    yield return new TextMessageContentEvent { MessageId = id, Delta = suffix };
+                    yield return new TextMessageEndEvent { MessageId = id };
+                }
             }
             if (type is "agent.custom_tool_use" or "agent.tool_use" or "agent.mcp_tool_use" && !calls.ContainsKey(id) && knownToolCalls.Add(id))
             {
@@ -156,6 +173,7 @@ public sealed partial class ManagedAgentsAgent
             onClientPark: id => { if (!record.PendingClientToolUseIds.Contains(id)) record.PendingClientToolUseIds.Add(id); return PersistDeliveredAsync(key, record); },
             onError: _options.OnError) { ConnectedStream = stream, Recovering = true };
         turn.SeenEventIds.UnionWith(seen);
+        turn.AcknowledgeHistory(answered);
         turn.OnEventHandled = id => { record.LastEventId = id; return PersistDeliveredAsync(key, record); };
         run.Turn = turn;
         await foreach (var evt in turn.RunAsync(cancellationToken).ConfigureAwait(false)) yield return evt;

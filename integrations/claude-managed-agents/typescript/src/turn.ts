@@ -23,6 +23,8 @@ export interface TurnOptions {
   sessionId: string;
   sessionThreadId?: string;
   stream?: SessionStream;
+  /** Answers confirmed by native history before consuming the live stream. */
+  acknowledgedToolUseIds?: ReadonlySet<string>;
   preservePending?: boolean;
   onNativeEvent?: (id: string) => void | Promise<void>;
   onConfirmationPark?: (call: PendingConfirmation) => void | Promise<void>;
@@ -32,7 +34,7 @@ export interface TurnOptions {
   clientTools: Map<string, string>;
   /** Custom tools executed on this server, keyed by their managed-agent (normalized) name. */
   backendTools: Map<string, BackendCustomTool>;
-  /** How to answer built-in tools gated on confirmation; undefined = fail the run. */
+  /** How to answer built-in tools gated on confirmation; undefined = expose an interrupt. */
   toolConfirmation: "allow" | "deny" | undefined;
   streamDeltas: boolean;
   /** Notified when a best-effort operation fails. Never throws into the turn. */
@@ -169,7 +171,15 @@ export async function runTurn(opts: TurnOptions): Promise<TurnOutcome> {
   const previews = new Map<string, Preview>();
   const closedMessages = new Set<string>();
   const openReasoning = new Set<string>();
-  const ackedToolUses = new Set<string>();
+  const ackedToolUses = new Set(opts.acknowledgedToolUseIds);
+  // The sends above succeeded. A buffered requires_action can still reference
+  // these calls until the provider observes their answers.
+  for (const result of results) {
+    if (result.type === "user.custom_tool_result")
+      ackedToolUses.add(result.custom_tool_use_id);
+    else if (result.type === "user.tool_confirmation")
+      ackedToolUses.add(result.tool_use_id);
+  }
   const clientParks = new Set<string>();
   const askedConfirmations = new Set<string>();
 
@@ -495,7 +505,7 @@ export async function runTurn(opts: TurnOptions): Promise<TurnOutcome> {
             emitToolCall(event.id, event.name, event.input);
             if (event.evaluated_permission === "ask") {
               askedConfirmations.add(event.id);
-              if (!opts.toolConfirmation)
+              if (!opts.toolConfirmation) {
                 await opts.onConfirmationPark?.({
                   id: event.id,
                   toolName: event.name,
@@ -503,6 +513,9 @@ export async function runTurn(opts: TurnOptions): Promise<TurnOutcome> {
                     ? { sessionThreadId: event.session_thread_id }
                     : {}),
                 });
+                closeAll();
+                return { status: "parked", clientToolUseIds: [...clientParks] };
+              }
             }
             break;
           }
@@ -515,7 +528,7 @@ export async function runTurn(opts: TurnOptions): Promise<TurnOutcome> {
             );
             if (event.evaluated_permission === "ask") {
               askedConfirmations.add(event.id);
-              if (!opts.toolConfirmation)
+              if (!opts.toolConfirmation) {
                 await opts.onConfirmationPark?.({
                   id: event.id,
                   toolName: event.name,
@@ -523,6 +536,9 @@ export async function runTurn(opts: TurnOptions): Promise<TurnOutcome> {
                     ? { sessionThreadId: event.session_thread_id }
                     : {}),
                 });
+                closeAll();
+                return { status: "parked", clientToolUseIds: [...clientParks] };
+              }
             }
             break;
           }

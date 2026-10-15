@@ -32,12 +32,15 @@ class AgentConfig {
 
     @Bean
     Agent agent() {
-        return input -> JdkFlowAdapter.publisherToFlowPublisher(Flux.just(
-                new RunStartedEvent(input.threadId(), input.runId()),
-                new TextMessageStartEvent("msg-1", Role.ASSISTANT),
-                new TextMessageContentEvent("msg-1", "Hello from Spring!"),
-                new TextMessageEndEvent("msg-1"),
-                new RunFinishedEvent(input.threadId(), input.runId())));
+        return input -> JdkFlowAdapter.publisherToFlowPublisher(Flux.defer(() -> {
+            String messageId = java.util.UUID.randomUUID().toString();
+            return Flux.just(
+                    new RunStartedEvent(input.threadId(), input.runId()),
+                    new TextMessageStartEvent(messageId, Role.ASSISTANT),
+                    new TextMessageContentEvent(messageId, "Hello from Spring!"),
+                    new TextMessageEndEvent(messageId),
+                    new RunFinishedEvent(input.threadId(), input.runId()));
+        }));
     }
 }
 ```

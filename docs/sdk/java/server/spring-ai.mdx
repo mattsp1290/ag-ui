@@ -111,10 +111,12 @@ A `ReasoningMessage` in the incoming history is sent back to the model as an ass
 
 ### Tools
 
-The agent runs the tool-calling loop itself and distinguishes two kinds of tools:
+The agent distinguishes two kinds of tools:
 
 - **Client tools** come from `RunAgentInput.tools`. They are advertised to the model, and calls to them are emitted as `TOOL_CALL_*` events for the front end to execute. The front end sends the result back as a `ToolMessage` on the next run.
-- **Backend tools** are registered with `.tools(...)` or with the `ChatClient`'s `defaultTools(...)`. When the model calls one, the agent emits the `TOOL_CALL_*` events, runs the tool through Spring AI's `ToolCallingManager`, emits `TOOL_CALL_RESULT`, and prompts the model again. It repeats this until the model stops calling backend tools.
+- **Backend tools** registered with the `SpringAiAgent` builder’s `.tools(...)` are executed on the server. When the model calls one, the agent emits the `TOOL_CALL_*` events, runs the tool through Spring AI’s `ToolCallingManager`, emits `TOOL_CALL_RESULT`, and prompts the model again.
+
+Tools registered through the `ChatClient` builder’s `defaultTools(...)` are picked up by the adapter only when client tools, shared state, explicit backend tools or interrupt tools activate its tool loop. Otherwise, the adapter leaves tool handling to the `ChatClient` and does not guarantee tool-call or tool-result events. Register backend tools with the `SpringAiAgent` builder’s `.tools(...)` when you need those events.
 
 If the model calls both kinds in one turn, the agent emits the backend results and then ends the run so the front end can handle the client calls. While the agent controls the loop, it turns off the `ChatClient`'s own tool execution so that tools don't run twice.
 

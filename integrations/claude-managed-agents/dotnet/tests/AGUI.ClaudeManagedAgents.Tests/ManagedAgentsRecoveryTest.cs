@@ -276,4 +276,26 @@ public partial class ManagedAgentsRecoveryTest
         }
         finally { File.Delete(path); }
     }
+    [Theory]
+    [InlineData("agent.tool_result", "tool_use_id")]
+    [InlineData("agent.mcp_tool_result", "mcp_tool_use_id")]
+    [InlineData("user.custom_tool_result", "custom_tool_use_id")]
+    public async Task RichRecoveredResultsPreserveNativeIdentityContentAndOneRaw(string kind, string field)
+    {
+        var store = new InMemorySessionStore();
+        var old = FakeManagedAgentsClient.Json(Idle);
+        await Collect(Agent(new FakeManagedAgentsClient { History = [old] }, store), Input());
+        var content = new object[] { new { type = "text", text = "  " + new string('x', 30000) + "\n" }, new { type = "image", source = new { type = "base64", data = "AAEC", media_type = "image/png" } } };
+        var native = JsonSerializer.SerializeToElement(new Dictionary<string, object> { ["type"] = kind, ["id"] = "native-result", [field] = "native-call", ["content"] = content });
+        var fake = new FakeManagedAgentsClient { History = [old, native] };
+        var events = await Collect(Agent(fake, store), Input());
+        var raw = Assert.Single(events.OfType<RawEvent>(), e => e.Event.GetProperty("id").GetString() == "native-result");
+        Assert.Equal("claude-managed-agents", raw.Source);
+        Assert.True(JsonElement.DeepEquals(native, raw.Event));
+        var result = Assert.Single(events.OfType<ToolCallResultEvent>());
+        Assert.Equal("native-result", result.MessageId); Assert.Equal("native-call", result.ToolCallId);
+        var preserved = result.Content.Select(p => (p is AGUIMediaInputContent media ? media.Metadata : ((AGUITextInputContent)p).Metadata)!.Value.GetProperty("claudeManagedAgents")).ToArray();
+        Assert.True(JsonElement.DeepEquals(JsonSerializer.SerializeToElement(content), JsonSerializer.SerializeToElement(preserved)));
+        Assert.Empty(fake.Sent);
+    }
 }

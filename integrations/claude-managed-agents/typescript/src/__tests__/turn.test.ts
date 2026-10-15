@@ -33,7 +33,12 @@ const collect = async (
     signal: new AbortController().signal,
     ...overrides,
   });
-  return { emitted, outcome, fake };
+  return {
+    emitted: emitted.filter((e) => e.type !== EventType.RAW),
+    raw: emitted.filter((e) => e.type === EventType.RAW),
+    outcome,
+    fake,
+  };
 };
 
 const types = (events: BaseEvent[]) => events.map((event) => event.type);
@@ -340,7 +345,7 @@ describe("runTurn", () => {
       { type: EventType.TOOL_CALL_END, toolCallId: "tu_1" },
       {
         type: EventType.TOOL_CALL_RESULT,
-        messageId: "result_tu_1",
+        messageId: "tr_1",
         toolCallId: "tu_1",
         content: "file.txt",
         role: "tool",
@@ -348,7 +353,7 @@ describe("runTurn", () => {
     ]);
   });
 
-  it("truncates a very large tool result", async () => {
+  it("preserves a very large tool result", async () => {
     const { emitted } = await collect([
       { type: "agent.tool_use", id: "tu_1", name: "bash", input: {} },
       {
@@ -362,7 +367,7 @@ describe("runTurn", () => {
       idleEndTurn,
     ]);
     const result = emitted.at(-1) as unknown as { content: string };
-    expect(result.content).toHaveLength(TOOL_RESULT_MAX_CHARS);
+    expect(result.content).toHaveLength(TOOL_RESULT_MAX_CHARS + 500);
   });
 
   it("maps MCP tool calls with a server-qualified name", async () => {
@@ -394,7 +399,7 @@ describe("runTurn", () => {
     });
   });
 
-  it("flattens mixed tool result content into readable text", async () => {
+  it("preserves mixed tool result blocks as JSON", async () => {
     const { emitted } = await collect([
       { type: "agent.tool_use", id: "tu_1", name: "search", input: {} },
       {
@@ -414,15 +419,21 @@ describe("runTurn", () => {
       },
       idleEndTurn,
     ]);
-    expect(emitted.at(-1)).toEqual({
-      type: EventType.TOOL_CALL_RESULT,
-      messageId: "result_tu_1",
+    expect(emitted.at(-1)).toMatchObject({
+      messageId: "tr_1",
       toolCallId: "tu_1",
-      // The text block is literal tool output and stays verbatim; only the
-      // search result, whose body comes from HTML, is decoded.
-      content:
-        "Caf&eacute; &amp; &#39;more&#39; &lt;b&gt;\n[search result] Docs & guides — https://example.com\nbody text\n[image]",
-      role: "tool",
+    });
+    expect(emitted.at(-1)).toMatchObject({
+      content: [
+        { type: "text", text: "Caf&eacute; &amp; &#39;more&#39; &lt;b&gt;" },
+        {
+          type: "search_result",
+          title: "Docs &amp; guides",
+          source: "https://example.com",
+          content: [{ type: "text", text: "body text" }],
+        },
+        { type: "image", source: {} },
+      ].map((claudeManagedAgents) => ({ metadata: { claudeManagedAgents } })),
     });
   });
 

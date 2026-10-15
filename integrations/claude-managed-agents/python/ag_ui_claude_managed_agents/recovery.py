@@ -16,7 +16,8 @@ from ag_ui.core import (
 
 from ._util import get, maybe_await
 from .turn import _close_stream, _consume, _send_follow_ups
-from .text import describe_tool_result, text_of
+from .text import text_of
+from .content import tool_content, plain
 
 
 def confirmation(event: Any, session_id: str | None = None) -> dict[str, Any]:
@@ -256,12 +257,7 @@ async def recover_turn(
                     content = content[len(existing) :]
                 replay_text[event_id] = content
             for event in missed:
-                raw = (
-                    event.model_dump(mode="json")
-                    if hasattr(event, "model_dump")
-                    else event
-                )
-                emit(RawEvent(event=raw, source="managed_agents"))
+                emit(RawEvent(event=plain(event), source="claude-managed-agents"))
 
             async def replay():
                 for event in missed:
@@ -294,7 +290,7 @@ async def recover_turn(
                             ToolCallResultEvent(
                                 message_id=get(event, "id") or f"result_{call_id}",
                                 tool_call_id=call_id,
-                                content=describe_tool_result(get(event, "content")),
+                                content=tool_content(get(event, "content")),
                                 role="tool",
                             )
                         )
@@ -324,7 +320,9 @@ async def recover_turn(
                 client_tools={},
                 backend_tools={},
                 tool_confirmation=None,
-                emit=emit,
+                # Original RAW envelopes were emitted above. Replay can synthesize
+                # text suffixes, so do not record those as additional native evidence.
+                emit=lambda event: emit(event) if not isinstance(event, RawEvent) else None,
             )
         if history:
             await persist_event(history[-1])

@@ -288,6 +288,9 @@ internal sealed class ManagedAgentsTurn
 
     private async Task HandleAsync(BetaManagedAgentsStreamSessionEvents streamEvent, CancellationToken cancellationToken)
     {
+        var rawType = streamEvent.Json.GetProperty("type").GetString() ?? "";
+        if (rawType.StartsWith("agent.", StringComparison.Ordinal) || rawType.StartsWith("user.", StringComparison.Ordinal))
+            Emit(new RawEvent { Source = "claude-managed-agents", Event = streamEvent.Json.Clone() });
         if (streamEvent.TryPickStartEvent(out var start))
         {
             HandleEventStart(start);
@@ -357,13 +360,13 @@ internal sealed class ManagedAgentsTurn
 
         if (streamEvent.TryPickAgentToolResultEvent(out var toolResult))
         {
-            EmitToolResult(toolResult.ToolUseID, DescribeContent(streamEvent.Json));
+            EmitToolResult(toolResult.ToolUseID, DescribeContent(streamEvent.Json), toolResult.ID);
             return;
         }
 
         if (streamEvent.TryPickAgentMcpToolResultEvent(out var mcpToolResult))
         {
-            EmitToolResult(mcpToolResult.McpToolUseID, DescribeContent(streamEvent.Json));
+            EmitToolResult(mcpToolResult.McpToolUseID, DescribeContent(streamEvent.Json), mcpToolResult.ID);
             return;
         }
 
@@ -784,11 +787,11 @@ internal sealed class ManagedAgentsTurn
         Emit(new ToolCallEndEvent { ToolCallId = toolCallId });
     }
 
-    private void EmitToolResult(string toolUseId, string content)
+    private void EmitToolResult(string toolUseId, AGUIContent content, string? messageId = null)
     {
         Emit(new ToolCallResultEvent
         {
-            MessageId = $"result_{toolUseId}",
+            MessageId = messageId ?? $"result_{toolUseId}",
             ToolCallId = toolUseId,
             Content = content,
             Role = AGUIRoles.Tool,
@@ -887,9 +890,9 @@ internal sealed class ManagedAgentsTurn
         return null;
     }
 
-    private static string DescribeContent(JsonElement rawEvent)
+    private static AGUIContent DescribeContent(JsonElement rawEvent)
     {
-        return ManagedAgentsText.Truncate(ManagedAgentsText.DescribeToolResult(ContentBlocksOf(rawEvent)), ManagedAgentsLimits.ToolResultMaxChars);
+        return ManagedAgentsContent.ToolContent(ContentBlocksOf(rawEvent));
     }
 
     private static string? TextDeltaOf(JsonElement rawEvent)

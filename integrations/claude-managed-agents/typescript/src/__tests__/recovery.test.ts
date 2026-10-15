@@ -715,3 +715,65 @@ describe("native session recovery", () => {
     expect(events.at(-1)).not.toHaveProperty("outcome");
   });
 });
+
+it.each([
+  "agent.tool_result",
+  "agent.mcp_tool_result",
+  "user.custom_tool_result",
+])(
+  "replays rich %s with native identity and one original raw envelope",
+  async (type) => {
+    const content = [
+      { type: "text", text: "  " + "x".repeat(30000) + "\n" },
+      {
+        type: "image",
+        source: { type: "base64", data: "AAEC", media_type: "image/png" },
+      },
+    ];
+    const field =
+      type === "agent.tool_result"
+        ? "tool_use_id"
+        : type === "agent.mcp_tool_result"
+          ? "mcp_tool_use_id"
+          : "custom_tool_use_id";
+    const native = {
+      type,
+      id: "native-result",
+      [field]: "native-call",
+      content,
+    };
+    const history = [{ ...idle, id: "cursor" }, native, idle];
+    const store = new InMemorySessionStore();
+    store.set("5:agent|0:|3:env|0:|imported", {
+      sessionId: "original",
+      preserveTools: true,
+      toolNames: [],
+      pendingClientToolUseIds: [],
+      lastUserMessageId: "old",
+      lastEventId: "cursor",
+    });
+    const fake = createFakeClient({ histories: [history] });
+    const events = await collect(agent(fake, store));
+    expect(
+      events.filter(
+        (e) =>
+          e.type === "RAW" &&
+          "event" in e &&
+          (e.event as { id?: string }).id === native.id,
+      ),
+    ).toEqual([
+      { type: "RAW", source: "claude-managed-agents", event: native },
+    ]);
+    expect(events.find((e) => e.type === "TOOL_CALL_RESULT")).toMatchObject({
+      messageId: native.id,
+      toolCallId: "native-call",
+      content: content.map((claudeManagedAgents) => ({
+        metadata: { claudeManagedAgents },
+      })),
+    });
+    expect(fake.sent).toEqual([]);
+    expect(store.get("5:agent|0:|3:env|0:|imported")?.lastEventId).toBe(
+      "idle_end",
+    );
+  },
+);

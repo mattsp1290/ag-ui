@@ -1,5 +1,4 @@
 using System.Collections.Concurrent;
-using System.Diagnostics;
 using System.Globalization;
 using System.Runtime.CompilerServices;
 using System.Text.Json;
@@ -136,7 +135,7 @@ public sealed partial class ManagedAgentsAgent
     {
         var threadId = input.ThreadId;
         var runId = input.RunId;
-        yield return new RunStartedEvent { ThreadId = threadId, RunId = runId, ProtocolVersion = AGUIProtocol.Version };
+        yield return new RunStartedEvent { ThreadId = threadId, RunId = runId, ProtocolVersion = AGUIProtocol.Version, Input = input };
         if (input.State is JsonElement state && state.ValueKind is not (JsonValueKind.Undefined or JsonValueKind.Null))
         {
             yield return new StateSnapshotEvent { Snapshot = state };
@@ -173,13 +172,6 @@ public sealed partial class ManagedAgentsAgent
             var messages = input.Messages ?? [];
             if (!HasSendableContent(messages) && input.Resume is not { Count: > 0 } && _options.ResolveSession is null && await _store.GetAsync(threadKey, cancellationToken).ConfigureAwait(false) is null)
             {
-                // The newest user message is the one this run would have delivered: announce the
-                // media it is refused for, as the delivery site would.
-                if (messages.OfType<AGUIUserMessage>().LastOrDefault() is { } newestUser)
-                {
-                    UserTextOf(newestUser, warn: true);
-                }
-
                 yield return new RunErrorEvent
                 {
                     Message = "There is nothing to send: this run has no user message or tool result.",
@@ -535,7 +527,7 @@ public sealed partial class ManagedAgentsAgent
 
             events.Add(ManagedAgentsSessionEvents.CustomToolResult(
                 toolMessage.ToolCallId,
-                ToolResultText(toolMessage),
+                ManagedAgentsContent.ToolBlocks(toolMessage),
                 isError: !string.IsNullOrEmpty(toolMessage.Error)));
         }
 
@@ -550,13 +542,13 @@ public sealed partial class ManagedAgentsAgent
             : userMessages.Skip(Math.Max(0, userMessages.Count - 1));
         foreach (var message in undelivered)
         {
-            var text = UserTextOf(message, warn: true).Trim();
-            if (text.Length == 0)
+            var content = ManagedAgentsContent.Blocks(message.Content);
+            if (content.Count == 0)
             {
                 continue;
             }
 
-            events.Add(ManagedAgentsSessionEvents.UserMessage(text));
+            events.Add(ManagedAgentsSessionEvents.UserMessage(content));
             lastUserMessageId = message.Id;
         }
 
@@ -725,33 +717,6 @@ public sealed partial class ManagedAgentsAgent
         return true;
     }
 
-    /// <summary>
-    /// A tool message's payload: its content plus any error text, matching the other ports. Non-text
-    /// parts are dropped with a warning.
-    /// </summary>
-    private static string ToolResultText(AGUIToolMessage message)
-    {
-        WarnDroppedParts(message.Content, "tool-result", "this adapter forwards tool results as text only");
-        return string.Join("\n", new[] { message.Content.ToString(), message.Error }.Where(static part => !string.IsNullOrEmpty(part)));
-    }
-
-    /// <summary>Warns once per non-text part the caller is about to drop.</summary>
-    private static void WarnDroppedParts(AGUIContent content, string where, string reason)
-    {
-        if (content.IsText)
-        {
-            return;
-        }
-
-        foreach (var part in content)
-        {
-            if (part is not AGUITextInputContent)
-            {
-                Trace.TraceWarning($"[claude-managed-agents] Dropping {part.Type} {where} content: {reason}");
-            }
-        }
-    }
-
     /// <summary>Formats a timeout for the RUN_ERROR message without rounding sub-second values to "0s".</summary>
     private static string FormatSeconds(TimeSpan timeout)
     {
@@ -771,21 +736,7 @@ public sealed partial class ManagedAgentsAgent
     /// </summary>
     private static bool HasUserText(IList<AGUIMessage> messages)
     {
-        return messages.Any(static message => message is AGUIUserMessage user && UserTextOf(user).Trim().Length > 0);
-    }
-
-    /// <summary>
-    /// The text of a user message; non-text parts are dropped. Only the delivery site passes
-    /// <paramref name="warn"/>, so each part is warned about once.
-    /// </summary>
-    private static string UserTextOf(AGUIUserMessage message, bool warn = false)
-    {
-        if (warn)
-        {
-            WarnDroppedParts(message.Content, "user-message", "this adapter forwards only text to a managed session");
-        }
-
-        return string.Concat(message.Content.OfType<AGUITextInputContent>().Select(static part => part.Text));
+        return messages.Any(static message => message is AGUIUserMessage user && ManagedAgentsContent.Blocks(user.Content).Count > 0);
     }
 
     private sealed class RunContext

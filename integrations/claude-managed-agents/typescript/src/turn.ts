@@ -1,3 +1,4 @@
+import { toolContent } from "./content";
 import type { SessionStream } from "./recovery";
 import type { PendingConfirmation } from "./types";
 import type Anthropic from "@anthropic-ai/sdk";
@@ -12,10 +13,9 @@ import type { BaseEvent } from "@ag-ui/client";
 import {
   BEST_EFFORT_SEND_TIMEOUT_MS,
   PARKED_RETRY_DELAYS_MS,
-  TOOL_RESULT_MAX_CHARS,
 } from "./constants";
 import { reportSwallowedFailure } from "./report";
-import { describeToolResult, textOf } from "./text";
+import { textOf } from "./text";
 import type { BackendCustomTool, ManagedAgentsErrorHandler } from "./types";
 
 export interface TurnOptions {
@@ -235,10 +235,14 @@ export async function runTurn(opts: TurnOptions): Promise<TurnOutcome> {
     } as BaseEvent);
     emit({ type: EventType.TOOL_CALL_END, toolCallId: id } as BaseEvent);
   };
-  const emitToolResult = (toolUseId: string, content: string) => {
+  const emitToolResult = (
+    toolUseId: string,
+    content: ReturnType<typeof toolContent>,
+    messageId?: string,
+  ) => {
     emit({
       type: EventType.TOOL_CALL_RESULT,
-      messageId: `result_${toolUseId}`,
+      messageId: messageId ?? `result_${toolUseId}`,
       toolCallId: toolUseId,
       content,
       role: "tool",
@@ -392,6 +396,12 @@ export async function runTurn(opts: TurnOptions): Promise<TurnOutcome> {
             ? { ...rawEvent, type: "session.status_terminated" as const }
             : rawEvent;
       try {
+        if (event.type.startsWith("agent.") || event.type.startsWith("user."))
+          emit({
+            type: EventType.RAW,
+            source: "claude-managed-agents",
+            event,
+          } as BaseEvent);
         switch (event.type) {
           case "event_start": {
             if (event.event.type === "agent.message") {
@@ -546,7 +556,8 @@ export async function runTurn(opts: TurnOptions): Promise<TurnOutcome> {
           case "agent.tool_result": {
             emitToolResult(
               event.tool_use_id,
-              describeToolResult(event.content).slice(0, TOOL_RESULT_MAX_CHARS),
+              toolContent(event.content),
+              event.id,
             );
             break;
           }
@@ -554,7 +565,8 @@ export async function runTurn(opts: TurnOptions): Promise<TurnOutcome> {
           case "agent.mcp_tool_result": {
             emitToolResult(
               event.mcp_tool_use_id,
-              describeToolResult(event.content).slice(0, TOOL_RESULT_MAX_CHARS),
+              toolContent(event.content),
+              event.id,
             );
             break;
           }

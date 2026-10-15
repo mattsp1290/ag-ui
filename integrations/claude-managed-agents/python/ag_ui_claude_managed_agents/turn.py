@@ -9,6 +9,7 @@ from typing import Any
 
 from ag_ui.core import (
     BaseEvent,
+    RawEvent,
     ReasoningEndEvent,
     ReasoningMessageEndEvent,
     ReasoningMessageStartEvent,
@@ -33,9 +34,9 @@ from ._util import (
 from .constants import (
     BEST_EFFORT_SEND_TIMEOUT_S,
     PARKED_RETRY_DELAYS_S,
-    TOOL_RESULT_MAX_CHARS,
 )
-from .text import describe_tool_result, text_of
+from .text import text_of
+from .content import tool_content, plain
 from .types import BackendTool, ErrorHandler, TurnOutcome
 
 INTERRUPTED_TOOL_RESULT_TEXT = "Tool execution was interrupted."
@@ -208,10 +209,10 @@ async def _consume(
         emit(ToolCallArgsEvent(tool_call_id=tool_call_id, delta=delta))
         emit(ToolCallEndEvent(tool_call_id=tool_call_id))
 
-    def emit_tool_result(tool_use_id: str, content: str) -> None:
+    def emit_tool_result(tool_use_id: str, content: Any, message_id: str | None = None) -> None:
         emit(
             ToolCallResultEvent(
-                message_id=f"result_{tool_use_id}",
+                message_id=message_id or f"result_{tool_use_id}",
                 tool_call_id=tool_use_id,
                 content=content,
                 role="tool",
@@ -396,6 +397,8 @@ async def _consume(
         async for event in stream:
             async with handled_event(event):
                 event_type = get(event, "type")
+                if event_type.startswith(("agent.", "user.")):
+                    emit(RawEvent(source="claude-managed-agents", event=plain(event)))
 
                 if event_type == "event_start":
                     preview = get(event, "event")
@@ -567,17 +570,15 @@ async def _consume(
                 elif event_type == "agent.tool_result":
                     emit_tool_result(
                         get(event, "tool_use_id"),
-                        describe_tool_result(get(event, "content"))[
-                            :TOOL_RESULT_MAX_CHARS
-                        ],
+                        tool_content(get(event, "content")),
+                        get(event, "id"),
                     )
 
                 elif event_type == "agent.mcp_tool_result":
                     emit_tool_result(
                         get(event, "mcp_tool_use_id"),
-                        describe_tool_result(get(event, "content"))[
-                            :TOOL_RESULT_MAX_CHARS
-                        ],
+                        tool_content(get(event, "content")),
+                        get(event, "id"),
                     )
 
                 elif event_type == "span.model_request_end":

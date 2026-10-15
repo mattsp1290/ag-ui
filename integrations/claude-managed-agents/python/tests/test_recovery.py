@@ -3,7 +3,11 @@ from types import SimpleNamespace
 
 from ag_ui_claude_managed_agents import SessionBinding, InMemorySessionStore
 from .fake_client import FakeClient
-from .test_agent import base_input, collect, new_agent
+from .test_agent import base_input, new_agent
+
+
+async def collect(agent, value):
+    return [event async for event in agent.run(value)]
 
 
 def call(id, kind="agent.tool_use", **kwargs):
@@ -729,3 +733,20 @@ async def test_recovered_history_answers_ignore_late_live_requires_action():
             "continued"
         ], kind
         assert not fake.sent, kind
+
+async def test_rich_recovered_results_preserve_native_ids_content_and_single_raw():
+    content = [{"type": "text", "text": "  " + "x" * 30000 + "\n"}, {"type": "image", "source": {"type": "base64", "data": "AAEC", "media_type": "image/png"}}]
+    for kind, field in [("agent.tool_result", "tool_use_id"), ("agent.mcp_tool_result", "mcp_tool_use_id"), ("user.custom_tool_result", "custom_tool_use_id")]:
+        native = {"type": kind, "id": "native-result", field: "native-call", "content": content}
+        history = [{"id": "cursor", "type": "session.status_running"}, native, {"id": "done", "type": "session.status_idle", "stop_reason": {"type": "end_turn"}}]
+        fake = RecoveryClient([history])
+        store = InMemorySessionStore()
+        subject = new_agent(fake, store, resolve_session=lambda _: SessionBinding("native", last_event_id="cursor"))
+        events = [e async for e in subject.run(base_input())]
+        raw = [e for e in events if e.type.value == "RAW" and e.event.get("id") == "native-result"]
+        assert len(raw) == 1 and raw[0].event == native and raw[0].source == "claude-managed-agents"
+        result = next(e for e in events if e.type.value == "TOOL_CALL_RESULT")
+        assert result.message_id == "native-result" and result.tool_call_id == "native-call"
+        assert [part.metadata["claudeManagedAgents"] for part in result.content] == content
+        assert store.get(subject._session_key("thread_1")).last_event_id == "done"
+        assert not fake.sent

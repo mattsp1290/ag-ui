@@ -106,7 +106,7 @@ public sealed partial class ManagedAgentsAgent
         // replay only activity after the durable cursor, without executing any historical tools.
         foreach (var evt in missed)
         {
-            yield return new RawEvent { Event = evt };
+            yield return new RawEvent { Source = "claude-managed-agents", Event = evt };
             var id = StringOf(evt, "id")!;
             var type = StringOf(evt, "type");
             var blocks = evt.TryGetProperty("content", out var content) && content.ValueKind == JsonValueKind.Array ? content.EnumerateArray().ToList() : null;
@@ -138,7 +138,7 @@ public sealed partial class ManagedAgentsAgent
                 yield return new ToolCallEndEvent { ToolCallId = id };
             }
             var resultId = type switch { "agent.tool_result" => StringOf(evt, "tool_use_id"), "agent.mcp_tool_result" => StringOf(evt, "mcp_tool_use_id"), "user.custom_tool_result" => StringOf(evt, "custom_tool_use_id"), _ => null };
-            if (resultId is not null && knownResults.Add(resultId)) yield return new ToolCallResultEvent { MessageId = id, ToolCallId = resultId, Role = AGUIRoles.Tool, Content = ManagedAgentsText.DescribeToolResult(blocks) };
+            if (resultId is not null && knownResults.Add(resultId)) yield return new ToolCallResultEvent { MessageId = id, ToolCallId = resultId, Role = AGUIRoles.Tool, Content = ManagedAgentsContent.ToolContent(blocks) };
         }
         record.LastEventId = history.Select(evt => StringOf(evt, "id")).LastOrDefault(id => id is not null) ?? record.LastEventId;
         await PersistDeliveredAsync(key, record).ConfigureAwait(false);

@@ -6,7 +6,8 @@ import type {
 import { EventType } from "@ag-ui/client";
 import type { BaseEvent } from "@ag-ui/client";
 import type { SessionRecord } from "./types";
-import { describeToolResult, textOf } from "./text";
+import { textOf } from "./text";
+import { toolContent } from "./content";
 
 export class RecoveryError extends Error {
   constructor(
@@ -314,7 +315,7 @@ function emitRecoveredActivity(
       messageId: event.id,
       toolCallId,
       role: "tool",
-      content: describeToolResult(event.content),
+      content: toolContent(event.content),
     } as BaseEvent);
   }
 }

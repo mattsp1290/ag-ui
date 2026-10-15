@@ -11,9 +11,9 @@ pub enum AgUiClientError {
 
     /// Transport-level HTTP failures from reqwest
     #[error("HTTP transport error: {0}")]
-    HttpTransport(#[from] reqwest::Error),
+    HttpTransport(reqwest::Error),
 
-    /// Non-success HTTP status with body snippet
+    /// Non-success HTTP status with bounded receipt metadata, never body contents
     #[error("HTTP status {status}: {context}")]
     HttpStatus {
         status: reqwest::StatusCode,
@@ -23,6 +23,28 @@ pub enum AgUiClientError {
     /// SSE parsing/framing/UTF-8 errors
     #[error("SSE parse error: {message}")]
     SseParse { message: String },
+
+    /// Malformed or terminally incomplete UTF-8. No payload bytes are included.
+    #[error("SSE invalid UTF-8 (incomplete code point: {incomplete})")]
+    SseInvalidUtf8 { incomplete: bool },
+
+    #[error("SSE ended before a complete frame delimiter")]
+    SseTruncated,
+
+    #[error("SSE {kind} exceeds the configured {limit}-byte limit")]
+    SseLimitExceeded { kind: &'static str, limit: usize },
+
+    #[error("HTTP response must have Content-Type text/event-stream")]
+    UnexpectedContentType,
+
+    #[error("Protocol processing failed: {0}")]
+    Processing(#[from] ag_ui_core::processing::ProcessingError),
+
+    #[error("Exchange identity mismatch: {0}")]
+    ExchangeIdentity(String),
+
+    #[error("Incomplete run: {0}")]
+    IncompleteRun(String),
 
     /// JSON serialization/deserialization errors
     #[error("JSON error: {0}")]
@@ -67,3 +89,10 @@ impl AgUiClientError {
 }
 
 pub type Result<T> = std::result::Result<T, AgUiClientError>;
+
+// reqwest errors can contain the URL, including query credentials. Never retain it.
+impl From<reqwest::Error> for AgUiClientError {
+    fn from(error: reqwest::Error) -> Self {
+        Self::HttpTransport(error.without_url())
+    }
+}

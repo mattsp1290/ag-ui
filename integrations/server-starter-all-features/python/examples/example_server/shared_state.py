@@ -9,7 +9,8 @@ from ag_ui.core import (
     EventType,
     RunStartedEvent,
     RunFinishedEvent,
-    StateSnapshotEvent
+    StateSnapshotEvent,
+    StateDeltaEvent
 )
 from ag_ui.encoder import EventEncoder
 
@@ -92,4 +93,10 @@ async def send_state_events():
     yield StateSnapshotEvent(
         type=EventType.STATE_SNAPSHOT,
         snapshot=state
+    )
+
+    # Show clients how to apply a JSON Patch after the initial recipe snapshot.
+    yield StateDeltaEvent(
+        type=EventType.STATE_DELTA,
+        delta=[{"op": "replace", "path": "/recipe/cooking_time", "value": "30 min"}]
     )

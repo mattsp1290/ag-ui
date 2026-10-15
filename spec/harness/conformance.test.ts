@@ -300,7 +300,7 @@ describe("the conformance fixture corpus", () => {
     }
   });
 
-  const LANES = ["typescript", "dotnet"] as const;
+  const LANES = ["typescript", "dotnet", "rust"] as const;
 
   /** What a lane is actually held to, once its override is applied. */
   const resolvedFor = (
@@ -456,7 +456,7 @@ describe("the conformance fixture corpus", () => {
       for (const [lane, override] of Object.entries(
         fixture.expectOverrides ?? {},
       )) {
-        expect(["typescript", "dotnet"]).toContain(lane);
+        expect(LANES).toContain(lane);
         // The whole point of recording a divergence is that someone reading it
         // learns why the two clients differ. An override without a reason is
         // the silent inconsistency this suite exists to prevent.

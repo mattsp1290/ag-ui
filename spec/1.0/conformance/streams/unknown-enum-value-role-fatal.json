@@ -20,7 +20,10 @@
       "messageId": "m-unknown-role",
       "delta": "the role above is the only defect in this stream"
     },
-    { "type": "TEXT_MESSAGE_END", "messageId": "m-unknown-role" },
+    {
+      "type": "TEXT_MESSAGE_END",
+      "messageId": "m-unknown-role"
+    },
     {
       "type": "RUN_FINISHED",
       "threadId": "t-unknown-role",
@@ -30,5 +33,29 @@
   "expect": {
     "outcome": "failed",
     "errorContains": "role"
+  },
+  "expectOverrides": {
+    "rust": {
+      "intentional": "The 1.0 processing rule strips an unsupported optional closed-set role and warns. The TypeScript base expectation pins an admitted reference bug. Empty errorContains lifts its rejection-text constraint.",
+      "outcome": "completed",
+      "errorContains": "",
+      "warnings": ["/role"],
+      "eventTypes": [
+        "RUN_STARTED",
+        "TEXT_MESSAGE_START",
+        "TEXT_MESSAGE_CONTENT",
+        "TEXT_MESSAGE_END",
+        "RUN_FINISHED"
+      ],
+      "eventAbsentPaths": ["1.role"],
+      "messageCount": 1,
+      "messages": [
+        {
+          "id": "m-unknown-role",
+          "role": "assistant",
+          "content": "the role above is the only defect in this stream"
+        }
+      ]
+    }
   }
 }

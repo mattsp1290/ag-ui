@@ -180,6 +180,12 @@ jobs:
         working-directory: apps/dojo/e2e
         run: pnpm test:event-trace-unit
 
+      - name: Build Managed Agents integration for fake regression tests
+        run: pnpm exec nx run @ag-ui/claude-managed-agents:build
+
+      - name: Test Managed Agents fake recovery through the real SDK
+        run: pnpm exec nx run demo-viewer:test:managed-agents-fake
+
       - name: Type-check event trace harness
         working-directory: apps/dojo/e2e
         run: pnpm check:event-trace-types

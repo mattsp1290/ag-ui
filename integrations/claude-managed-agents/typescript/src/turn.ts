@@ -1,4 +1,6 @@
 import { toolContent } from "./content";
+import type { SessionStream } from "./recovery";
+import type { PendingConfirmation } from "./types";
 import type Anthropic from "@anthropic-ai/sdk";
 import type {
   BetaManagedAgentsEventParams,
@@ -19,13 +21,20 @@ import type { BackendCustomTool, ManagedAgentsErrorHandler } from "./types";
 export interface TurnOptions {
   client: Anthropic;
   sessionId: string;
+  sessionThreadId?: string;
+  stream?: SessionStream;
+  /** Answers confirmed by native history before consuming the live stream. */
+  acknowledgedToolUseIds?: ReadonlySet<string>;
+  preservePending?: boolean;
+  onNativeEvent?: (id: string) => void | Promise<void>;
+  onConfirmationPark?: (call: PendingConfirmation) => void | Promise<void>;
   /** Events posted into the session once the stream is open (user message, tool results). */
   outbound: BetaManagedAgentsEventParams[];
   /** Frontend tools, keyed by their managed-agent (normalized) name → original AG-UI name. Calls to these park the session. */
   clientTools: Map<string, string>;
   /** Custom tools executed on this server, keyed by their managed-agent (normalized) name. */
   backendTools: Map<string, BackendCustomTool>;
-  /** How to answer built-in tools gated on confirmation; undefined = fail the run. */
+  /** How to answer built-in tools gated on confirmation; undefined = expose an interrupt. */
   toolConfirmation: "allow" | "deny" | undefined;
   streamDeltas: boolean;
   /** Notified when a best-effort operation fails. Never throws into the turn. */
@@ -101,15 +110,17 @@ export async function runTurn(opts: TurnOptions): Promise<TurnOutcome> {
     reportSwallowedFailure(opts.onError, operation, error, { sessionId });
 
   // Open the stream before sending so no early events are missed.
-  const stream = await client.beta.sessions.events.stream(
-    sessionId,
-    // "agent.thinking" opts into the live thinking indicator (event_start);
-    // thinking carries no text deltas today.
-    opts.streamDeltas
-      ? { event_deltas: ["agent.message", "agent.thinking"] }
-      : {},
-    { signal },
-  );
+  const stream =
+    opts.stream ??
+    (await client.beta.sessions.events.stream(
+      sessionId,
+      // "agent.thinking" opts into the live thinking indicator (event_start);
+      // thinking carries no text deltas today.
+      opts.streamDeltas
+        ? { event_deltas: ["agent.message", "agent.thinking"] }
+        : {},
+      { signal },
+    ));
 
   // A parked session accepts only tool results, so post those first (which
   // resumes it) and any user messages in a second call. The API validates a
@@ -160,7 +171,15 @@ export async function runTurn(opts: TurnOptions): Promise<TurnOutcome> {
   const previews = new Map<string, Preview>();
   const closedMessages = new Set<string>();
   const openReasoning = new Set<string>();
-  const ackedToolUses = new Set<string>();
+  const ackedToolUses = new Set(opts.acknowledgedToolUseIds);
+  // The sends above succeeded. A buffered requires_action can still reference
+  // these calls until the provider observes their answers.
+  for (const result of results) {
+    if (result.type === "user.custom_tool_result")
+      ackedToolUses.add(result.custom_tool_use_id);
+    else if (result.type === "user.tool_confirmation")
+      ackedToolUses.add(result.tool_use_id);
+  }
   const clientParks = new Set<string>();
   const askedConfirmations = new Set<string>();
 
@@ -219,11 +238,11 @@ export async function runTurn(opts: TurnOptions): Promise<TurnOutcome> {
   const emitToolResult = (
     toolUseId: string,
     content: ReturnType<typeof toolContent>,
-    messageId = `result_${toolUseId}`,
+    messageId?: string,
   ) => {
     emit({
       type: EventType.TOOL_CALL_RESULT,
-      messageId,
+      messageId: messageId ?? `result_${toolUseId}`,
       toolCallId: toolUseId,
       content,
       role: "tool",
@@ -237,17 +256,19 @@ export async function runTurn(opts: TurnOptions): Promise<TurnOutcome> {
    * run gate open indefinitely.
    */
   const interrupt = (): Promise<boolean> =>
-    client.beta.sessions.events
-      .send(
-        sessionId,
-        { events: [{ type: "user.interrupt" }] },
-        { signal: AbortSignal.timeout(BEST_EFFORT_SEND_TIMEOUT_MS) },
-      )
-      .then(() => true)
-      .catch(async (error: unknown) => {
-        await report("interrupt", error);
-        return false;
-      });
+    opts.preservePending
+      ? Promise.resolve(false)
+      : client.beta.sessions.events
+          .send(
+            sessionId,
+            { events: [{ type: "user.interrupt" }] },
+            { signal: AbortSignal.timeout(BEST_EFFORT_SEND_TIMEOUT_MS) },
+          )
+          .then(() => true)
+          .catch(async (error: unknown) => {
+            await report("interrupt", error);
+            return false;
+          });
 
   /**
    * End the turn with a RUN_ERROR. `sessionInterrupted` must be the result of
@@ -365,277 +386,317 @@ export async function runTurn(opts: TurnOptions): Promise<TurnOutcome> {
   };
 
   const consume = async (): Promise<TurnOutcome> => {
-    for await (const event of stream as AsyncIterable<StreamEvent>) {
-      if (event.type.startsWith("agent.") || event.type.startsWith("user.")) {
-        emit({
-          type: EventType.RAW,
-          source: "claude-managed-agents",
-          event,
-        } as BaseEvent);
-      }
-      switch (event.type) {
-        case "event_start": {
-          if (event.event.type === "agent.message") {
-            openMessage(event.event.id).snapshot = accumulateManagedAgentsEvent(
-              undefined,
-              event,
-            );
-          } else if (event.event.type === "agent.thinking") {
-            openReasoning.add(event.event.id);
-            emit({
-              type: EventType.REASONING_START,
-              messageId: event.event.id,
-            } as BaseEvent);
-            emit({
-              type: EventType.REASONING_MESSAGE_START,
-              messageId: event.event.id,
-              role: "reasoning",
-            } as BaseEvent);
-          }
-          break;
-        }
-
-        case "event_delta": {
-          const preview = previews.get(event.event_id);
-          if (!preview) break; // best-effort; the buffered agent.message is canonical
-          try {
-            preview.snapshot = accumulateManagedAgentsEvent(
-              preview.snapshot,
-              event,
-            );
-          } catch (error) {
-            // A gapped or out-of-order delta: drop this preview and let the
-            // buffered agent.message reconcile against what was emitted.
-            await report("accumulate_preview", error);
-            preview.snapshot = undefined;
+    for await (const rawEvent of stream as AsyncIterable<StreamEvent>) {
+      const event =
+        rawEvent.type === "session.thread_status_idle" &&
+        opts.sessionThreadId === rawEvent.session_thread_id
+          ? { ...rawEvent, type: "session.status_idle" as const }
+          : rawEvent.type === "session.thread_status_terminated" &&
+              opts.sessionThreadId === rawEvent.session_thread_id
+            ? { ...rawEvent, type: "session.status_terminated" as const }
+            : rawEvent;
+      try {
+        if (event.type.startsWith("agent.") || event.type.startsWith("user."))
+          emit({
+            type: EventType.RAW,
+            source: "claude-managed-agents",
+            event,
+          } as BaseEvent);
+        switch (event.type) {
+          case "event_start": {
+            if (event.event.type === "agent.message") {
+              openMessage(event.event.id).snapshot =
+                accumulateManagedAgentsEvent(undefined, event);
+            } else if (event.event.type === "agent.thinking") {
+              openReasoning.add(event.event.id);
+              emit({
+                type: EventType.REASONING_START,
+                messageId: event.event.id,
+              } as BaseEvent);
+              emit({
+                type: EventType.REASONING_MESSAGE_START,
+                messageId: event.event.id,
+                role: "reasoning",
+              } as BaseEvent);
+            }
             break;
           }
-          if (
-            event.delta.type === "content_delta" &&
-            event.delta.content.type === "text"
-          ) {
-            preview.emitted += event.delta.content.text;
-            emitTextContent(event.event_id, event.delta.content.text);
-          }
-          break;
-        }
 
-        case "agent.thinking": {
-          // The thinking stretch finished. Its text is not exposed by the API today,
-          // so this is a progress signal: close the reasoning block we opened.
-          if (openReasoning.has(event.id)) {
-            closeReasoning(event.id);
-          } else {
-            emit({
-              type: EventType.REASONING_START,
-              messageId: event.id,
-            } as BaseEvent);
-            emit({
-              type: EventType.REASONING_END,
-              messageId: event.id,
-            } as BaseEvent);
-          }
-          break;
-        }
-
-        case "agent.message": {
-          if (closedMessages.has(event.id)) break;
-          reconcileMessage(event.id, textOf(event.content));
-          break;
-        }
-
-        case "agent.custom_tool_use": {
-          // Report the frontend's original tool name, which may differ from
-          // the normalized name registered on the managed agent.
-          emitToolCall(
-            event.id,
-            opts.clientTools.get(event.name) ?? event.name,
-            event.input,
-          );
-          if (opts.clientTools.has(event.name)) {
-            // The frontend executes this tool. Leave it unanswered; the session
-            // will park on it and the next run supplies the result.
-            clientParks.add(event.id);
-            await opts.onClientPark?.(event.id);
+          case "event_delta": {
+            const preview = previews.get(event.event_id);
+            if (!preview) break; // best-effort; the buffered agent.message is canonical
+            try {
+              preview.snapshot = accumulateManagedAgentsEvent(
+                preview.snapshot,
+                event,
+              );
+            } catch (error) {
+              // A gapped or out-of-order delta: drop this preview and let the
+              // buffered agent.message reconcile against what was emitted.
+              await report("accumulate_preview", error);
+              preview.snapshot = undefined;
+              break;
+            }
+            if (
+              event.delta.type === "content_delta" &&
+              event.delta.content.type === "text"
+            ) {
+              preview.emitted += event.delta.content.text;
+              emitTextContent(event.event_id, event.delta.content.text);
+            }
             break;
           }
-          const backend = opts.backendTools.get(event.name);
-          if (backend) {
-            const undelivered = await runBackendTool(
+
+          case "agent.thinking": {
+            // The thinking stretch finished. Its text is not exposed by the API today,
+            // so this is a progress signal: close the reasoning block we opened.
+            if (openReasoning.has(event.id)) {
+              closeReasoning(event.id);
+            } else {
+              emit({
+                type: EventType.REASONING_START,
+                messageId: event.id,
+              } as BaseEvent);
+              emit({
+                type: EventType.REASONING_END,
+                messageId: event.id,
+              } as BaseEvent);
+            }
+            break;
+          }
+
+          case "agent.message": {
+            if (closedMessages.has(event.id)) break;
+            reconcileMessage(event.id, textOf(event.content));
+            break;
+          }
+
+          case "agent.custom_tool_use": {
+            // Report the frontend's original tool name, which may differ from
+            // the normalized name registered on the managed agent.
+            emitToolCall(
               event.id,
-              backend,
+              opts.clientTools.get(event.name) ?? event.name,
               event.input,
+            );
+            if (opts.clientTools.has(event.name)) {
+              // The frontend executes this tool. Leave it unanswered; the session
+              // will park on it and the next run supplies the result.
+              clientParks.add(event.id);
+              await opts.onClientPark?.(event.id);
+              break;
+            }
+            const backend = opts.backendTools.get(event.name);
+            if (backend) {
+              const undelivered = await runBackendTool(
+                event.id,
+                backend,
+                event.input,
+              );
+              if (undelivered) return undelivered;
+              break;
+            }
+            if (opts.preservePending) {
+              clientParks.add(event.id);
+              await opts.onClientPark?.(event.id);
+              break;
+            }
+            // Nothing can execute this fresh tool. Answer with an error so the agent recovers.
+            const undelivered = await answerCustomToolUse(
+              event.id,
+              `No handler is registered for tool "${event.name}".`,
+              true,
             );
             if (undelivered) return undelivered;
             break;
           }
-          // Nothing can execute this tool. Answer with an error so the agent recovers.
-          const undelivered = await answerCustomToolUse(
-            event.id,
-            `No handler is registered for tool "${event.name}".`,
-            true,
-          );
-          if (undelivered) return undelivered;
-          break;
-        }
 
-        case "agent.tool_use": {
-          emitToolCall(event.id, event.name, event.input);
-          if (event.evaluated_permission === "ask")
-            askedConfirmations.add(event.id);
-          break;
-        }
-
-        case "agent.mcp_tool_use": {
-          emitToolCall(
-            event.id,
-            `${event.mcp_server_name}: ${event.name}`,
-            event.input,
-          );
-          if (event.evaluated_permission === "ask")
-            askedConfirmations.add(event.id);
-          break;
-        }
-
-        case "agent.tool_result": {
-          emitToolResult(
-            event.tool_use_id,
-            toolContent(event.content),
-            event.id,
-          );
-          break;
-        }
-
-        case "agent.mcp_tool_result": {
-          emitToolResult(
-            event.mcp_tool_use_id,
-            toolContent(event.content),
-            event.id,
-          );
-          break;
-        }
-
-        case "span.model_request_end": {
-          // A failed model request produces no buffered agent.message, so its
-          // dangling preview must be closed here. A successful one is left
-          // to the buffered message, which may arrive after this event.
-          if (event.is_error === true) closeAll();
-          break;
-        }
-
-        case "session.error": {
-          const { type, message, retry_status } = event.error;
-          if (retry_status.type === "retrying") break; // transient; the session recovers on its own
-          return fail(message || SESSION_ERROR_FALLBACK, type);
-        }
-
-        case "session.status_idle": {
-          const { stop_reason } = event;
-          if (stop_reason.type === "end_turn") {
-            closeAll();
-            return { status: "finished" };
+          case "agent.tool_use": {
+            emitToolCall(event.id, event.name, event.input);
+            if (event.evaluated_permission === "ask") {
+              askedConfirmations.add(event.id);
+              if (!opts.toolConfirmation) {
+                await opts.onConfirmationPark?.({
+                  id: event.id,
+                  toolName: event.name,
+                  ...(event.session_thread_id
+                    ? { sessionThreadId: event.session_thread_id }
+                    : {}),
+                });
+                closeAll();
+                return { status: "parked", clientToolUseIds: [...clientParks] };
+              }
+            }
+            break;
           }
-          if (stop_reason.type === "retries_exhausted") {
-            return fail(
-              "The session gave up after exhausting its retries.",
-              "retries_exhausted",
+
+          case "agent.mcp_tool_use": {
+            emitToolCall(
+              event.id,
+              `${event.mcp_server_name}: ${event.name}`,
+              event.input,
             );
+            if (event.evaluated_permission === "ask") {
+              askedConfirmations.add(event.id);
+              if (!opts.toolConfirmation) {
+                await opts.onConfirmationPark?.({
+                  id: event.id,
+                  toolName: event.name,
+                  ...(event.session_thread_id
+                    ? { sessionThreadId: event.session_thread_id }
+                    : {}),
+                });
+                closeAll();
+                return { status: "parked", clientToolUseIds: [...clientParks] };
+              }
+            }
+            break;
           }
-          // Anything other than requires_action is a stop reason this version
-          // does not know how to answer. Reading its (absent) event_ids used to
-          // throw here; all three ports now interrupt the idle session and say
-          // so, rather than waiting out the turn timeout on a session that will
-          // never resume. Read through a widened type: the static union is
-          // exhaustive, but the API is free to add a stop reason to it.
-          const reasonType = (stop_reason as { type: string }).type;
-          if (reasonType !== "requires_action") {
-            return fail(
-              `The session went idle for a reason this integration does not handle: ${reasonType}.`,
-              "unknown_stop_reason",
-              await interrupt(),
-            );
-          }
-          // requires_action: work out what the session is blocked on.
-          const blockedOn = (stop_reason.event_ids ?? []).filter(
-            (id) => !ackedToolUses.has(id),
-          );
-          if (blockedOn.length === 0) break; // everything is already answered; wait for it to resume
 
-          const confirmations = blockedOn.filter((id) =>
-            askedConfirmations.has(id),
-          );
-          if (confirmations.length > 0) {
-            if (!opts.toolConfirmation) {
+          case "agent.tool_result": {
+            emitToolResult(
+              event.tool_use_id,
+              toolContent(event.content),
+              event.id,
+            );
+            break;
+          }
+
+          case "agent.mcp_tool_result": {
+            emitToolResult(
+              event.mcp_tool_use_id,
+              toolContent(event.content),
+              event.id,
+            );
+            break;
+          }
+
+          case "span.model_request_end": {
+            // A failed model request produces no buffered agent.message, so its
+            // dangling preview must be closed here. A successful one is left
+            // to the buffered message, which may arrive after this event.
+            if (event.is_error === true) closeAll();
+            break;
+          }
+
+          case "session.error": {
+            const { type, message, retry_status } = event.error;
+            if (retry_status.type === "retrying") break; // transient; the session recovers on its own
+            return fail(message || SESSION_ERROR_FALLBACK, type);
+          }
+
+          case "session.status_idle": {
+            const { stop_reason } = event;
+            if (stop_reason.type === "end_turn") {
+              closeAll();
+              return { status: "finished" };
+            }
+            if (stop_reason.type === "retries_exhausted") {
               return fail(
-                "A tool requires confirmation but no confirmation policy is configured. " +
-                  'Set `toolConfirmation` to "allow" or "deny", or use a permission policy that does not ask.',
-                "tool_confirmation_required",
+                "The session gave up after exhausting its retries.",
+                "retries_exhausted",
+              );
+            }
+            // Anything other than requires_action is a stop reason this version
+            // does not know how to answer. Reading its (absent) event_ids used to
+            // throw here; all three ports now interrupt the idle session and say
+            // so, rather than waiting out the turn timeout on a session that will
+            // never resume. Read through a widened type: the static union is
+            // exhaustive, but the API is free to add a stop reason to it.
+            const reasonType = (stop_reason as { type: string }).type;
+            if (reasonType !== "requires_action") {
+              return fail(
+                `The session went idle for a reason this integration does not handle: ${reasonType}.`,
+                "unknown_stop_reason",
                 await interrupt(),
               );
             }
-            // Bounded like tool-result posts: the session is parked on these
-            // answers. A failed delivery leaves it parked, so interrupt it and
-            // report that cause rather than letting the bound's abort surface as
-            // an unrelated failure.
-            try {
-              await client.beta.sessions.events.send(
-                sessionId,
-                {
-                  events: confirmations.map((tool_use_id) => ({
-                    type: "user.tool_confirmation" as const,
-                    tool_use_id,
-                    result: opts.toolConfirmation!,
-                  })),
-                },
-                { signal: AbortSignal.timeout(BEST_EFFORT_SEND_TIMEOUT_MS) },
-              );
-            } catch (error) {
-              await report("post_tool_confirmation", error);
+            // requires_action: work out what the session is blocked on.
+            const blockedOn = (stop_reason.event_ids ?? []).filter(
+              (id) => !ackedToolUses.has(id),
+            );
+            if (blockedOn.length === 0) break; // everything is already answered; wait for it to resume
+
+            const confirmations = blockedOn.filter((id) =>
+              askedConfirmations.has(id),
+            );
+            if (confirmations.length > 0) {
+              if (!opts.toolConfirmation) {
+                closeAll();
+                return {
+                  status: "parked",
+                  clientToolUseIds: blockedOn.filter((id) =>
+                    clientParks.has(id),
+                  ),
+                };
+              }
+              // Bounded like tool-result posts: the session is parked on these
+              // answers. A failed delivery leaves it parked, so interrupt it and
+              // report that cause rather than letting the bound's abort surface as
+              // an unrelated failure.
+              try {
+                await client.beta.sessions.events.send(
+                  sessionId,
+                  {
+                    events: confirmations.map((tool_use_id) => ({
+                      type: "user.tool_confirmation" as const,
+                      tool_use_id,
+                      result: opts.toolConfirmation!,
+                    })),
+                  },
+                  { signal: AbortSignal.timeout(BEST_EFFORT_SEND_TIMEOUT_MS) },
+                );
+              } catch (error) {
+                await report("post_tool_confirmation", error);
+                return fail(
+                  "The tool confirmation could not be delivered to the session.",
+                  "tool_confirmation_delivery_failed",
+                  await interrupt(),
+                );
+              }
+              for (const id of confirmations) ackedToolUses.add(id);
+              if (confirmations.length === blockedOn.length) break;
+            }
+
+            const clientToolUseIds = blockedOn.filter((id) =>
+              clientParks.has(id),
+            );
+            const unknown = blockedOn.filter(
+              (id) => !askedConfirmations.has(id) && !clientParks.has(id),
+            );
+            if (unknown.length > 0) {
               return fail(
-                "The tool confirmation could not be delivered to the session.",
-                "tool_confirmation_delivery_failed",
+                "The agent is waiting on an action this integration cannot answer.",
+                "unsupported_action",
                 await interrupt(),
               );
             }
-            for (const id of confirmations) ackedToolUses.add(id);
-            if (confirmations.length === blockedOn.length) break;
+            if (clientToolUseIds.length > 0) {
+              // Hand control back to the frontend to execute its tools.
+              closeAll();
+              return { status: "parked", clientToolUseIds };
+            }
+            break;
           }
 
-          const clientToolUseIds = blockedOn.filter((id) =>
-            clientParks.has(id),
-          );
-          const unknown = blockedOn.filter(
-            (id) => !askedConfirmations.has(id) && !clientParks.has(id),
-          );
-          if (unknown.length > 0) {
-            return fail(
-              "The agent is waiting on an action this integration cannot answer.",
-              "unsupported_action",
-              await interrupt(),
-            );
-          }
-          if (clientToolUseIds.length > 0) {
-            // Hand control back to the frontend to execute its tools.
+          case "session.status_terminated":
+          case "session.deleted": {
             closeAll();
-            return { status: "parked", clientToolUseIds };
+            emit({
+              type: EventType.RUN_ERROR,
+              message:
+                "The managed session ended on the server. Start a new AG-UI thread to create a new session.",
+              code: "session_ended",
+            } as BaseEvent);
+            return { status: "errored", sessionEnded: true };
           }
-          break;
-        }
 
-        case "session.status_terminated":
-        case "session.deleted": {
-          closeAll();
-          emit({
-            type: EventType.RUN_ERROR,
-            message:
-              "The managed session ended on the server. Send another message to start a fresh one.",
-            code: "session_ended",
-          } as BaseEvent);
-          return { status: "errored", sessionEnded: true };
+          default:
+            break; // status_running, rescheduled, spans, thread events, echoed user events
         }
-
-        default:
-          break; // status_running, rescheduled, spans, thread events, echoed user events
+      } finally {
+        if (event.type !== "event_start" && event.type !== "event_delta")
+          await opts.onNativeEvent?.(event.id);
       }
     }
     closeAll();
@@ -671,6 +732,7 @@ export async function runTurn(opts: TurnOptions): Promise<TurnOutcome> {
   try {
     return await consume();
   } finally {
+    stream.controller.abort();
     closeAll();
   }
 }

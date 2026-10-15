@@ -540,7 +540,7 @@ describe("ManagedAgentsAgent", () => {
         is_error: false,
       },
     ]);
-    expect(fake.spies.stream).not.toHaveBeenCalled();
+    expect(fake.spies.stream).toHaveBeenCalledTimes(1);
     expect(events.at(-1)?.type).toBe(EventType.RUN_FINISHED);
     expect(await store.get(SESSION_KEY)).toMatchObject({
       pendingClientToolUseIds: ["ctu_2"],
@@ -740,7 +740,7 @@ describe("ManagedAgentsAgent", () => {
     ]);
   });
 
-  it("abandons parked tool calls when the user sends a new message instead", async () => {
+  it("preserves pending calls when a new message arrives without answers", async () => {
     const fake = createFakeClient({
       streams: [
         [
@@ -771,29 +771,11 @@ describe("ManagedAgentsAgent", () => {
       }),
     );
 
-    // Tool results go first (resuming the parked session), then the message,
-    // as two separate sends: the API rejects a user.message in the same batch
-    // as the results while the session is still parked.
-    expect(fake.sent[0].events).toEqual([
-      {
-        type: "user.custom_tool_result",
-        custom_tool_use_id: "ctu_1",
-        content: [
-          {
-            type: "text",
-            text: "The user did not provide a result for this tool call.",
-          },
-        ],
-        is_error: true,
-      },
-    ]);
-    expect(fake.sent[1].events).toEqual([
-      { type: "user.message", content: [{ type: "text", text: "never mind" }] },
-    ]);
+    expect(fake.sent).toEqual([]);
     expect(events.at(-1)?.type).toBe(EventType.RUN_FINISHED);
     expect(await store.get(SESSION_KEY)).toMatchObject({
-      pendingClientToolUseIds: [],
-      lastUserMessageId: "u2",
+      pendingClientToolUseIds: ["ctu_1"],
+      lastUserMessageId: "u1",
     });
   });
 
@@ -1049,7 +1031,10 @@ describe("ManagedAgentsAgent", () => {
   it("clears a stale parked id when the session goes idle on end_turn", async () => {
     // Defensive: end_turn means nothing is awaited, so no pending id may
     // survive into the next run and be answered against a resumed session.
-    const fake = createFakeClient({ streams: [[idleEndTurn]] });
+    const fake = createFakeClient({
+      histories: [[idleEndTurn]],
+      streams: [[{ ...idleEndTurn, id: "new_idle" }]],
+    });
     const store = new RecordingSessionStore();
     await store.set(SESSION_KEY, {
       sessionId: "sesn_1",
@@ -1084,8 +1069,9 @@ describe("ManagedAgentsAgent", () => {
       Object.create(Object.getPrototypeOf(store)) as RecordingSessionStore,
       store,
       {
-        delete: async () => {
-          throw new Error("store is down");
+        set: async (key: string, record: import("../types").SessionRecord) => {
+          if (record.ended) throw new Error("store is down");
+          await store.set(key, record);
         },
       },
     );
@@ -1236,14 +1222,17 @@ describe("ManagedAgentsAgent", () => {
       }),
     );
 
-    // Two persists: one per delivery, in send order.
-    expect(store.writes.map((write) => write.record)).toMatchObject([
-      { pendingClientToolUseIds: [], lastUserMessageId: "u1" },
-      { pendingClientToolUseIds: [], lastUserMessageId: "u2" },
-    ]);
+    // Recovery snapshot, then one persist per delivery in send order.
+    expect(store.writes.slice(0, 3).map((write) => write.record)).toMatchObject(
+      [
+        { pendingClientToolUseIds: ["ctu_1"], lastUserMessageId: "u1" },
+        { pendingClientToolUseIds: [], lastUserMessageId: "u1" },
+        { pendingClientToolUseIds: [], lastUserMessageId: "u2" },
+      ],
+    );
   });
 
-  it("abandons multiple parked tool calls in their original order", async () => {
+  it("preserves multiple parked calls in their original order", async () => {
     const fake = createFakeClient({ streams: [[idleEndTurn]] });
     const store = new InMemorySessionStore();
     await store.set(SESSION_KEY, {
@@ -1263,27 +1252,10 @@ describe("ManagedAgentsAgent", () => {
       }),
     );
 
-    expect(
-      fake.sent[0].events.map(
-        (event) => (event as { custom_tool_use_id: string }).custom_tool_use_id,
-      ),
-    ).toEqual(["ctu_1", "ctu_2", "ctu_3"]);
-    expect(fake.sent[0].events).toEqual(
-      ["ctu_1", "ctu_2", "ctu_3"].map((id) => ({
-        type: "user.custom_tool_result",
-        custom_tool_use_id: id,
-        content: [
-          {
-            type: "text",
-            text: "The user did not provide a result for this tool call.",
-          },
-        ],
-        is_error: true,
-      })),
-    );
-    expect(fake.sent[1].events).toEqual([
-      { type: "user.message", content: [{ type: "text", text: "never mind" }] },
-    ]);
+    expect(fake.sent).toEqual([]);
+    expect(await store.get(SESSION_KEY)).toMatchObject({
+      pendingClientToolUseIds: ["ctu_1", "ctu_2", "ctu_3"],
+    });
   });
 
   it("keys the session store by managed agent and thread id", async () => {
@@ -1396,7 +1368,7 @@ describe("ManagedAgentsAgent", () => {
         busyThreadsByStore: WeakMap<object, Set<string>>;
       }
     ).busyThreadsByStore.get(store);
-    expect([...(busy ?? [])]).toEqual([SESSION_KEY]);
+    expect([...(busy ?? [])]).toEqual([SESSION_KEY, "session:sesn_1"]);
     expect(store.keys()).toEqual([SESSION_KEY]);
 
     hold.release();
@@ -1471,7 +1443,7 @@ describe("ManagedAgentsAgent", () => {
     expect(fake.spies.create).not.toHaveBeenCalled();
   });
 
-  it("errors with nothing_to_send when a run has nothing new", async () => {
+  it("finishes a reconnect when there is nothing new to send", async () => {
     const fake = createFakeClient({ streams: [[idleEndTurn]] });
     const store = new InMemorySessionStore();
     await store.set(SESSION_KEY, {
@@ -1483,8 +1455,7 @@ describe("ManagedAgentsAgent", () => {
 
     const events = await collect(newAgent(fake, store), baseInput());
     expect(events.at(-1)).toMatchObject({
-      type: EventType.RUN_ERROR,
-      code: "nothing_to_send",
+      type: EventType.RUN_FINISHED,
     });
     expect(fake.sent).toEqual([]);
   });
@@ -1531,7 +1502,7 @@ describe("ManagedAgentsAgent", () => {
     ]);
   });
 
-  it("deletes the thread record when the session ends and starts fresh next run", async () => {
+  it("keeps the ended session mapping and refuses to start a replacement", async () => {
     const fake = createFakeClient({
       streams: [
         [{ type: "session.status_terminated", id: "term_1" }],
@@ -1545,14 +1516,17 @@ describe("ManagedAgentsAgent", () => {
       type: EventType.RUN_ERROR,
       code: "session_ended",
     });
-    expect(await store.get(SESSION_KEY)).toBeUndefined();
+    expect(await store.get(SESSION_KEY)).toMatchObject({
+      ended: true,
+      sessionId: "sesn_1",
+    });
 
-    // The next run creates a fresh session.
+    // The next run must not silently replace the original identity.
     await collect(newAgent(fake, store), baseInput({ runId: "run_2" }));
-    expect(fake.spies.create).toHaveBeenCalledTimes(2);
+    expect(fake.spies.create).toHaveBeenCalledTimes(1);
   });
 
-  it("deletes the thread record when the session is deleted", async () => {
+  it("keeps the mapping when the native session is deleted", async () => {
     const fake = createFakeClient({
       streams: [[{ type: "session.deleted", id: "del_1" }]],
     });
@@ -1563,7 +1537,10 @@ describe("ManagedAgentsAgent", () => {
       type: EventType.RUN_ERROR,
       code: "session_ended",
     });
-    expect(await store.get(SESSION_KEY)).toBeUndefined();
+    expect(await store.get(SESSION_KEY)).toMatchObject({
+      ended: true,
+      sessionId: "sesn_1",
+    });
   });
 
   it("rejects a second concurrent run on the same thread with run_in_progress", async () => {

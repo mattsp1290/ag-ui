@@ -485,7 +485,7 @@ async def test_answers_confirmation_gated_tool_when_policy_is_configured():
     ]
 
 
-async def test_fails_run_on_confirmation_gated_tool_with_no_policy():
+async def test_parks_on_confirmation_gated_tool_with_no_policy():
     emitted, outcome, fake = await collect(
         [
             {
@@ -502,10 +502,9 @@ async def test_fails_run_on_confirmation_gated_tool_with_no_policy():
             },
         ]
     )
-    assert outcome.status == "errored"
-    assert isinstance(emitted[-1], RunErrorEvent)
-    assert emitted[-1].code == "tool_confirmation_required"
-    assert fake.sent[1]["events"] == [{"type": "user.interrupt"}]
+    assert outcome.status == "parked"
+    assert outcome.confirmations[0]["id"] == "tu_1"
+    assert len(fake.sent) == 1
 
 
 async def test_interrupts_and_errors_on_an_unknown_blocking_action():
@@ -1055,7 +1054,9 @@ async def test_emits_the_tool_result_only_after_the_session_accepted_it() -> Non
     await run_turn(
         client=fake,
         session_id="sesn_1",
-        outbound=[{"type": "user.message", "content": [{"type": "text", "text": "hi"}]}],
+        outbound=[
+            {"type": "user.message", "content": [{"type": "text", "text": "hi"}]}
+        ],
         client_tools={},
         backend_tools={"get_time": backend},
         tool_confirmation=None,
@@ -1066,7 +1067,9 @@ async def test_emits_the_tool_result_only_after_the_session_accepted_it() -> Non
     assert order == ["sent", "emitted"]
 
 
-async def test_falls_back_to_a_stock_message_when_a_session_error_carries_none() -> None:
+async def test_falls_back_to_a_stock_message_when_a_session_error_carries_none() -> (
+    None
+):
     emitted, _, _ = await collect(
         [
             {
@@ -1198,6 +1201,7 @@ async def test_records_whether_the_interrupt_it_sent_actually_landed() -> None:
 
     # Send 0 is the user message; send 1 is the interrupt.
     _emitted, failed, _fake = await collect(
-        [IDLE_UNKNOWN_ACTION], {"send_failures": {1: RuntimeError("interrupt rejected")}}
+        [IDLE_UNKNOWN_ACTION],
+        {"send_failures": {1: RuntimeError("interrupt rejected")}},
     )
     assert failed == TurnOutcome(status="errored", session_interrupted=False)

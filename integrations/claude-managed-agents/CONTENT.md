@@ -50,8 +50,11 @@ from tool results or write state/UI artifacts into native history.
 ## Companions and validation boundary
 
 PNI-654 owns native extraction/import and Intelligence replay; PNI-656 owns original-session
-recovery and approvals. This change covers the live content boundary, with fake native
-streams through each adapter and independent language regression tests. It does not prove
+recovery and approvals, now integrated here. Recovery replay reuses the live content
+converters in all three ports, preserving native result IDs, complete rich content and
+one original RAW envelope per recovered event. Combined regression tests exercise
+built-in, MCP and frontend tool results recovered after a durable cursor, alongside
+the existing recovery and approval suites. It does not prove
 cloud execution, credential access, file download availability, browser rendering or the
 six-row product checklist. PNI-660 documentation waits for release and final validation.
 

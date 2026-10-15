@@ -848,7 +848,7 @@ describe("runTurn", () => {
     ]);
   });
 
-  it("fails the run on a confirmation-gated tool with no policy", async () => {
+  it("parks a confirmation-gated tool without an automatic decision", async () => {
     const { emitted, outcome, fake } = await collect([
       {
         type: "agent.tool_use",
@@ -863,12 +863,11 @@ describe("runTurn", () => {
         stop_reason: { type: "requires_action", event_ids: ["tu_1"] },
       },
     ]);
-    expect(outcome).toMatchObject({ status: "errored" });
-    expect(emitted.at(-1)).toMatchObject({
-      type: EventType.RUN_ERROR,
-      code: "tool_confirmation_required",
-    });
-    expect(fake.sent[1].events).toEqual([{ type: "user.interrupt" }]);
+    expect(outcome).toMatchObject({ status: "parked" });
+    expect(emitted.some((event) => event.type === EventType.RUN_ERROR)).toBe(
+      false,
+    );
+    expect(fake.sent).toHaveLength(1);
   });
 
   it("interrupts and errors on a blocking action it cannot answer", async () => {

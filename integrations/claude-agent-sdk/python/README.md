@@ -94,7 +94,12 @@ Protocol regression tests exercise synthetic SDK streams and proxy callbacks wit
 
 ### Session recovery (PNI-659, unreleased)
 
-Configure `session_binding_store`, async `resolve_profile(profile)`,
+Frontend tools use in-memory recovery by default: a call pauses with a pending
+outcome and its real answer resumes the same session on the same adapter. These
+bindings expire with `worker_ttl_seconds`, obey `max_workers`, and are removed by
+`clear_session()` or `shutdown()`. No external store is needed for this flow.
+
+For recovery across adapter/process restarts, configure `session_binding_store`, async `resolve_profile(profile)`,
 `execution_profile="default"`, and optionally `defer_tools=("Read",)` on
 `ClaudeAgentAdapter`. The store implements async `load(thread_id)` returning
 `SessionBinding(session_id, profile, pending=None)` and async `save(thread_id,
@@ -148,3 +153,8 @@ in TypeScript; `scripts/probe_frontend_resume.py` in Python) additionally checks
 original-session frontend results with omitted tool definitions, native saved
 results, and a fresh SDK history read. It uses the same isolated fake-provider
 setup as the native approval probe.
+
+Use `--memory` with the Python frontend probe to exercise the default adapter
+without an external store. Use `--full-history` in either port to submit the full
+conversation instead of only the answer. Both modes verify one snapshot result
+per call, its stable submitted message ID, and native content/error projection.

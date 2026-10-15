@@ -105,6 +105,8 @@ class ClaudeAgentAdapter:
         if (session_binding_store is None) != (resolve_profile is None):
             raise ValueError("session_binding_store and resolve_profile must be provided together")
         self._session_binding_store = session_binding_store
+        self._memory_bindings: Dict[str, SessionBinding] = {}
+        self._binding_last_used: Dict[str, datetime] = {}
         self._resolve_profile = resolve_profile
         self._execution_profile = execution_profile
         self._defer_tools = defer_tools
@@ -172,6 +174,8 @@ class ClaudeAgentAdapter:
         for entry in list(self._workers.values()):
             await entry["worker"].stop()
         self._workers.clear()
+        self._memory_bindings.clear()
+        self._binding_last_used.clear()
         self._state_locks.clear()
         # ``_run_locks`` is cleared ONLY here, on full adapter shutdown (no run
         # can be in-flight or waiting past this point); it is intentionally NOT
@@ -227,8 +231,37 @@ class ClaudeAgentAdapter:
             self._per_thread_state.pop(oldest_tid, None)
             self._drop_thread_results(oldest_tid)
 
+    def _evict_memory_bindings(self) -> None:
+        now = datetime.now()
+        idle = sorted(
+            (tid for tid in self._memory_bindings
+             if not (self._run_locks.get(tid) and self._run_locks[tid].locked())),
+            key=lambda tid: self._binding_last_used[tid],
+        )
+        for tid in idle:
+            expired = (now - self._binding_last_used[tid]).total_seconds() > self._worker_ttl_seconds
+            if expired or len(self._memory_bindings) > self._max_workers:
+                self._memory_bindings.pop(tid, None)
+                self._binding_last_used.pop(tid, None)
+                entry = self._workers.pop(tid, None)
+                if entry:
+                    self._spawn_cleanup_task(entry["worker"].stop())
+                self._state_locks.pop(tid, None)
+                self._per_thread_state.pop(tid, None)
+                self._drop_thread_results(tid)
+
+    async def _save_binding(self, thread_id, binding):
+        from copy import deepcopy
+        if self._session_binding_store is not None:
+            await self._session_binding_store.save(thread_id, deepcopy(binding))
+        else:
+            self._memory_bindings[thread_id] = deepcopy(binding)
+            self._binding_last_used[thread_id] = datetime.now()
+
     async def clear_session(self, thread_id: str) -> None:
         """Stop and remove the session worker for a thread."""
+        self._memory_bindings.pop(thread_id, None)
+        self._binding_last_used.pop(thread_id, None)
         entry = self._workers.pop(thread_id, None)
         if entry:
             await entry["worker"].stop()
@@ -250,9 +283,7 @@ class ClaudeAgentAdapter:
         # SessionWorker. Unsupported content is an input error, not evidence
         # that the existing Claude CLI session is broken.
         try:
-            if self._session_binding_store is None and ((input_data.messages and input_data.messages[-1].role == 'tool') or getattr(input_data, 'resume', None)):
-                raise ValueError('Session recovery must be configured to answer saved approvals or frontend tool calls; historical results cannot become user text.')
-            if self._session_binding_store is not None and (getattr(input_data, 'resume', None) or (input_data.messages and input_data.messages[-1].role == 'tool')):
+            if getattr(input_data, 'resume', None) or (input_data.messages and input_data.messages[-1].role == 'tool'):
                 prompt = ""
             else:
                 prompt, _ = process_messages(input_data)
@@ -283,6 +314,7 @@ class ClaudeAgentAdapter:
         # the current one. Loop until we hold the lock that is actually the live
         # ``_run_locks[thread_id]``, so no two runs can ever hold "the" run-lock
         # for the same thread at once.
+        self._evict_memory_bindings()
         while True:
             run_lock = self._run_locks.setdefault(thread_id, asyncio.Lock())
             await run_lock.acquire()
@@ -309,11 +341,18 @@ class ClaudeAgentAdapter:
         loopback = None
 
         try:
-            if self._session_binding_store is not None:
+            if (self._session_binding_store is not None or input_data.tools or self._defer_tools
+                    or thread_id in self._memory_bindings or getattr(input_data, 'resume', None)
+                    or (input_data.messages and input_data.messages[-1].role == 'tool')):
                 from copy import deepcopy
                 from claude_agent_sdk import get_session_info, HookMatcher
                 from claude_agent_sdk import get_session_info_from_store
-                binding = deepcopy(await self._session_binding_store.load(thread_id))
+                binding = deepcopy(await self._session_binding_store.load(thread_id)) if self._session_binding_store is not None else deepcopy(self._memory_bindings.get(thread_id))
+                if binding is None and self._session_binding_store is None:
+                    previous_worker = self._workers.get(thread_id, {}).get("worker")
+                    previous_session = getattr(previous_worker, "session_id", None)
+                    if previous_session:
+                        binding = SessionBinding(previous_session, self._execution_profile)
                 requested = (input_data.forwarded_props or {}).get("resume")
                 if requested and not isinstance(requested, str):
                     raise ValueError("resume must be the original session UUID")
@@ -323,7 +362,7 @@ class ClaudeAgentAdapter:
                     binding = SessionBinding(requested, self._execution_profile)
                 recovery = RecoveryRun(binding, input_data, self._defer_tools)
                 profile = binding.profile if binding else self._execution_profile
-                profile_options = await self._resolve_profile(profile)
+                profile_options = await self._resolve_profile(profile) if self._resolve_profile else {}
                 from ag_ui.core import Tool
                 restored_input = input_data.model_copy(update={'tools': [Tool.model_validate(tool) for tool in recovery.tools]})
                 options = self.build_options(restored_input, thread_id=thread_id, profile_options=profile_options, resolve_frontend_result=recovery.resolve_frontend_result)
@@ -600,15 +639,15 @@ class ClaudeAgentAdapter:
             finally:
                 self._per_run_result.pop(result_key, None)
                 run_lock.release()
+                self._evict_memory_bindings()
 
     async def _observe_recovery(self, stream, recovery, thread_id, profile):
-        from copy import deepcopy
         from claude_agent_sdk import SystemMessage, ResultMessage, UserMessage, ToolResultBlock
         async for message in stream:
             if isinstance(message, UserMessage) and isinstance(message.content, list):
                 for block in message.content:
                     if isinstance(block, ToolResultBlock) and recovery.observe_tool_result(block.tool_use_id):
-                        await self._session_binding_store.save(thread_id, deepcopy(recovery.binding))
+                        await self._save_binding(thread_id, recovery.binding)
             session_id = None
             if isinstance(message, SystemMessage) and message.subtype == "init":
                 session_id = message.data.get("session_id")
@@ -616,7 +655,7 @@ class ClaudeAgentAdapter:
                 session_id = message.session_id
             if session_id:
                 recovery.observe(session_id, profile, message if isinstance(message, ResultMessage) else None)
-                await self._session_binding_store.save(thread_id, deepcopy(recovery.binding))
+                await self._save_binding(thread_id, recovery.binding)
             yield message
 
     def build_options(self, input_data: Optional[RunAgentInput] = None, thread_id: Optional[str] = None, profile_options=None, resolve_frontend_result=None) -> "ClaudeAgentOptions":
@@ -1222,7 +1261,29 @@ class ClaudeAgentAdapter:
 
         # Emit MESSAGES_SNAPSHOT with input messages + new messages from this run
         if run_messages:
-            all_messages = list(input_data.messages or []) + run_messages
+            # The SDK echo supplies saved content/error projection while the
+            # submitted answer keeps its UI message identity.
+            def message_key(message):
+                if isinstance(message, dict):
+                    role = message.get("role")
+                    call_id = message.get("tool_call_id", message.get("toolCallId"))
+                else:
+                    role = message.role
+                    call_id = getattr(message, "tool_call_id", None)
+                return ("tool", call_id) if role == "tool" else ("message", _get_msg_id(message))
+
+            all_messages = []
+            positions = {}
+            for message in [*(input_data.messages or []), *run_messages]:
+                key = message_key(message)
+                if key in positions:
+                    index = positions[key]
+                    message_id = _get_msg_id(all_messages[index])
+                    all_messages[index] = ({**message, "id": message_id} if isinstance(message, dict)
+                                           else message.model_copy(update={"id": message_id}))
+                else:
+                    positions[key] = len(all_messages)
+                    all_messages.append(message)
             logger.debug(
                 f"MESSAGES_SNAPSHOT: {len(all_messages)} msgs ({message_count} SDK messages processed)"
             )

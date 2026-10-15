@@ -146,3 +146,51 @@ def test_profile_preserves_run_context_and_generated_permissions(make_input, as_
     assert "42" in options.system_prompt
     assert "context-value" in options.system_prompt
     assert set(options.allowed_tools) == {*allowed, "mcp__ag_ui__confirm", "mcp__ag_ui__ag_ui_update_state"}
+
+@pytest.mark.asyncio
+async def test_default_frontend_run_defers_and_retains_local_binding(monkeypatch, make_input):
+    from ag_ui_claude_sdk import ClaudeAgentAdapter
+    from claude_agent_sdk import SystemMessage, ResultMessage
+    import ag_ui_claude_sdk.adapter as module
+    pending = {"id": "frontend-call", "name": "mcp__ag_ui__confirm", "input": {}}
+    calls = []
+    class Worker:
+        def __init__(self, thread, options): self.options = options
+        async def start(self): pass
+        async def stop(self): pass
+        def is_alive(self): return True
+        async def query(self, prompt, session_id):
+            calls.append(prompt)
+            decision = await self.options.hooks["PreToolUse"][-1].hooks[0](
+                {"hook_event_name": "PreToolUse", "tool_name": pending["name"], "tool_use_id": pending["id"], "tool_input": {}}, pending["id"], {})
+            assert decision["hookSpecificOutput"]["permissionDecision"] == "defer"
+            yield SystemMessage(subtype="init", data={"session_id": "native"})
+            yield ResultMessage(subtype="success", duration_ms=1, duration_api_ms=1, is_error=False,
+                                num_turns=1, session_id="native", stop_reason="tool_deferred", deferred_tool_use=pending)
+    monkeypatch.setattr(module, "SessionWorker", Worker)
+    adapter = ClaudeAgentAdapter("test")
+    inp = make_input(messages=[{"id":"user","role":"user","content":"Confirm"}], tools=[{"name":"confirm","description":"Confirm","parameters":{"type":"object"}}])
+    events = [e async for e in adapter.run(inp)]
+    assert events[-1].type == "RUN_FINISHED"
+    assert events[-1].outcome.pending_tool_call_ids == [pending["id"]]
+    assert len(calls) == 1
+    assert adapter._memory_bindings[inp.thread_id].pending == pending
+    await adapter.clear_session(inp.thread_id)
+    assert not adapter._memory_bindings
+    await adapter.shutdown()
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("eviction", ["ttl", "capacity"])
+async def test_local_frontend_bindings_are_bounded(eviction):
+    from datetime import datetime, timedelta
+    from ag_ui_claude_sdk import ClaudeAgentAdapter
+    adapter = ClaudeAgentAdapter("test", max_workers=1, worker_ttl_seconds=60)
+    await adapter._save_binding("old", SessionBinding("old-native", "default"))
+    if eviction == "ttl":
+        adapter._binding_last_used["old"] = datetime.now() - timedelta(seconds=61)
+    else:
+        await adapter._save_binding("new", SessionBinding("new-native", "default"))
+    adapter._evict_memory_bindings()
+    assert "old" not in adapter._memory_bindings
+    assert len(adapter._memory_bindings) <= 1
+    await adapter.shutdown()

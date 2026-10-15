@@ -1,15 +1,15 @@
-# PNI-659 recovery evidence — 2026-10-14
+# PNI-659 recovery evidence — 2026-10-15
 
-Status: draft implementation; not released, not full product validation.
+Status: ready for code review; not released, not full product validation.
 Companion content implementation: [AG-UI #3058](https://github.com/ag-ui-protocol/ag-ui/pull/3058).
 Import/routing/projection companion: [Intelligence #1879](https://github.com/CopilotKit/Intelligence/pull/1879).
 
 ## Baseline and tests
 
-- TypeScript Agent SDK 0.3.296 / bundled CLI 2.1.296; AG-UI core/client 1.0.0 in the isolated validation environment. Typecheck and 59 focused tests pass.
-- Python Agent SDK 0.2.166 / bundled CLI 2.1.299; AG-UI protocol 1.0.0, Python 3.14.4. 155 focused tests pass.
+- TypeScript Agent SDK 0.3.296 / bundled CLI 2.1.296; AG-UI core/client 1.0.0 in the isolated validation environment. Typecheck and 66 focused tests pass.
+- Python Agent SDK 0.2.166 / bundled CLI 2.1.299; AG-UI protocol 1.0.0, Python 3.14.4. 166 focused tests pass.
 - Tests use actual published SDK packages, not editable SDK overrides. The adapters are this branch's source plus the explicit PNI-658 companion.
-- Nx was attempted first; workspace prerequisite builds failed because dependencies for core/proto were missing. Focused Vitest/pytest/typecheck commands were used. No full workspace or product-stack pass is claimed.
+- Review verification ran the focused TypeScript tests and typecheck through Nx with prerequisite tasks excluded; Python used the frozen-environment pytest suite. Earlier full workspace prerequisite builds were unavailable locally. No full workspace or product-stack pass is claimed.
 
 ## Actual SDK subprocess controls
 
@@ -76,3 +76,19 @@ a saved `hook_deferred_tool` marker remain unrecoverable.
 Validate Intelligence's consumer projection and browser compatibility separately.
 Release and final six-row validation remain with the authorized release/user
 workflow. No Linear Done or matrix update is justified by this draft.
+
+## Review regressions — 2026-10-15
+
+- Python default frontend tools now use bounded in-memory recovery; external
+  storage remains optional for cross-process durability. The `--memory` probe
+  pauses after exactly one model call and accepts the answer on the same adapter.
+- Dict and `ClaudeAgentOptions` profiles merge before the current state/context
+  prompt and generated tool permissions are derived.
+- TypeScript clear, TTL, and capacity eviction remove their in-memory bindings.
+  Active sessions are excluded from eviction; durable host stores remain host-owned.
+- Both adapters reconcile SDK result echoes by original call ID and retain the
+  submitted message ID, using the native content/error projection in the snapshot.
+- Actual frontend probes pass for both delta-only input and `--full-history`,
+  success and error, including Python default memory and configured durable stores.
+  Each case retains one native result and one snapshot result and makes exactly two
+  model requests. These checks do not extend the product validation scope above.

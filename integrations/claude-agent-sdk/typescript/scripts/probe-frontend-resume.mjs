@@ -142,6 +142,9 @@ try {
         runId: "second",
         tools: [],
         messages: [
+          ...(process.argv.includes("--full-history")
+            ? first.findLast((e) => e.type === "MESSAGES_SNAPSHOT").messages
+            : []),
           {
             id: "answer",
             role: "tool",
@@ -185,6 +188,20 @@ try {
     (e) => e.type === "TOOL_CALL_RESULT" && e.toolCallId === pending.id,
   );
   assert.equal(emitted.length, 1);
+  const snapshot = second.findLast((e) => e.type === "MESSAGES_SNAPSHOT");
+  const snapshotResults = snapshot.messages.filter(
+    (m) => m.role === "tool" && m.toolCallId === pending.id,
+  );
+  assert.equal(snapshotResults.length, 1, JSON.stringify(snapshotResults));
+  assert.equal(snapshotResults[0].id, "answer");
+  const { buildAguiToolMessage } = createRequire(import.meta.url)(
+    "../src/utils.ts",
+  );
+  assert.deepEqual(
+    snapshotResults[0].content,
+    buildAguiToolMessage(pending.id, results[0].content, !!results[0].is_error)
+      .content,
+  );
   if (results[0].is_error) {
     assert.deepEqual(JSON.parse(emitted[0].content), {
       error: true,

@@ -1,5 +1,6 @@
 import { beforeEach, expect, it, vi } from "vitest";
-import { lastValueFrom, toArray } from "rxjs";
+import { lastValueFrom, toArray, Subscriber } from "rxjs";
+import { buildAguiToolMessage } from "./utils";
 import type { RunAgentInput, BaseEvent } from "@ag-ui/core";
 const sdk = vi.hoisted(() => ({ query: vi.fn(), getSessionInfo: vi.fn() }));
 vi.mock("@anthropic-ai/claude-agent-sdk", async (original) => ({
@@ -182,24 +183,122 @@ for (const eviction of ["clear", "ttl", "capacity"] as const)
     let now = 1000;
     const clock = vi.spyOn(Date, "now").mockImplementation(() => now);
     const resumes: (string | undefined)[] = [];
-    sdk.query.mockImplementation(({ options }) => (async function* () {
-      resumes.push(options.resume);
-      yield {type:"system",subtype:"init",session_id:`session-${resumes.length}`};
-      yield {type:"result",subtype:"success",session_id:`session-${resumes.length}`,is_error:false};
-    })());
-    const adapter = new ClaudeAgentAdapter({sessionTtlMs: 100, maxSessions: 1});
-    const initial = {...request(),state:null};
+    sdk.query.mockImplementation(({ options }) =>
+      (async function* () {
+        resumes.push(options.resume);
+        yield {
+          type: "system",
+          subtype: "init",
+          session_id: `session-${resumes.length}`,
+        };
+        yield {
+          type: "result",
+          subtype: "success",
+          session_id: `session-${resumes.length}`,
+          is_error: false,
+        };
+      })(),
+    );
+    const adapter = new ClaudeAgentAdapter({
+      sessionTtlMs: 100,
+      maxSessions: 1,
+    });
+    const initial = { ...request(), state: null };
     try {
       await collect(adapter, initial);
       if (eviction === "clear") adapter.clearSession(initial.threadId);
       if (eviction === "ttl") now += 101;
       if (eviction === "capacity") {
         now += 1;
-        await collect(adapter, {...initial,threadId:"other"});
+        await collect(adapter, { ...initial, threadId: "other" });
         expect(Reflect.get(adapter, "bindings").size).toBe(1);
       }
       await collect(adapter, initial);
       expect(resumes.at(-1)).toBeUndefined();
       expect(Reflect.get(adapter, "bindings").size).toBeLessThanOrEqual(1);
-    } finally { clock.mockRestore(); }
+    } finally {
+      clock.mockRestore();
+    }
   });
+
+for (const isError of [false, true])
+  for (const fullHistory of [false, true])
+    it(`reconciles frontend snapshot echo: error=${isError}, history=${fullHistory}`, async () => {
+      const history: RunAgentInput["messages"] = fullHistory
+        ? [
+            { id: "user", role: "user", content: "Confirm" },
+            {
+              id: "assistant",
+              role: "assistant",
+              toolCalls: [
+                {
+                  id: "original",
+                  type: "function",
+                  function: { name: "confirm", arguments: "{}" },
+                },
+              ],
+            },
+          ]
+        : [];
+      const input: RunAgentInput = {
+        ...request(),
+        messages: [
+          ...history,
+          {
+            id: "answer",
+            role: "tool",
+            toolCallId: "original",
+            content: "submitted",
+            ...(isError ? { error: "failed" } : {}),
+          },
+        ],
+      };
+      const events: BaseEvent[] = [];
+      const adapter = new ClaudeAgentAdapter();
+      const stream = (async function* () {
+        yield {
+          type: "user",
+          message: {
+            content: [
+              {
+                type: "tool_result",
+                tool_use_id: "original",
+                content: "native saved result",
+                is_error: isError,
+              },
+            ],
+          },
+        };
+      })();
+      await Reflect.get(adapter, "streamMessages").call(
+        adapter,
+        stream,
+        input.threadId,
+        input.runId,
+        input,
+        new Set(),
+        new Subscriber<BaseEvent>({
+          next: (e: BaseEvent) => {
+            events.push(e);
+          },
+          error: (error: unknown) => {
+            throw error;
+          },
+          complete: () => {},
+        }),
+        { currentState: null },
+      );
+      const snapshot = events.find((e) => e.type === "MESSAGES_SNAPSHOT");
+      expect(snapshot).toMatchObject({
+        messages: [
+          ...history,
+          {
+            ...buildAguiToolMessage("original", "native saved result", isError),
+            id: "answer",
+          },
+        ],
+      });
+      expect(Reflect.get(snapshot!, "messages")).toHaveLength(
+        history.length + 1,
+      );
+    });

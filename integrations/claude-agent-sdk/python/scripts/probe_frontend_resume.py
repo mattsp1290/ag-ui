@@ -1,5 +1,5 @@
 # Localhost fake-provider probe: only synthetic files, no real model calls.
-import asyncio, json, os, tempfile, threading
+import asyncio, json, os, sys, tempfile, threading
 from pathlib import Path
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from claude_agent_sdk import get_session_messages, query, ClaudeAgentOptions, HookMatcher, ResultMessage, SystemMessage
@@ -39,19 +39,32 @@ async def main():
         store = Store()
         async def profile(name):
             return {'env':env,'cwd':str(root),'setting_sources':[],'tools':[],'model':'claude-sonnet-4-6','max_turns':3}
-        def agent(): return ClaudeAgentAdapter('probe',session_binding_store=store,resolve_profile=profile,defer_tools=(),query_timeout_seconds=20)
+        memory = '--memory' in sys.argv
+        default_options = await profile('default')
+        def agent():
+            if memory:
+                return ClaudeAgentAdapter('probe', options=default_options, query_timeout_seconds=20)
+            return ClaudeAgentAdapter('probe',session_binding_store=store,resolve_profile=profile,defer_tools=(),query_timeout_seconds=20)
         first=agent()
         initial=RunAgentInput(thread_id=answer,run_id='first',messages=[{'id':'user','role':'user','content':'Synthetic read'}],tools=[{'name':'confirm','description':'Synthetic confirmation','parameters':{'type':'object','properties':{'value':{'type':'string'}},'required':['value']}}],context=[],state=None,forwarded_props={})
         first_events=[e async for e in first.run(initial)]
         assert first_events[-1].type=='RUN_FINISHED', first_events[-1]
-        pending=deepcopy(store.binding.pending)
-        session=store.binding.session_id
-        await first.shutdown()
-        second=agent()
+        assert first_events[-1].outcome.pending_tool_call_ids == ['toolu_python_original']
+        assert Handler.calls-calls_before == 1, 'Deferral must not ask the model again'
+        binding = first._memory_bindings[answer] if memory else store.binding
+        pending=deepcopy(binding.pending)
+        session=binding.session_id
+        if not memory:
+            await first.shutdown()
+        second=first if memory else agent()
         response=RunAgentInput(thread_id=answer,run_id='second',messages=[{'id':'tool-answer','role':'tool','toolCallId':pending['id'],'content':json.dumps({'approved':answer=='allow','message':'REAL_FRONTEND_ANSWER'}), **({'error':'Frontend failed'} if answer=='error' else {})}],tools=[],context=[],state=None,forwarded_props={})
+        if '--full-history' in sys.argv:
+            history = [e for e in first_events if e.type == 'MESSAGES_SNAPSHOT'][-1].messages
+            response.messages = [*history, *response.messages]
         second_events=[e async for e in second.run(response)]
         assert second_events[-1].type=='RUN_FINISHED',second_events[-1]
-        assert store.binding.session_id==session and store.binding.pending is None
+        binding = second._memory_bindings[answer] if memory else store.binding
+        assert binding.session_id==session and binding.pending is None
         await second.shutdown()
         file=next((root/'config'/'projects').glob(f'*/{session}.jsonl'))
         rows=[json.loads(l) for l in file.read_text().splitlines()]
@@ -62,6 +75,13 @@ async def main():
         assert restored_results==results, restored_results
         emitted=[e for e in second_events if e.type=='TOOL_CALL_RESULT' and e.tool_call_id==pending['id']]
         assert len(emitted)==1,emitted
+        snapshot = [e for e in second_events if e.type == 'MESSAGES_SNAPSHOT'][-1]
+        snapshot_results = [m for m in snapshot.messages if m.role == 'tool' and m.tool_call_id == pending['id']]
+        assert len(snapshot_results) == 1, snapshot_results
+        assert snapshot_results[0].id == 'tool-answer'
+        from ag_ui_claude_sdk.utils import build_agui_tool_message
+        expected = build_agui_tool_message(pending['id'], results[0]['content'], bool(results[0].get('is_error')))
+        assert snapshot_results[0].content == expected.content
         if results[0].get('is_error'):
             assert json.loads(emitted[0].content)=={'error':True,'content':results[0]['content']}
             assert emitted[0].raw_event['is_error'] is True

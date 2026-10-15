@@ -138,3 +138,24 @@ async def test_frontend_error_survives_real_sdk_mcp_server():
                 assert result.model_dump(by_alias=True)["isError"] is True
                 assert result.content[0].text == "denied"
             tasks.cancel_scope.cancel()
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("is_error", [False, True])
+@pytest.mark.parametrize("full_history", [False, True])
+async def test_snapshot_reconciles_submitted_frontend_result(make_input, is_error, full_history):
+    from claude_agent_sdk import UserMessage, ToolResultBlock
+    from ag_ui_claude_sdk import ClaudeAgentAdapter
+    from .conftest import aiter
+    history = [{"id":"user","role":"user","content":"Confirm"},
+               {"id":"assistant","role":"assistant","toolCalls":[{"id":"original","type":"function","function":{"name":"confirm","arguments":"{}"}}]}] if full_history else []
+    submitted = {"id":"answer","role":"tool","toolCallId":"original","content":"submitted", **({"error":"failed"} if is_error else {})}
+    inp = make_input(messages=[*history, submitted])
+    block = ToolResultBlock(tool_use_id="original", content="native saved result", is_error=is_error)
+    adapter = ClaudeAgentAdapter("test")
+    events = [e async for e in adapter._stream_claude_sdk(aiter([UserMessage(content=[block])]), inp.thread_id, inp.run_id, inp, set())]
+    snapshot = next(e for e in events if e.type == "MESSAGES_SNAPSHOT")
+    results = [m for m in snapshot.messages if m.role == "tool" and m.tool_call_id == "original"]
+    assert len(results) == 1
+    assert results[0].id == "answer"
+    assert results[0].content == build_agui_tool_message("original", block.content, is_error).content
+    assert [m.id for m in snapshot.messages[:-1]] == [m["id"] for m in history]

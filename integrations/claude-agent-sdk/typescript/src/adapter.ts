@@ -1122,10 +1122,20 @@ export class ClaudeAgentAdapter extends AbstractAgent {
 
     // Emit MESSAGES_SNAPSHOT with input messages + new messages from this run
     if (runMessages.length > 0) {
-      const allMessages: Message[] = [
-        ...(input.messages ?? []),
-        ...runMessages,
-      ];
+      // SDK echoes are authoritative for saved content/error projection. Match
+      // frontend answers by call ID, retaining their UI message identity.
+      const allMessages: Message[] = [];
+      for (const message of [...(input.messages ?? []), ...runMessages]) {
+        const index = allMessages.findIndex(
+          (existing) =>
+            existing.id === message.id ||
+            (existing.role === "tool" &&
+              message.role === "tool" &&
+              existing.toolCallId === message.toolCallId),
+        );
+        if (index === -1) allMessages.push(message);
+        else allMessages[index] = { ...message, id: allMessages[index].id };
+      }
       console.debug(
         `[ClaudeAdapter] MESSAGES_SNAPSHOT: ${allMessages.length} msgs (${messageCount} SDK messages processed)`,
       );

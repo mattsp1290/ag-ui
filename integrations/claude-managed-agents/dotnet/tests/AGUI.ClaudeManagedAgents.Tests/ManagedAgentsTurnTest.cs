@@ -500,16 +500,15 @@ public class ManagedAgentsTurnTest
     }
 
     [Fact]
-    public async Task FailsTheRunOnAConfirmationGatedToolWithNoPolicy()
+    public async Task ParksAConfirmationGatedToolWithNoPolicy()
     {
         var run = await CollectAsync([
             """{"type":"agent.tool_use","id":"tu_1","name":"bash","input":{},"evaluated_permission":"ask"}""",
             """{"type":"session.status_idle","id":"idle_1","stop_reason":{"type":"requires_action","event_ids":["tu_1"]}}""",
         ]);
 
-        Assert.Equal(ManagedAgentsTurnStatus.Errored, run.Outcome.Status);
-        var error = Assert.IsType<RunErrorEvent>(run.Emitted[^1]);
-        Assert.Equal("tool_confirmation_required", error.Code);
+        Assert.Equal(ManagedAgentsTurnStatus.Parked, run.Outcome.Status);
+        Assert.Empty(run.Emitted.OfType<RunErrorEvent>());
     }
 
     [Fact]

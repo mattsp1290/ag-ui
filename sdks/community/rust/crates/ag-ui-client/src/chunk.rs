@@ -205,7 +205,7 @@ impl ChunkExpander {
                 }
             }
             Event::ToolCallChunk(chunk) => {
-                let inherited = crate::event_handler::tool_call_owner(
+                let inherited = crate::protocol_state::tool_call_owner(
                     messages,
                     chunk.parent_message_id.as_ref(),
                     &chunk.base.subagent_run_id,

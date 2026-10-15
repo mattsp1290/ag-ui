@@ -1,5 +1,8 @@
 //! Bounded HTTP/1 request capture, including bodies split after the headers.
 use std::collections::BTreeMap;
+use std::time::Duration;
+
+pub const TEST_TIMEOUT: Duration = Duration::from_secs(10);
 use tokio::io::{AsyncRead, AsyncReadExt};
 
 #[derive(Debug)]
@@ -101,34 +104,5 @@ pub async fn read<R: AsyncRead + Unpin>(reader: &mut R) -> Result<Request, Strin
         if bytes.len() > 1024 * 1024 {
             return Err("fixture request exceeded capture bound".into());
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn content_length_waits_for_full_body_at_every_split() {
-        let raw = b"POST / HTTP/1.1\r\nContent-Length: 7\r\nContent-Type: application/json\r\n\r\n{\"x\":1}";
-        for split in 0..raw.len() {
-            assert!(parse(&raw[..split]).unwrap().is_none(), "split {split}");
-        }
-        let result = parse(raw).unwrap().unwrap();
-        assert_eq!(result.body, b"{\"x\":1}");
-        assert_eq!(result.headers["content-type"], "application/json");
-    }
-
-    #[test]
-    fn chunked_body_waits_for_terminator_and_preserves_payload() {
-        let raw = b"POST / HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n3;test=yes\r\n{\"x\r\n4\r\n\":1}\r\n0\r\nX-Test: yes\r\n\r\n";
-        for split in 0..raw.len() {
-            assert!(parse(&raw[..split]).unwrap().is_none(), "split {split}");
-        }
-        assert_eq!(parse(raw).unwrap().unwrap().body, b"{\"x\":1}");
-        assert!(
-            parse(b"POST / HTTP/1.1\r\nContent-Length: 1\r\nTransfer-Encoding: chunked\r\n\r\n")
-                .is_err()
-        );
     }
 }

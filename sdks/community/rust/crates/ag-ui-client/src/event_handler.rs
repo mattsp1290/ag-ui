@@ -5,6 +5,7 @@ use crate::core::types::{
     RunFinishedOutcome, TokenUsage, ToolCall, ToolCallId,
 };
 use crate::core::{AgentState, FwdProps, JsonValue};
+use crate::protocol_state::ProtocolState;
 use crate::subscriber::{AgentSubscriberParams, Subscribers};
 use json_patch::PatchOperation;
 use log::error;
@@ -21,27 +22,10 @@ where
     pub state: StateT,
     pub input: &'a RunAgentInput<StateT, FwdPropsT>,
     pub subscribers: Subscribers<StateT, FwdPropsT>,
-    pub result: JsonValue,
     pub output: Option<JsonValue>,
-    pub terminal_status: Option<RunTerminalStatus>,
-    current_run_id: Option<crate::core::types::RunId>,
     pub outcome: Option<RunFinishedOutcome>,
     pub usage: Option<Vec<TokenUsage>>,
-    active_run: bool,
-    finished_run: bool,
-    last_terminal_was_error: bool,
-    active_text: HashMap<MessageId, Option<String>>,
-    active_reasoning: HashMap<MessageId, Option<String>>,
-    active_span: HashMap<MessageId, Option<String>>,
-    active_tools: HashMap<ToolCallId, Option<String>>,
-    active_steps: HashSet<(Option<String>, String)>,
-    activity_owners: HashMap<MessageId, Option<String>>,
-    pub run_error: Option<String>,
-    active_subagents: HashSet<String>,
-    closed_subagents: HashSet<String>,
-    attributed_subagents: HashSet<String>,
-    message_owners: HashMap<MessageId, Option<String>>,
-    tool_owners: HashMap<ToolCallId, Option<String>>,
+    protocol: ProtocolState,
     notified_messages: HashSet<MessageId>,
     notified_tools: HashSet<ToolCallId>,
 }
@@ -64,37 +48,19 @@ where
             .flatten()
             .map(|call| call.id.clone())
             .collect();
-        let mut handler = Self {
+        let protocol = ProtocolState::new(&messages);
+        Self {
             messages,
             state,
             input,
             subscribers,
-            result: JsonValue::Null,
             output: None,
-            terminal_status: None,
-            current_run_id: None,
             outcome: None,
             usage: None,
-            active_run: false,
-            finished_run: false,
-            last_terminal_was_error: false,
-            active_text: HashMap::new(),
-            active_reasoning: HashMap::new(),
-            active_span: HashMap::new(),
-            active_tools: HashMap::new(),
-            active_steps: HashSet::new(),
-            activity_owners: HashMap::new(),
-            run_error: None,
-            active_subagents: HashSet::new(),
-            closed_subagents: HashSet::new(),
-            attributed_subagents: HashSet::new(),
-            message_owners: HashMap::new(),
-            tool_owners: HashMap::new(),
+            protocol,
             notified_messages,
             notified_tools,
-        };
-        handler.seed_owners();
-        handler
+        }
     }
 
     fn to_subscriber_params(&'a self) -> AgentSubscriberParams<'a, StateT, FwdPropsT> {
@@ -109,7 +75,7 @@ where
     fn update_from_mutation(&mut self, mutation: &AgentStateMutation<StateT>) {
         if let Some(messages) = &mutation.messages {
             self.messages = messages.clone();
-            self.seed_owners();
+            self.protocol.reseed_history(&self.messages);
         }
         if let Some(state) = &mutation.state {
             self.state = state.clone();
@@ -137,347 +103,6 @@ where
         }
     }
 
-    fn verify_event(&mut self, event: &Event<StateT>) -> Result<(), AgentError> {
-        if matches!(
-            event,
-            Event::TextMessageChunk(_) | Event::ToolCallChunk(_) | Event::ReasoningMessageChunk(_)
-        ) {
-            return Err(AgentError::exec(
-                "chunk must be expanded before event handling",
-            ));
-        }
-        let fail = |message: String| AgentError::Execution { message };
-        if self.finished_run
-            && !matches!(event, Event::RunStarted(_))
-            && (!matches!(event, Event::RunError(_)) || self.last_terminal_was_error)
-        {
-            return Err(fail(
-                "The run has already finished with 'RUN_FINISHED' or 'RUN_ERROR'".into(),
-            ));
-        }
-        if !self.active_run && !matches!(event, Event::RunStarted(_) | Event::RunError(_)) {
-            return Err(fail(
-                "First event must be 'RUN_STARTED' or 'RUN_ERROR'".into(),
-            ));
-        }
-        match event {
-            Event::RunStarted(_) if self.active_run => {
-                return Err(fail(
-                    "Cannot send 'RUN_STARTED' while a run is still active".into(),
-                ));
-            }
-            Event::RunStarted(e) => {
-                if e.thread_id != self.input.thread_id {
-                    return Err(AgentError::ExchangeIdentity(
-                        "RUN_STARTED threadId does not match the request".into(),
-                    ));
-                }
-                self.current_run_id = Some(e.run_id.clone());
-                self.result = JsonValue::Null;
-                self.output = None;
-                self.outcome = None;
-                self.usage = None;
-                self.run_error = None;
-                self.terminal_status = None;
-                self.active_run = true;
-                self.finished_run = false;
-                self.last_terminal_was_error = false;
-                self.active_text.clear();
-                self.active_reasoning.clear();
-                self.active_span.clear();
-                self.active_tools.clear();
-                self.active_steps.clear();
-                self.active_subagents.clear();
-                self.closed_subagents.clear();
-                self.attributed_subagents.clear();
-                self.message_owners.clear();
-                self.tool_owners.clear();
-                self.activity_owners.clear();
-                self.seed_owners();
-            }
-            Event::RunFinished(e) => {
-                if e.thread_id != self.input.thread_id
-                    || Some(&e.run_id) != self.current_run_id.as_ref()
-                {
-                    return Err(AgentError::ExchangeIdentity(
-                        "RUN_FINISHED identity does not match its RUN_STARTED and request threadId"
-                            .into(),
-                    ));
-                }
-                if !self.active_subagents.is_empty() {
-                    return Err(fail(format!(
-                        "RUN_FINISHED with active subagent {}",
-                        self.active_subagents.iter().next().unwrap()
-                    )));
-                }
-                if !self.active_text.is_empty()
-                    || !self.active_reasoning.is_empty()
-                    || !self.active_span.is_empty()
-                    || !self.active_tools.is_empty()
-                    || !self.active_steps.is_empty()
-                {
-                    return Err(fail("Cannot send 'RUN_FINISHED' while text messages are still active or another streamed item is open".into()));
-                }
-                self.active_run = false;
-                self.finished_run = true;
-                self.last_terminal_was_error = false;
-                self.terminal_status = Some(RunTerminalStatus::Finished {
-                    thread_id: e.thread_id.clone(),
-                    run_id: e.run_id.clone(),
-                });
-            }
-            Event::RunError(e) => {
-                self.active_run = false;
-                self.finished_run = true;
-                self.last_terminal_was_error = true;
-                self.run_error = Some(e.message.clone());
-                self.result = JsonValue::Null;
-                self.output = None;
-                self.outcome = None;
-                self.terminal_status = Some(RunTerminalStatus::ProducerError(e.clone()));
-                self.active_text.clear();
-                self.active_reasoning.clear();
-                self.active_span.clear();
-                self.active_tools.clear();
-                self.active_steps.clear();
-                self.active_subagents.clear();
-                self.activity_owners.clear();
-            }
-            Event::TextMessageStart(e) => {
-                if !matches!(
-                    e.role,
-                    None | Some(Role::Assistant | Role::User | Role::System | Role::Developer)
-                ) {
-                    return Err(fail("TEXT_MESSAGE_START has an invalid text role".into()));
-                }
-                let owner = self
-                    .message_owners
-                    .entry(e.message_id.clone())
-                    .or_insert_with(|| e.base.subagent_run_id.clone());
-                check_owner(owner, &e.base.subagent_run_id, e.message_id.as_ref())?;
-                if self
-                    .active_text
-                    .insert(e.message_id.clone(), owner.clone())
-                    .is_some()
-                {
-                    return Err(fail(format!(
-                        "TEXT_MESSAGE_START for open message '{}'",
-                        e.message_id
-                    )));
-                }
-            }
-            Event::TextMessageContent(e) => {
-                let owner = self.active_text.get(&e.message_id).ok_or_else(|| {
-                    fail(format!(
-                        "No active text message found with ID '{}'",
-                        e.message_id
-                    ))
-                })?;
-                check_owner(owner, &e.base.subagent_run_id, e.message_id.as_ref())?;
-            }
-            Event::TextMessageEnd(e) => {
-                let owner = self.active_text.get(&e.message_id).ok_or_else(|| {
-                    fail(format!(
-                        "No active text message found with ID '{}'",
-                        e.message_id
-                    ))
-                })?;
-                check_owner(owner, &e.base.subagent_run_id, e.message_id.as_ref())?;
-                self.active_text.remove(&e.message_id);
-            }
-            Event::ReasoningStart(e) => {
-                if self
-                    .active_span
-                    .insert(e.message_id.clone(), e.base.subagent_run_id.clone())
-                    .is_some()
-                {
-                    return Err(fail("REASONING_START for an already open span".into()));
-                }
-            }
-            Event::ReasoningEnd(e) => {
-                let owner = self
-                    .active_span
-                    .get(&e.message_id)
-                    .ok_or_else(|| fail("No active reasoning span".into()))?;
-                check_owner(owner, &e.base.subagent_run_id, e.message_id.as_ref())?;
-                self.active_span.remove(&e.message_id);
-            }
-            Event::ReasoningMessageStart(e) => {
-                if e.role != Role::Reasoning {
-                    return Err(fail(
-                        "Reasoning message role: expected \\\"reasoning\\\"".into(),
-                    ));
-                }
-                let owner = self
-                    .message_owners
-                    .entry(e.message_id.clone())
-                    .or_insert_with(|| e.base.subagent_run_id.clone());
-                check_owner(owner, &e.base.subagent_run_id, e.message_id.as_ref())?;
-                if self
-                    .active_reasoning
-                    .insert(e.message_id.clone(), owner.clone())
-                    .is_some()
-                {
-                    return Err(fail(format!(
-                        "REASONING_MESSAGE_START for open message '{}'",
-                        e.message_id
-                    )));
-                }
-            }
-            Event::ReasoningMessageContent(e) => {
-                let owner = self.active_reasoning.get(&e.message_id).ok_or_else(|| {
-                    fail(format!(
-                        "No active reasoning message found with ID '{}'",
-                        e.message_id
-                    ))
-                })?;
-                check_owner(owner, &e.base.subagent_run_id, e.message_id.as_ref())?;
-            }
-            Event::ReasoningMessageEnd(e) => {
-                let owner = self.active_reasoning.get(&e.message_id).ok_or_else(|| {
-                    fail(format!(
-                        "No active reasoning message found with ID '{}'",
-                        e.message_id
-                    ))
-                })?;
-                check_owner(owner, &e.base.subagent_run_id, e.message_id.as_ref())?;
-                self.active_reasoning.remove(&e.message_id);
-            }
-            Event::ToolCallStart(e) => {
-                let inherited = tool_call_owner(
-                    &self.messages,
-                    e.parent_message_id.as_ref(),
-                    &e.base.subagent_run_id,
-                    Some(e.tool_call_id.as_ref()),
-                )?;
-                let effective_owner = inherited
-                    .clone()
-                    .unwrap_or_else(|| e.base.subagent_run_id.clone());
-                if let Some(owner) = self.tool_owners.get(&e.tool_call_id) {
-                    check_owner(owner, &e.base.subagent_run_id, e.tool_call_id.as_ref())?;
-                    if inherited.is_some() && owner != &effective_owner {
-                        return Err(fail("Tool call owner does not match parent message".into()));
-                    }
-                }
-                let owner = self
-                    .tool_owners
-                    .entry(e.tool_call_id.clone())
-                    .or_insert(effective_owner)
-                    .clone();
-                if self
-                    .active_tools
-                    .insert(e.tool_call_id.clone(), owner)
-                    .is_some()
-                {
-                    return Err(fail(format!(
-                        "TOOL_CALL_START for open call '{}'",
-                        e.tool_call_id
-                    )));
-                }
-            }
-            Event::ToolCallArgs(e) => {
-                let owner = self.active_tools.get(&e.tool_call_id).ok_or_else(|| {
-                    fail(format!(
-                        "No active tool call found with ID '{}'",
-                        e.tool_call_id
-                    ))
-                })?;
-                check_owner(owner, &e.base.subagent_run_id, e.tool_call_id.as_ref())?;
-            }
-            Event::ToolCallEnd(e) => {
-                let owner = self.active_tools.get(&e.tool_call_id).ok_or_else(|| {
-                    fail(format!(
-                        "No active tool call found with ID '{}'",
-                        e.tool_call_id
-                    ))
-                })?;
-                check_owner(owner, &e.base.subagent_run_id, e.tool_call_id.as_ref())?;
-                self.active_tools.remove(&e.tool_call_id);
-            }
-            Event::StepStarted(e) => {
-                let key = (e.base.subagent_run_id.clone(), e.step_name.clone());
-                if !self.active_steps.insert(key) {
-                    return Err(fail(format!(
-                        "STEP_STARTED for already open step '{}' in this owner",
-                        e.step_name
-                    )));
-                }
-            }
-            Event::StepFinished(e) => {
-                let key = (e.base.subagent_run_id.clone(), e.step_name.clone());
-                if !self.active_steps.remove(&key) {
-                    return Err(fail(format!(
-                        "STEP_FINISHED for step that was not started in this owner: {}",
-                        e.step_name
-                    )));
-                }
-            }
-            Event::ActivitySnapshot(e) => {
-                let existing = self.messages.iter().find(|m| m.id() == &e.message_id);
-                if existing.is_none() || e.replace.unwrap_or(true) {
-                    self.activity_owners
-                        .insert(e.message_id.clone(), e.base.subagent_run_id.clone());
-                }
-            }
-            Event::ActivityDelta(e) => {
-                // A reminted non-activity target is the tolerated missing-target
-                // case, not a continuation of its former activity ownership.
-                if self
-                    .messages
-                    .iter()
-                    .any(|m| m.id() == &e.message_id && m.role() == Role::Activity)
-                    && let Some(owner) = self.activity_owners.get(&e.message_id)
-                {
-                    check_owner(owner, &e.base.subagent_run_id, e.message_id.as_ref())?;
-                }
-            }
-            Event::ToolCallResult(e) => {
-                self.activity_owners.remove(&e.message_id);
-                self.message_owners
-                    .insert(e.message_id.clone(), e.base.subagent_run_id.clone());
-            }
-            Event::SubagentStarted(e) => {
-                if self.active_subagents.contains(&e.subagent_run_id)
-                    || self.closed_subagents.contains(&e.subagent_run_id)
-                {
-                    return Err(fail("Subagent invocation ID is already active or was already closed in this run".into()));
-                }
-                if self.attributed_subagents.contains(&e.subagent_run_id) {
-                    return Err(fail(
-                        "SUBAGENT_STARTED must precede attributed events for that invocation"
-                            .into(),
-                    ));
-                }
-                if let Some(parent) = &e.parent_subagent_run_id
-                    && !self.active_subagents.contains(parent)
-                    && !self.closed_subagents.contains(parent)
-                {
-                    return Err(fail(
-                        "parentSubagentRunId has not been started in this run".into(),
-                    ));
-                }
-                self.active_subagents.insert(e.subagent_run_id.clone());
-            }
-            Event::SubagentFinished(e) => {
-                if !self.active_subagents.remove(&e.subagent_run_id) {
-                    return Err(fail(format!("Subagent not started: {}", e.subagent_run_id)));
-                }
-                self.closed_subagents.insert(e.subagent_run_id.clone());
-            }
-            Event::SubagentError(e) => {
-                if !self.active_subagents.remove(&e.subagent_run_id) {
-                    return Err(fail(format!("Subagent not started: {}", e.subagent_run_id)));
-                }
-                self.closed_subagents.insert(e.subagent_run_id.clone());
-            }
-            _ => {}
-        }
-        if let Some(owner) = event_attribution(event) {
-            self.attributed_subagents.insert(owner.to_owned());
-        }
-        Ok(())
-    }
-
     pub async fn handle_event(
         &mut self,
         event: &Event<StateT>,
@@ -498,7 +123,22 @@ where
             }};
         }
 
-        self.verify_event(event)?;
+        self.protocol
+            .verify(event, &self.messages, &self.input.thread_id)?;
+        // Lifecycle transitions precede callbacks; terminal payload reduction
+        // remains below so generic stops keep their existing semantics.
+        match event {
+            Event::RunStarted(_) => {
+                self.output = None;
+                self.outcome = None;
+                self.usage = None;
+            }
+            Event::RunError(_) => {
+                self.output = None;
+                self.outcome = None;
+            }
+            _ => {}
+        }
         // Clone subscribers to avoid borrowing issues
         for subscriber in &self.subscribers.clone() {
             let params = self.to_subscriber_params();
@@ -634,15 +274,8 @@ where
                         tool_calls.get_or_insert_with(Vec::new).push(new_tool_call);
                     }
                 }
-                for message in &self.messages {
-                    if message
-                        .tool_calls()
-                        .is_some_and(|calls| calls.iter().any(|call| call.id == e.tool_call_id))
-                    {
-                        self.message_owners
-                            .insert(message.id().clone(), message_owner(message).cloned());
-                    }
-                }
+                self.protocol
+                    .record_tool_parent(&self.messages, &e.tool_call_id);
                 current_mutation.messages = Some(self.messages.clone());
 
                 for subscriber in &self.subscribers.clone() {
@@ -782,7 +415,7 @@ where
             }
             Event::MessagesSnapshot(e) => {
                 reconcile_messages(&mut self.messages, &e.messages);
-                self.seed_owners();
+                self.protocol.reseed_history(&self.messages);
                 current_mutation.messages = Some(self.messages.clone());
                 for subscriber in &self.subscribers.clone() {
                     let params = self.to_subscriber_params();
@@ -814,7 +447,6 @@ where
             Event::RunFinished(e) => {
                 // Default behavior
                 self.output = e.result.clone();
-                self.result = e.result.clone().unwrap_or(JsonValue::Null);
                 self.outcome = e.outcome.clone();
                 self.usage = e.usage.clone();
 
@@ -1166,42 +798,6 @@ where
         Ok(())
     }
 
-    fn seed_owners(&mut self) {
-        self.message_owners.clear();
-        self.activity_owners.clear();
-        self.tool_owners.clear();
-        for message in &self.messages {
-            let owner = message_owner(message).cloned();
-            if message.role() == Role::Activity {
-                self.activity_owners
-                    .insert(message.id().clone(), owner.clone());
-            } else {
-                self.message_owners
-                    .insert(message.id().clone(), owner.clone());
-            }
-            if let Some(calls) = message.tool_calls() {
-                for call in calls {
-                    self.tool_owners.insert(call.id.clone(), owner.clone());
-                }
-            }
-        }
-        for (id, owner) in &mut self.active_text {
-            if let Some(current) = self.message_owners.get(id) {
-                *owner = current.clone();
-            }
-        }
-        for (id, owner) in &mut self.active_reasoning {
-            if let Some(current) = self.message_owners.get(id) {
-                *owner = current.clone();
-            }
-        }
-        for (id, owner) in &mut self.active_tools {
-            if let Some(current) = self.tool_owners.get(id) {
-                *owner = current.clone();
-            }
-        }
-    }
-
     pub async fn on_initialize(&mut self) -> Result<(), AgentError> {
         for subscriber in &self.subscribers.clone() {
             let mutation = subscriber
@@ -1226,18 +822,12 @@ where
         first_error.map_or(Ok(()), Err)
     }
 
+    pub fn terminal_status(&self) -> Option<&RunTerminalStatus> {
+        self.protocol.terminal_status()
+    }
+
     pub fn check_completion(&self) -> Result<(), AgentError> {
-        match &self.terminal_status {
-            None => Err(AgentError::IncompleteRun(
-                "AG-UI stream ended before RUN_FINISHED or RUN_ERROR for the latest run".into(),
-            )),
-            Some(RunTerminalStatus::Finished { run_id, .. }) if run_id != &self.input.run_id => {
-                Err(AgentError::ExchangeIdentity(
-                    "The final successful runId is not the requested runId".into(),
-                ))
-            }
-            Some(_) => Ok(()),
-        }
+        self.protocol.check_completion(&self.input.run_id)
     }
 
     pub async fn on_finalize(&mut self) -> Result<(), AgentError> {
@@ -1293,114 +883,11 @@ fn upsert_message(messages: &mut Vec<Message>, message: Message) {
     }
 }
 
-fn event_attribution<S: AgentState>(event: &Event<S>) -> Option<&str> {
-    let base = match event {
-        Event::TextMessageStart(e) => &e.base,
-        Event::TextMessageContent(e) => &e.base,
-        Event::TextMessageEnd(e) => &e.base,
-        Event::TextMessageChunk(e) => &e.base,
-        Event::ToolCallStart(e) => &e.base,
-        Event::ToolCallArgs(e) => &e.base,
-        Event::ToolCallEnd(e) => &e.base,
-        Event::ToolCallChunk(e) => &e.base,
-        Event::ToolCallResult(e) => &e.base,
-        Event::ReasoningStart(e) => &e.base,
-        Event::ReasoningEnd(e) => &e.base,
-        Event::ReasoningMessageStart(e) => &e.base,
-        Event::ReasoningMessageContent(e) => &e.base,
-        Event::ReasoningMessageEnd(e) => &e.base,
-        Event::ReasoningMessageChunk(e) => &e.base,
-        Event::ReasoningEncryptedValue(e) => &e.base,
-        Event::ActivitySnapshot(e) => &e.base,
-        Event::ActivityDelta(e) => &e.base,
-        Event::StepStarted(e) => &e.base,
-        Event::StepFinished(e) => &e.base,
-        Event::StateSnapshot(e) => &e.base,
-        Event::StateDelta(e) => &e.base,
-        Event::Custom(e) => &e.base,
-        Event::Raw(e) => &e.base,
-        _ => return None,
-    };
-    base.subagent_run_id.as_deref()
-}
-
-/// Resolve ownership from the same reconciled history for verification and
-/// chunk expansion. Known root ownership is distinct from an unknown entity.
-pub(crate) fn tool_call_owner(
-    messages: &[Message],
-    parent_id: Option<&MessageId>,
-    explicit_owner: &Option<String>,
-    call_id: Option<&str>,
-) -> Result<Option<Option<String>>, AgentError> {
-    let entity = call_id.unwrap_or("");
-    let inherited = if let Some(parent) =
-        parent_id.and_then(|id| messages.iter().find(|message| message.id() == id))
-    {
-        if parent.role() != Role::Assistant {
-            return Err(AgentError::exec(format!(
-                "Tool call '{entity}' parent message is not assistant"
-            )));
-        }
-        let owner = message_owner(parent).cloned();
-        check_owner(&owner, explicit_owner, entity)?;
-        Some(owner)
-    } else {
-        None
-    };
-    let known = call_id
-        .and_then(|id| {
-            messages.iter().find(|message| {
-                message
-                    .tool_calls()
-                    .is_some_and(|calls| calls.iter().any(|call| call.id.as_ref() == id))
-            })
-        })
-        .map(|message| message_owner(message).cloned());
-    if let Some(owner) = &known {
-        check_owner(owner, explicit_owner, entity)?;
-        if inherited
-            .as_ref()
-            .is_some_and(|parent_owner| parent_owner != owner)
-        {
-            return Err(AgentError::exec(
-                "Tool call owner does not match parent message",
-            ));
-        }
-    }
-    Ok(known.or(inherited))
-}
-
 // Looking up an existing call must not create toolCalls on unrelated messages.
 fn existing_tool_calls_mut(message: &mut Message) -> Option<&mut Vec<ToolCall>> {
     match message {
         Message::Assistant { tool_calls, .. } => tool_calls.as_mut(),
         _ => None,
-    }
-}
-
-fn message_owner(message: &Message) -> Option<&String> {
-    match message {
-        Message::Developer {
-            subagent_run_id, ..
-        }
-        | Message::System {
-            subagent_run_id, ..
-        }
-        | Message::Assistant {
-            subagent_run_id, ..
-        }
-        | Message::User {
-            subagent_run_id, ..
-        }
-        | Message::Activity {
-            subagent_run_id, ..
-        }
-        | Message::Reasoning {
-            subagent_run_id, ..
-        }
-        | Message::Tool {
-            subagent_run_id, ..
-        } => subagent_run_id.as_ref(),
     }
 }
 
@@ -1436,22 +923,6 @@ fn reconcile_messages(current: &mut Vec<Message>, snapshot: &[Message]) {
     }
 }
 
-fn check_owner(
-    expected: &Option<String>,
-    incoming: &Option<String>,
-    entity: &str,
-) -> Result<(), AgentError> {
-    if incoming
-        .as_ref()
-        .is_some_and(|tag| Some(tag) != expected.as_ref())
-    {
-        return Err(AgentError::Execution {
-            message: format!("Subagent attribution for '{entity}' does not match the opener"),
-        });
-    }
-    Ok(())
-}
-
 fn merge_message_metadata(
     message: &mut Message,
     extra: &Option<serde_json::Map<String, JsonValue>>,
@@ -1474,278 +945,4 @@ fn merge_message_metadata(
 }
 
 #[cfg(test)]
-mod name_tests {
-    use super::*;
-    use crate::core::types::{RunId, ThreadId};
-    use serde_json::json;
-
-    #[tokio::test]
-    async fn named_text_events_materialize_author() {
-        let input = RunAgentInput::new(
-            ThreadId::from("t"),
-            RunId::from("r"),
-            json!({}),
-            vec![],
-            vec![],
-            vec![],
-            json!({}),
-        );
-        let mut handler = EventHandler::new(vec![], json!({}), &input, Subscribers::new(vec![]));
-        let run_start: Event =
-            serde_json::from_value(json!({"type":"RUN_STARTED","threadId":"t","runId":"r"}))
-                .unwrap();
-        handler.handle_event(&run_start).await.unwrap();
-        let start: Event = serde_json::from_value(
-            json!({"type":"TEXT_MESSAGE_START","messageId":"m","role":"assistant","name":"Ada"}),
-        )
-        .unwrap();
-        handler.handle_event(&start).await.unwrap();
-        assert_eq!(
-            serde_json::to_value(&handler.messages[0]).unwrap()["name"],
-            "Ada"
-        );
-
-        let chunk: Event = serde_json::from_value(json!({"type":"TEXT_MESSAGE_CHUNK","messageId":"other","role":"assistant","name":"Grace","delta":"Hi"})).unwrap();
-        let mut chunks = crate::chunk::ChunkExpander::default();
-        for expanded in chunks.expand(chunk, &handler.messages).unwrap() {
-            let mutation = handler.handle_event(&expanded).await.unwrap();
-            handler.apply_mutation(mutation).await.unwrap();
-        }
-        let materialized = serde_json::to_value(&handler.messages[1]).unwrap();
-        assert_eq!(materialized["name"], "Grace");
-        assert_eq!(materialized["content"], "Hi");
-    }
-}
-
-#[cfg(test)]
-mod conformance_tests {
-    use super::*;
-    use crate::core::types::{RunId, ThreadId};
-    use serde_json::{Value, json};
-
-    fn subset(actual: &Value, expected: &Value) {
-        match (actual, expected) {
-            (Value::Object(a), Value::Object(e)) => {
-                for (key, value) in e {
-                    assert!(a.contains_key(key), "missing {key} in {actual}");
-                    subset(&a[key], value);
-                }
-            }
-            (Value::Array(a), Value::Array(e)) => {
-                assert_eq!(a.len(), e.len(), "array mismatch: {actual}");
-                for (a, e) in a.iter().zip(e) {
-                    subset(a, e);
-                }
-            }
-            _ => assert_eq!(actual, expected),
-        }
-    }
-
-    struct Hooks(std::sync::Arc<std::sync::Mutex<Vec<&'static str>>>);
-
-    #[async_trait::async_trait]
-    impl crate::subscriber::AgentSubscriber for Hooks {
-        async fn on_activity_snapshot_event(
-            &self,
-            _event: &crate::core::event::ActivitySnapshotEvent,
-            _params: AgentSubscriberParams<'async_trait, JsonValue, JsonValue>,
-        ) -> Result<AgentStateMutation<JsonValue>, AgentError> {
-            self.0.lock().unwrap().push("activity");
-            Ok(AgentStateMutation::default())
-        }
-        async fn on_reasoning_message_start_event(
-            &self,
-            _event: &crate::core::event::ReasoningMessageStartEvent,
-            _params: AgentSubscriberParams<'async_trait, JsonValue, JsonValue>,
-        ) -> Result<AgentStateMutation<JsonValue>, AgentError> {
-            self.0.lock().unwrap().push("reasoning");
-            Ok(AgentStateMutation::default())
-        }
-        async fn on_subagent_started_event(
-            &self,
-            _event: &crate::core::event::SubagentStartedEvent,
-            _params: AgentSubscriberParams<'async_trait, JsonValue, JsonValue>,
-        ) -> Result<AgentStateMutation<JsonValue>, AgentError> {
-            self.0.lock().unwrap().push("subagent");
-            Ok(AgentStateMutation::default())
-        }
-    }
-
-    #[test]
-    fn snapshots_preserve_client_roles_and_existing_positions() {
-        let message = |value: Value| serde_json::from_value::<Message>(value).unwrap();
-        let mut current = vec![
-            message(json!({"id":"a","role":"assistant","content":"old"})),
-            message(json!({"id":"act","role":"activity","activityType":"search","content":{}})),
-            message(json!({"id":"r","role":"reasoning","content":"thought"})),
-            message(json!({"id":"drop","role":"assistant","content":"obsolete"})),
-        ];
-        let snapshot = vec![
-            message(json!({"id":"new","role":"assistant","content":"appended"})),
-            message(json!({"id":"a","role":"assistant","content":"updated"})),
-        ];
-        reconcile_messages(&mut current, &snapshot);
-        let values: Vec<_> = current
-            .iter()
-            .map(|m| serde_json::to_value(m).unwrap())
-            .collect();
-        assert_eq!(
-            values
-                .iter()
-                .map(|m| m["id"].as_str().unwrap())
-                .collect::<Vec<_>>(),
-            ["a", "act", "r", "new"]
-        );
-        assert_eq!(values[0]["content"], "updated");
-        let snapshot = vec![
-            message(json!({"id":"a","role":"assistant","content":"updated"})),
-            message(json!({"id":"act2","role":"activity","activityType":"search","content":{}})),
-            message(json!({"id":"r2","role":"reasoning","content":"new thought"})),
-        ];
-        reconcile_messages(&mut current, &snapshot);
-        let ids: Vec<_> = current.iter().map(|m| m.id().as_ref()).collect();
-        assert_eq!(ids, ["a", "act2", "r2"]);
-    }
-
-    #[tokio::test]
-    async fn activity_reasoning_and_subagent_hooks_are_delivered() {
-        let calls = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
-        let input = RunAgentInput::new(
-            ThreadId::from("t"),
-            RunId::from("r"),
-            json!({}),
-            vec![],
-            vec![],
-            vec![],
-            json!({}),
-        );
-        let mut handler = EventHandler::new(
-            vec![],
-            json!({}),
-            &input,
-            Subscribers::from_subscriber(Hooks(calls.clone())),
-        );
-        for raw in [
-            json!({"type":"RUN_STARTED","threadId":"t","runId":"r"}),
-            json!({"type":"ACTIVITY_SNAPSHOT","messageId":"a","activityType":"search","content":{}}),
-            json!({"type":"REASONING_MESSAGE_START","messageId":"m","role":"reasoning"}),
-            json!({"type":"SUBAGENT_STARTED","subagentRunId":"s","name":"worker"}),
-        ] {
-            let event: Event = serde_json::from_value(raw).unwrap();
-            handler.handle_event(&event).await.unwrap();
-        }
-        assert_eq!(
-            *calls.lock().unwrap(),
-            ["activity", "reasoning", "subagent"]
-        );
-    }
-
-    #[tokio::test]
-    async fn named_streams_match_expectations() {
-        let names = [
-            "activity-snapshot-then-delta",
-            "activity-replace-false-preserves",
-            "chunk-expansion-assembles",
-            "content-without-start-fatal",
-            "custom-closes-chunk-stream-fatal",
-            "encrypted-value-unknown-entity-tolerated",
-            "reasoning-span-and-message",
-            "reasoning-discipline-verified",
-            "tool-result-parts-mint-tool-message",
-            "tool-call-triad-assembles",
-            "run-finished-interrupt-outcome-accepted",
-            "state-delta-unappliable-warns-and-keeps",
-            "metadata-merges-last-write-wins",
-            "subagent-attribution-mismatch-fatal",
-            "run-error-first-run-continues",
-            "run-error-then-new-run-continues",
-            "late-run-error-after-finished-run-continues",
-            "subagent-unannounced-attribution-accepted",
-            "subagent-terminal-closes-open-chunk-stream",
-            "subagent-finished-unstarted-fatal",
-        ];
-        for name in names {
-            let path = format!(
-                "{}/../../../../../spec/1.0/conformance/streams/{name}.json",
-                env!("CARGO_MANIFEST_DIR")
-            );
-            let fixture: Value =
-                serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
-            let last_start = fixture["stream"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .rev()
-                .find(|event| event["type"] == "RUN_STARTED");
-            let input = RunAgentInput::new(
-                ThreadId::from(
-                    last_start
-                        .and_then(|event| event["threadId"].as_str())
-                        .unwrap_or("t"),
-                ),
-                RunId::from(
-                    last_start
-                        .and_then(|event| event["runId"].as_str())
-                        .unwrap_or("r"),
-                ),
-                json!({}),
-                vec![],
-                vec![],
-                vec![],
-                json!({}),
-            );
-            let mut handler =
-                EventHandler::new(vec![], json!({}), &input, Subscribers::new(vec![]));
-            let mut error = None;
-            let mut chunks = crate::chunk::ChunkExpander::default();
-            for raw in fixture["stream"].as_array().unwrap() {
-                let event: Event = serde_json::from_value(raw.clone())
-                    .unwrap_or_else(|e| panic!("{name}: {e}: {raw}"));
-                let expanded = match chunks.expand(event, &handler.messages) {
-                    Ok(events) => events,
-                    Err(e) => {
-                        error = Some(e.to_string());
-                        break;
-                    }
-                };
-                for event in expanded {
-                    match handler.handle_event(&event).await {
-                        Ok(mutation) => handler.apply_mutation(mutation).await.unwrap(),
-                        Err(e) => {
-                            error = Some(e.to_string());
-                            break;
-                        }
-                    }
-                }
-                if error.is_some() {
-                    break;
-                }
-            }
-            let expected = &fixture["expect"];
-            if expected["outcome"] == "failed" {
-                let error = error.unwrap_or_else(|| panic!("{name}: expected failure"));
-                assert!(
-                    error.contains(expected["errorContains"].as_str().unwrap()),
-                    "{name}: {error}"
-                );
-                continue;
-            }
-            assert!(error.is_none(), "{name}: {error:?}");
-            if let Some(count) = expected["messageCount"].as_u64() {
-                assert_eq!(handler.messages.len() as u64, count, "{name}");
-            }
-            if let Some(messages) = expected["messages"].as_array() {
-                for (actual, expected) in handler.messages.iter().zip(messages) {
-                    subset(&serde_json::to_value(actual).unwrap(), expected);
-                }
-            }
-            if let Some(state) = expected.get("state") {
-                assert_eq!(
-                    serde_json::to_value(&handler.state).unwrap(),
-                    *state,
-                    "{name}"
-                );
-            }
-        }
-    }
-}
+mod tests;

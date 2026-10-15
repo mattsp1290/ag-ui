@@ -37,9 +37,9 @@ token counts. An interrupt has an ID and reason, with optional message, tool
 call ID, response schema, expiry, metadata, and subagent run ID. Resume with
 `RunAgentParams::with_resume` and `ResumeEntry` values.
 
-The current core enum does not expose retired `THINKING_*` variants. The HTTP
-boundary does not translate them; unknown event variants are dropped with
-structured diagnostics available through
+The core representation retains legacy `Thinking*` variants for compatibility.
+They are outside the AG-UI 1.0 processing lane: the HTTP boundary does not
+translate them and drops them with structured diagnostics available through
 `HttpAgentBuilder::with_diagnostic_handler`. Current producers must emit
 `REASONING_*` events.
 

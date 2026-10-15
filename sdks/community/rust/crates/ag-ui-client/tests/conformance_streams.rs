@@ -1,6 +1,6 @@
 //! The complete 1.0 consumer corpus. Raw fixture events deliberately bypass
 //! producer validation. Producer correctness is tested in ag-ui-encoder.
-#[path = "conformance_support/http.rs"]
+#[path = "support/http.rs"]
 mod http;
 #[path = "conformance_support/oracle.rs"]
 mod oracle;
@@ -9,12 +9,12 @@ use ag_ui_client::agent::{AgentError, AgentStateMutation};
 use ag_ui_client::core::{event::Event, processing::Diagnostic, types::RunAgentInput};
 use ag_ui_client::subscriber::{AgentSubscriber, AgentSubscriberParams};
 use ag_ui_client::{Agent, HttpAgent};
+use http::TEST_TIMEOUT;
 use oracle::Observation;
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
 use tokio::io::AsyncWriteExt;
 use tokio::net::TcpListener;
 
@@ -130,7 +130,7 @@ async fn replay(fixture: &Value) -> Observation {
         .map(|event| format!("data: {event}\n\n"))
         .collect();
     let server = tokio::spawn(async move {
-        tokio::time::timeout(Duration::from_secs(10), async move {
+        tokio::time::timeout(TEST_TIMEOUT, async move {
             let (mut socket, _) = listener.accept().await.unwrap();
             let request = http::read(&mut socket).await.expect("complete actual HTTP request");
             let header = format!("HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", frames.len());
@@ -156,13 +156,13 @@ async fn replay(fixture: &Value) -> Observation {
         .build()
         .unwrap();
     let input = fixture_input(fixture);
-    let result = tokio::time::timeout(
-        Duration::from_secs(10),
-        agent.run_input(&input, (capture.clone(),)),
-    )
-    .await
-    .expect("fixture client timed out");
-    let request = server.await.unwrap();
+    let result = tokio::time::timeout(TEST_TIMEOUT, agent.run_input(&input, (capture.clone(),)))
+        .await
+        .expect("fixture client timed out");
+    let request = tokio::time::timeout(TEST_TIMEOUT, server)
+        .await
+        .expect("fixture server join timed out")
+        .expect("fixture server failed");
     let mut observation = capture.observed.lock().unwrap().clone();
     assert_eq!(
         *capture.finalized.lock().unwrap(),

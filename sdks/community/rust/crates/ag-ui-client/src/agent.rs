@@ -306,11 +306,12 @@ where
             .cloned()
             .collect();
         Ok(RunAgentResult {
-            result: event_handler.result,
-            output: event_handler.output,
+            result: event_handler.output.clone().unwrap_or(JsonValue::Null),
             terminal_status: event_handler
-                .terminal_status
-                .expect("completion checked terminal status"),
+                .terminal_status()
+                .expect("completion checked terminal status")
+                .clone(),
+            output: event_handler.output,
             outcome: event_handler.outcome,
             usage: event_handler.usage,
             new_messages,

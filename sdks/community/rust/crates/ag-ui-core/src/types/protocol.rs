@@ -209,104 +209,61 @@ impl MessageContent {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "lowercase", deny_unknown_fields)]
 pub enum RunFinishedOutcome {
     Success {
-        #[serde(rename = "pendingToolCallIds", skip_serializing_if = "Option::is_none")]
+        #[serde(
+            rename = "pendingToolCallIds",
+            skip_serializing_if = "Option::is_none",
+            default,
+            deserialize_with = "non_null_option"
+        )]
         pending_tool_call_ids: Option<Vec<ToolCallId>>,
     },
     Interrupt {
+        #[serde(deserialize_with = "nonempty_interrupts")]
         interrupts: Vec<Interrupt>,
     },
+    #[serde(deserialize_with = "empty_outcome")]
     Cancelled,
 }
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "lowercase", deny_unknown_fields)]
 pub enum SubagentFinishedOutcome {
+    #[serde(deserialize_with = "empty_outcome")]
     Success,
     Suspended {
-        #[serde(rename = "interruptIds", skip_serializing_if = "Option::is_none")]
+        #[serde(
+            rename = "interruptIds",
+            skip_serializing_if = "Option::is_none",
+            default,
+            deserialize_with = "non_null_option"
+        )]
         interrupt_ids: Option<Vec<String>>,
     },
 }
-impl<'de> Deserialize<'de> for RunFinishedOutcome {
-    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
-        let v = Value::deserialize(d)?;
-        let obj = v
-            .as_object()
-            .ok_or_else(|| serde::de::Error::custom("outcome must be an object"))?;
-        let kind = obj
-            .get("type")
-            .and_then(Value::as_str)
-            .ok_or_else(|| serde::de::Error::custom("outcome type missing"))?;
-        match kind {
-            "success" => {
-                if obj.keys().any(|k| k != "type" && k != "pendingToolCallIds") {
-                    return Err(serde::de::Error::custom("unknown success outcome property"));
-                }
-                let ids = obj
-                    .get("pendingToolCallIds")
-                    .map(|v| serde_json::from_value(v.clone()).map_err(serde::de::Error::custom))
-                    .transpose()?;
-                Ok(Self::Success {
-                    pending_tool_call_ids: ids,
-                })
-            }
-            "interrupt" => {
-                if obj.keys().any(|k| k != "type" && k != "interrupts") {
-                    return Err(serde::de::Error::custom(
-                        "unknown interrupt outcome property",
-                    ));
-                }
-                let interrupts: Vec<Interrupt> = serde_json::from_value(
-                    obj.get("interrupts")
-                        .cloned()
-                        .ok_or_else(|| serde::de::Error::custom("interrupts missing"))?,
-                )
-                .map_err(serde::de::Error::custom)?;
-                if interrupts.is_empty() {
-                    return Err(serde::de::Error::custom(
-                        "interrupt outcome requires interrupts",
-                    ));
-                }
-                Ok(Self::Interrupt { interrupts })
-            }
-            "cancelled" => {
-                if obj.len() != 1 {
-                    return Err(serde::de::Error::custom(
-                        "unknown cancelled outcome property",
-                    ));
-                }
-                Ok(Self::Cancelled)
-            }
-            _ => Err(serde::de::Error::custom("unknown outcome type")),
-        }
+
+fn nonempty_interrupts<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Vec<Interrupt>, D::Error> {
+    let interrupts = Vec::deserialize(deserializer)?;
+    if interrupts.is_empty() {
+        return Err(serde::de::Error::custom(
+            "interrupt outcome requires interrupts",
+        ));
     }
+    Ok(interrupts)
 }
-impl<'de> Deserialize<'de> for SubagentFinishedOutcome {
-    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
-        let v = Value::deserialize(d)?;
-        let obj = v
-            .as_object()
-            .ok_or_else(|| serde::de::Error::custom("outcome must be an object"))?;
-        let kind = obj
-            .get("type")
-            .and_then(Value::as_str)
-            .ok_or_else(|| serde::de::Error::custom("outcome type missing"))?;
-        match kind {
-            "success" if obj.len() == 1 => Ok(Self::Success),
-            "suspended" if obj.keys().all(|k| k == "type" || k == "interruptIds") => {
-                let ids = obj
-                    .get("interruptIds")
-                    .map(|v| serde_json::from_value(v.clone()).map_err(serde::de::Error::custom))
-                    .transpose()?;
-                Ok(Self::Suspended { interrupt_ids: ids })
-            }
-            _ => Err(serde::de::Error::custom("invalid subagent outcome")),
-        }
-    }
+
+// Internally tagged unit variants otherwise ignore unknown fields in Serde.
+fn empty_outcome<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<(), D::Error> {
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct Empty {}
+    Empty::deserialize(deserializer).map(|_| ())
 }
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Interrupt {
     pub id: String,

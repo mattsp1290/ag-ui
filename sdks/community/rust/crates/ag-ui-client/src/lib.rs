@@ -5,6 +5,7 @@ mod chunk;
 pub mod error;
 pub mod event_handler;
 pub mod http;
+mod protocol_state;
 pub mod sse;
 pub(crate) mod stream;
 pub mod subscriber;

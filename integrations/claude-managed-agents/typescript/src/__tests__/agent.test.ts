@@ -2260,3 +2260,37 @@ it("retains pending calls when an empty filtered tool reply cannot be delivered"
     "ctu_1",
   ]);
 });
+
+it("unsupported user media plus blank text leaves pending tools and cursor untouched", async () => {
+  const fake = createFakeClient({ streams: [] });
+  const store = new InMemorySessionStore();
+  await store.set(SESSION_KEY, {
+    sessionId: "sesn_1",
+    toolNames: [],
+    pendingClientToolUseIds: ["ctu_1"],
+    lastUserMessageId: "u1",
+  });
+  const input = baseInput({
+    messages: [
+      { id: "u1", role: "user", content: "Hello" },
+      {
+        id: "u2",
+        role: "user",
+        content: [
+          {
+            type: "audio",
+            source: { type: "url", value: "https://example.test/audio" },
+          },
+          { type: "text", text: " \n" },
+        ],
+      },
+    ],
+  });
+  const events = await collect(newAgent(fake, store), input);
+  expect(events[0]).toMatchObject({ input });
+  expect(fake.sent).toEqual([]);
+  expect(await store.get(SESSION_KEY)).toMatchObject({
+    pendingClientToolUseIds: ["ctu_1"],
+    lastUserMessageId: "u1",
+  });
+});

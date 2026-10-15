@@ -1549,4 +1549,21 @@ public class ManagedAgentsAgentTest
         Assert.IsType<RunErrorEvent>(events[^1]);
         Assert.Equal(["ctu_1"], (await store.GetAsync(SessionKey, default))!.PendingClientToolUseIds);
     }
+    [Fact]
+    public async Task UnsupportedUserMediaWithBlankTextPreservesPendingCallsAndCursor()
+    {
+        var fake = new FakeManagedAgentsClient([]);
+        var store = new InMemorySessionStore();
+        await store.SetAsync(SessionKey, Record(["ctu_1"]), default);
+        var input = BaseInput(i => i.Messages.Add(new AGUIUserMessage { Id = "u2", Content = new AGUIContent(new List<AGUIInputContent> {
+            new AGUIAudioInputContent { Source = new AGUIInputContentUrlSource { Value = "https://example.test/audio" } },
+            new AGUITextInputContent { Text = " \n" },
+        }) }));
+        var events = await CollectAsync(NewAgent(fake, store), input);
+        Assert.Same(input, Assert.IsType<RunStartedEvent>(events[0]).Input);
+        Assert.Empty(fake.Sent);
+        var record = (await store.GetAsync(SessionKey, default))!;
+        Assert.Equal(["ctu_1"], record.PendingClientToolUseIds);
+        Assert.Equal("u1", record.LastUserMessageId);
+    }
 }

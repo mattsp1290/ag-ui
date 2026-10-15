@@ -13,8 +13,7 @@ internal static class ManagedAgentsContent
         {
             if (part is AGUITextInputContent text)
             {
-                if (preserveBlankText || !string.IsNullOrWhiteSpace(text.Text))
-                    blocks.Add(new JsonObject { ["type"] = "text", ["text"] = text.Text });
+                blocks.Add(new JsonObject { ["type"] = "text", ["text"] = text.Text });
                 continue;
             }
             if (part is not AGUIImageInputContent && part is not AGUIDocumentInputContent) continue;
@@ -41,7 +40,11 @@ internal static class ManagedAgentsContent
                 block["title"] = filename.GetString();
             blocks.Add(block);
         }
-        return blocks;
+        return preserveBlankText || blocks.Any(block =>
+            block!["type"]!.GetValue<string>() != "text" ||
+            !string.IsNullOrWhiteSpace(block!["text"]!.GetValue<string>()))
+            ? blocks
+            : new JsonArray();
     }
 
     internal static JsonArray ToolBlocks(AGUIToolMessage message)

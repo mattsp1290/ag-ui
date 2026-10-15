@@ -13,8 +13,7 @@ export const userContent = (
   const blocks: Blocks = [];
   for (const part of message.content ?? []) {
     if (part.type === "text") {
-      if (message.role === "tool" || part.text.trim())
-        blocks.push({ type: "text", text: part.text });
+      blocks.push({ type: "text", text: part.text });
       continue;
     }
     if (part.type !== "image" && part.type !== "document") continue;
@@ -58,7 +57,10 @@ export const userContent = (
           },
     );
   }
-  return blocks;
+  return message.role === "tool" ||
+    blocks.some((block) => block.type !== "text" || block.text.trim())
+    ? blocks
+    : [];
 };
 
 /** Preserve native rich blocks in standard AG-UI parts; RAW carries the exact event. */

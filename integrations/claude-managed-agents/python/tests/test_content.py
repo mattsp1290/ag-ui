@@ -86,7 +86,7 @@ async def test_unsupported_tool_parts_skip_and_preserve_supported_content(mixed)
     assert store.get(SESSION_KEY).pending_client_tool_use_ids == []
     assert events[-1].type.value == "RUN_FINISHED"
 
-@pytest.mark.parametrize("content", [" \n", [{"type": "text", "text": " \n"}]])
+@pytest.mark.parametrize("content", [" \n", [{"type": "text", "text": " \n"}], [{"type": "audio", "source": {"type": "url", "value": "https://example.test/audio"}}, {"type": "text", "text": " \n"}]])
 async def test_blank_user_does_not_abandon_pending_calls_or_advance_cursor(content):
     from ag_ui_claude_managed_agents import InMemorySessionStore, SessionRecord
     from .test_agent import SESSION_KEY
@@ -109,3 +109,15 @@ async def test_failed_delivery_of_filtered_empty_tool_reply_retains_pending():
     events = [e async for e in new_agent(fake, store).run(value)]
     assert events[-1].type.value == "RUN_ERROR"
     assert store.get(SESSION_KEY).pending_client_tool_use_ids == ["ctu_1"]
+
+async def test_meaningful_user_text_preserves_blank_separators():
+    parts = [{"type": "text", "text": "START"}, {"type": "text", "text": "\n"}, {"type": "text", "text": "END"}]
+    fake, value, events = await run(parts)
+    assert fake.sent[0]["events"][0]["content"] == parts
+    assert events[0]["input"] == value.model_dump(mode="json", by_alias=True, exclude_none=True)
+    assert events[-1]["type"] == "RUN_FINISHED"
+
+async def test_supported_user_media_preserves_adjacent_blank_text():
+    fake, _, events = await run([{"type": "image", "source": {"type": "url", "value": "https://example.test/image"}}, {"type": "text", "text": " \n"}])
+    assert fake.sent[0]["events"][0]["content"] == [{"type": "image", "source": {"type": "url", "url": "https://example.test/image"}}, {"type": "text", "text": " \n"}]
+    assert events[-1]["type"] == "RUN_FINISHED"

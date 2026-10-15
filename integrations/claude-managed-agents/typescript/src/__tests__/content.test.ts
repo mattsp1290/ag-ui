@@ -163,3 +163,35 @@ describe("lossless live conversation", () => {
     });
   });
 });
+
+it("keeps blank separators inside meaningful user text", async () => {
+  const parts: InputContent[] = [
+    { type: "text", text: "START" },
+    { type: "text", text: "\n" },
+    { type: "text", text: "END" },
+  ];
+  const { fake, events, input } = await run(parts);
+  expect(fake.sent[0].events[0]).toMatchObject({ content: parts });
+  expect(events[0].input).toEqual(input);
+  expect(events.at(-1).type).toBe(EventType.RUN_FINISHED);
+});
+
+it("keeps blank text alongside supported user media", async () => {
+  const { fake, events } = await run([
+    {
+      type: "image",
+      source: { type: "url", value: "https://example.test/image" },
+    },
+    { type: "text", text: " \n" },
+  ]);
+  expect(fake.sent[0].events[0]).toMatchObject({
+    content: [
+      {
+        type: "image",
+        source: { type: "url", url: "https://example.test/image" },
+      },
+      { type: "text", text: " \n" },
+    ],
+  });
+  expect(events.at(-1).type).toBe(EventType.RUN_FINISHED);
+});

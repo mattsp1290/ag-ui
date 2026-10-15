@@ -22,7 +22,8 @@ filename field.
 Unsupported audio/video parts, foreign provider handles and unsupported media types are
 skipped when sending to Claude, as required by AG-UI. The complete original input remains
 recorded, including skipped parts. Supported parts keep their order and meaningful text
-keeps its original whitespace. Blank text parts do not create a new user turn. A tool
+keeps its original whitespace. Whitespace-only parts within a meaningful message are retained; wholly blank user
+messages do not create a new turn. A tool
 result with no supported parts still answers the pending call with an empty text result;
 the call is cleared only after delivery succeeds. The adapter does not mount arbitrary
 files into the managed sandbox.

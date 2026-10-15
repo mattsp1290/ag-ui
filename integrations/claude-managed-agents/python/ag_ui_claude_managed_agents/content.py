@@ -21,8 +21,7 @@ def user_content(message: Any, *, preserve_blank_text: bool = False) -> list[dic
         part = plain(raw)
         kind = part["type"]
         if kind == "text":
-            if preserve_blank_text or part["text"].strip():
-                blocks.append({"type": "text", "text": part["text"]})
+            blocks.append({"type": "text", "text": part["text"]})
             continue
         source = part.get("source", {})
         mime = part.get("mimeType") if kind == "binary" else source.get("mimeType")
@@ -55,7 +54,9 @@ def user_content(message: Any, *, preserve_blank_text: bool = False) -> list[dic
         if native_kind == "document" and isinstance(filename, str):
             block["title"] = filename
         blocks.append(block)
-    return blocks
+    return blocks if preserve_blank_text or any(
+        block["type"] != "text" or block["text"].strip() for block in blocks
+    ) else []
 
 def tool_content(content: Any) -> Any:
     blocks = plain(content or [])

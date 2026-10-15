@@ -85,4 +85,28 @@ public class ManagedAgentsContentTest
         Assert.Equal("  meaningful\n", run.Fake.Sent[0][0].GetProperty("content")[0].GetProperty("text").GetString());
         Assert.IsType<RunFinishedEvent>(run.Events[^1]);
     }
+    [Fact]
+    public async Task MeaningfulUserTextPreservesBlankSeparators()
+    {
+        var run = await RunAsync(new AGUIContent(new List<AGUIInputContent> {
+            new AGUITextInputContent { Text = "START" }, new AGUITextInputContent { Text = "\n" }, new AGUITextInputContent { Text = "END" },
+        }));
+        Assert.Equal(new[] { "START", "\n", "END" }, run.Fake.Sent[0][0].GetProperty("content").EnumerateArray().Select(p => p.GetProperty("text").GetString()));
+        Assert.Same(run.Input, Assert.IsType<RunStartedEvent>(run.Events[0]).Input);
+        Assert.IsType<RunFinishedEvent>(run.Events[^1]);
+    }
+
+    [Fact]
+    public async Task SupportedUserMediaPreservesAdjacentBlankText()
+    {
+        var run = await RunAsync(new AGUIContent(new List<AGUIInputContent> {
+            new AGUIImageInputContent { Source = new AGUIInputContentUrlSource { Value = "https://example.test/image" } },
+            new AGUITextInputContent { Text = " \n" },
+        }));
+        var blocks = run.Fake.Sent[0][0].GetProperty("content");
+        Assert.Equal(2, blocks.GetArrayLength());
+        Assert.Equal("https://example.test/image", blocks[0].GetProperty("source").GetProperty("url").GetString());
+        Assert.Equal(" \n", blocks[1].GetProperty("text").GetString());
+        Assert.IsType<RunFinishedEvent>(run.Events[^1]);
+    }
 }

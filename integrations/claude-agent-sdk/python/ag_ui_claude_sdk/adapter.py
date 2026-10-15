@@ -659,6 +659,9 @@ class ClaudeAgentAdapter:
                             merged_kwargs[key] = value
         logger.debug(f"Merged kwargs: {merged_kwargs}")
         
+        if profile_options is not None:
+            merged_kwargs.update(profile_options if isinstance(profile_options, dict) else vars(profile_options))
+
         # Append state and context to the system prompt (not the user message).
         if input_data:
             addendum = build_state_context_addendum(input_data)
@@ -691,9 +694,6 @@ class ClaudeAgentAdapter:
         merged_kwargs.pop("api_key", None)
         logger.debug(f"Merged kwargs after pop: {merged_kwargs}")
         
-        if profile_options is not None:
-            merged_kwargs.update(profile_options if isinstance(profile_options, dict) else vars(profile_options))
-
         # Apply forwarded_props as per-run overrides (before adding dynamic tools)
         if input_data and input_data.forwarded_props:
             merged_kwargs = apply_forwarded_props(

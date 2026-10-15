@@ -109,6 +109,7 @@ export class ClaudeAgentAdapter extends AbstractAgent {
     for (const [key, entry] of this.sessions.entries()) {
       if (!entry.active && now - entry.lastUsed > ttlMs) {
         this.sessions.delete(key);
+        this.bindings.delete(key);
       }
     }
 
@@ -121,12 +122,14 @@ export class ClaudeAgentAdapter extends AbstractAgent {
       for (const [key] of idle) {
         if (this.sessions.size <= maxSessions) break;
         this.sessions.delete(key);
+        this.bindings.delete(key);
       }
     }
   }
 
   public clearSession(threadId: string): void {
     this.sessions.delete(threadId);
+    this.bindings.delete(threadId);
   }
 
   public clone(): ClaudeAgentAdapter {
@@ -201,6 +204,9 @@ export class ClaudeAgentAdapter extends AbstractAgent {
         input,
       });
 
+      this.evictSessions();
+      const cachedSession = this.sessions.get(threadId);
+      if (cachedSession) cachedSession.active = true;
       const recoveryConfig = this.config.sessionRecovery;
       let binding = recoveryConfig
         ? await recoveryConfig.store.load(threadId)
@@ -992,7 +998,7 @@ export class ClaudeAgentAdapter extends AbstractAgent {
               this.sessions.set(threadId, {
                 sessionId: sid,
                 lastUsed: Date.now(),
-                active: false,
+                active: true,
               });
               this.evictSessions();
               console.debug(

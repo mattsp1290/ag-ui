@@ -176,3 +176,30 @@ it("keeps frontend deferral pending with a ready HTTP proxy", async () => {
     outcome: { type: "success", pendingToolCallIds: [deferred.id] },
   });
 });
+
+for (const eviction of ["clear", "ttl", "capacity"] as const)
+  it(`drops the in-memory recovery binding on ${eviction}`, async () => {
+    let now = 1000;
+    const clock = vi.spyOn(Date, "now").mockImplementation(() => now);
+    const resumes: (string | undefined)[] = [];
+    sdk.query.mockImplementation(({ options }) => (async function* () {
+      resumes.push(options.resume);
+      yield {type:"system",subtype:"init",session_id:`session-${resumes.length}`};
+      yield {type:"result",subtype:"success",session_id:`session-${resumes.length}`,is_error:false};
+    })());
+    const adapter = new ClaudeAgentAdapter({sessionTtlMs: 100, maxSessions: 1});
+    const initial = {...request(),state:null};
+    try {
+      await collect(adapter, initial);
+      if (eviction === "clear") adapter.clearSession(initial.threadId);
+      if (eviction === "ttl") now += 101;
+      if (eviction === "capacity") {
+        now += 1;
+        await collect(adapter, {...initial,threadId:"other"});
+        expect(Reflect.get(adapter, "bindings").size).toBe(1);
+      }
+      await collect(adapter, initial);
+      expect(resumes.at(-1)).toBeUndefined();
+      expect(Reflect.get(adapter, "bindings").size).toBeLessThanOrEqual(1);
+    } finally { clock.mockRestore(); }
+  });

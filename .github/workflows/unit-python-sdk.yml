@@ -1183,7 +1183,7 @@ jobs:
         run: uv run --locked python -m pytest tests/ -v
       - name: Assert no lockfile was rewritten
         if: ${{ !cancelled() && steps.checkout.outcome == 'success' }}
-        uses: ./.github/actions/assert-lockfiles-unchanged
+        uses: $/.github/actions/assert-lockfiles-unchanged
 
   claude-managed-agents-python:
     name: claude-managed-agents-python

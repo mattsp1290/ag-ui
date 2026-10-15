@@ -778,6 +778,7 @@ export function buildAguiToolMessage(
     role: "tool",
     content: nativeToolContent(content, isError),
     toolCallId: toolUseId,
+    ...(isError ? { error: "Tool execution failed" } : {}),
   };
 }
 

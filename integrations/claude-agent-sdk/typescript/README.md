@@ -155,3 +155,12 @@ in TypeScript; `scripts/probe_frontend_resume.py` in Python) additionally checks
 original-session frontend results with omitted tool definitions, native saved
 results, and a fresh SDK history read. It uses the same isolated fake-provider
 setup as the native approval probe.
+The real SDK block-ordering probe uses a synthetic localhost provider (no model
+credentials or external inference):
+
+```sh
+pnpm exec tsx integrations/claude-agent-sdk/typescript/scripts/probe-assistant-blocks.mjs
+```
+
+It checks two text blocks and text followed by a native tool call, each with
+partial messages enabled and disabled, against the final message snapshot.

@@ -19,7 +19,7 @@ from anthropic import AsyncAnthropic
 
 from ._util import get, maybe_await, report_swallowed_failure, schedule_detached
 from .constants import BEST_EFFORT_SEND_TIMEOUT_S, DEFAULT_TURN_TIMEOUT_S
-from .content import user_content, UnsupportedContentError
+from .content import user_content
 from .sessions import InMemorySessionStore
 from .tools import custom_tool_from, normalize_tool_name, tools_fingerprint
 from .turn import Emit, run_turn
@@ -48,15 +48,13 @@ this plus the machine-readable `code`.
 
 
 def _has_user_content(message: Any) -> bool:
-    # Presence check only. Conversion happens on undelivered messages.
-    content = get(message, "content")
-    return bool(content.strip()) if isinstance(content, str) else bool(content)
+    return bool(user_content(message))
 
 
 def _tool_result_blocks(content: Any, error: str | None) -> list[dict[str, Any]]:
     if isinstance(content, str):
         return [{"type": "text", "text": "\n".join(p for p in (content, error) if p)}]
-    blocks = user_content({"content": content})
+    blocks = user_content({"content": content}, preserve_blank_text=True)
     if error:
         blocks.append({"type": "text", "text": error})
     return blocks or [{"type": "text", "text": ""}]
@@ -196,8 +194,6 @@ class ManagedAgentsAgent:
             # the turn ran past its configured limit.
             async with asyncio.timeout(self.turn_timeout_s) as turn_deadline:
                 await self._run_turn_for_input(input, emit, state)
-        except UnsupportedContentError as exc:
-            emit(RunErrorEvent(message=str(exc), code="unsupported_content"))
         except asyncio.TimeoutError as timeout_error:
             if not turn_deadline.expired():
                 # An inner bounded operation (a best-effort send) timed out.
@@ -344,11 +340,6 @@ class ManagedAgentsAgent:
         # Check for something sendable before touching the API, so a malformed
         # run does not create an orphan session.
         if not self._has_sendable_content(input.messages):
-            # The newest user message is the one this run would have delivered:
-            # announce the media it is refused for, as the delivery site would.
-            user_messages = [m for m in input.messages if getattr(m, "role", None) == "user"]
-            if user_messages:
-                user_content(user_messages[-1])
             emit(
                 RunErrorEvent(
                     message="There is nothing to send: this run has no user message or tool result.",
@@ -602,10 +593,6 @@ class ManagedAgentsAgent:
         existing = await maybe_await(self.store.get(store_key))
         if existing is not None:
             return existing
-        newest_user = next((m for m in reversed(input.messages) if get(m, "role") == "user"), None)
-        if newest_user is not None:
-            user_content(newest_user)
-
         # A tool result only answers a pending call on an existing session;
         # never create a session to receive one.
         if not any(

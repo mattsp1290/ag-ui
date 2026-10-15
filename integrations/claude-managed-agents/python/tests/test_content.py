@@ -22,16 +22,15 @@ async def test_media_sources_and_original_recorder_input(kind, mime):
     assert events[-1]["type"] == "RUN_FINISHED"
 
 @pytest.mark.parametrize("kind", ["audio", "video"])
-async def test_unsupported_media_is_recorded_before_error(kind):
-    fake, value, events = await run([{"type": "text", "text": "hello"}, {"type": kind, "source": {"type": "data", "value": "AAEC", "mimeType": kind + "/test"}, "metadata": {"filename": "original"}}])
+async def test_unsupported_media_is_recorded_while_supported_parts_are_sent(kind):
+    fake, value, events = await run([{"type": "text", "text": "  hello\n"}, {"type": kind, "source": {"type": "data", "value": "AAEC", "mimeType": kind + "/test"}, "metadata": {"filename": "original"}}])
     assert events[0]["input"] == value.model_dump(mode="json", by_alias=True, exclude_none=True)
-    assert events[-1]["code"] == "unsupported_content"
-    assert fake.sent == []
-    assert fake.create_calls == []
+    assert events[-1]["type"] == "RUN_FINISHED"
+    assert fake.sent[0]["events"][0]["content"] == [{"type": "text", "text": "  hello\n"}]
 
 async def test_foreign_file_handle_is_not_reinterpreted():
     fake, _, events = await run([{"type": "image", "source": {"type": "file", "value": "opaque", "provider": "openai"}}])
-    assert events[-1]["code"] == "unsupported_content"
+    assert events[-1]["code"] == "empty_run"
     assert fake.sent == []
 
 async def test_full_native_results_and_unknown_rich_events():
@@ -68,3 +67,45 @@ async def test_sdk_model_raw_event_preserves_explicit_null_and_omitted_fields():
     assert raw == native.model_dump(mode="json", by_alias=True, exclude_unset=True)
     assert "content" in raw and raw["content"] is None
     assert "is_error" not in raw
+
+@pytest.mark.parametrize("mixed", [False, True])
+async def test_unsupported_tool_parts_skip_and_preserve_supported_content(mixed):
+    from ag_ui_claude_managed_agents import InMemorySessionStore, SessionRecord
+    from .test_agent import SESSION_KEY
+    fake = FakeClient(streams=[[IDLE_END_TURN]])
+    store = InMemorySessionStore()
+    store.set(SESSION_KEY, SessionRecord(session_id="sesn_1", tool_names=[], pending_client_tool_use_ids=["ctu_1"], last_user_message_id="u1"))
+    parts = [{"type": "audio", "source": {"type": "url", "value": "https://example.test/audio"}}, {"type": "image", "source": {"type": "file", "value": "foreign", "provider": "openai"}}, {"type": "image", "source": {"type": "data", "value": "AAEC", "mimeType": "image/tiff"}}]
+    if mixed:
+        parts += [{"type": "text", "text": "  meaningful\n"}, {"type": "text", "text": " \n"}, {"type": "image", "source": {"type": "url", "value": "https://example.test/image"}}]
+    value = base_input(messages=[{"id": "u1", "role": "user", "content": "Hello"}, {"id": "t1", "role": "tool", "toolCallId": "ctu_1", "content": parts}])
+    events = [e async for e in new_agent(fake, store).run(value)]
+    assert events[0].input == value
+    expected = [{"type": "text", "text": "  meaningful\n"}, {"type": "text", "text": " \n"}, {"type": "image", "source": {"type": "url", "url": "https://example.test/image"}}] if mixed else [{"type": "text", "text": ""}]
+    assert fake.sent[0]["events"][0]["content"] == expected
+    assert store.get(SESSION_KEY).pending_client_tool_use_ids == []
+    assert events[-1].type.value == "RUN_FINISHED"
+
+@pytest.mark.parametrize("content", [" \n", [{"type": "text", "text": " \n"}]])
+async def test_blank_user_does_not_abandon_pending_calls_or_advance_cursor(content):
+    from ag_ui_claude_managed_agents import InMemorySessionStore, SessionRecord
+    from .test_agent import SESSION_KEY
+    fake = FakeClient(streams=[])
+    store = InMemorySessionStore()
+    store.set(SESSION_KEY, SessionRecord(session_id="sesn_1", tool_names=[], pending_client_tool_use_ids=["ctu_1"], last_user_message_id="u1"))
+    value = base_input(messages=[{"id": "u1", "role": "user", "content": "Hello"}, {"id": "u2", "role": "user", "content": content}])
+    events = [e async for e in new_agent(fake, store).run(value)]
+    assert fake.sent == []
+    assert store.get(SESSION_KEY).pending_client_tool_use_ids == ["ctu_1"]
+    assert store.get(SESSION_KEY).last_user_message_id == "u1"
+
+async def test_failed_delivery_of_filtered_empty_tool_reply_retains_pending():
+    from ag_ui_claude_managed_agents import SessionRecord
+    from .test_agent import SESSION_KEY, RecordingSessionStore
+    fake = FakeClient(streams=[[IDLE_END_TURN]], send_failures={0: RuntimeError("delivery failed")})
+    store = RecordingSessionStore()
+    store.set(SESSION_KEY, SessionRecord(session_id="sesn_1", tool_names=[], pending_client_tool_use_ids=["ctu_1"], last_user_message_id="u1"))
+    value = base_input(messages=[{"id": "u1", "role": "user", "content": "Hello"}, {"id": "t1", "role": "tool", "toolCallId": "ctu_1", "content": [{"type": "audio", "source": {"type": "url", "value": "https://example.test/audio"}}]}])
+    events = [e async for e in new_agent(fake, store).run(value)]
+    assert events[-1].type.value == "RUN_ERROR"
+    assert store.get(SESSION_KEY).pending_client_tool_use_ids == ["ctu_1"]

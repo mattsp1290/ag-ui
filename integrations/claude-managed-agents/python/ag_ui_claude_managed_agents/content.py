@@ -3,10 +3,6 @@ import json
 from typing import Any
 from ._util import get
 
-class UnsupportedContentError(ValueError):
-    def __init__(self) -> None:
-        super().__init__("This user message contains content that Claude Managed Agents cannot accept. Use image or document blocks with a supported source.")
-
 def plain(value: Any) -> Any:
     if hasattr(value, "model_dump"):
         return value.model_dump(mode="json", by_alias=True, exclude_unset=True)
@@ -16,7 +12,7 @@ def plain(value: Any) -> Any:
         return [plain(item) for item in value]
     return value
 
-def user_content(message: Any) -> list[dict[str, Any]]:
+def user_content(message: Any, *, preserve_blank_text: bool = False) -> list[dict[str, Any]]:
     content = get(message, "content")
     if isinstance(content, str):
         return [{"type": "text", "text": content}] if content.strip() else []
@@ -25,16 +21,17 @@ def user_content(message: Any) -> list[dict[str, Any]]:
         part = plain(raw)
         kind = part["type"]
         if kind == "text":
-            blocks.append({"type": "text", "text": part["text"]})
+            if preserve_blank_text or part["text"].strip():
+                blocks.append({"type": "text", "text": part["text"]})
             continue
         source = part.get("source", {})
         mime = part.get("mimeType") if kind == "binary" else source.get("mimeType")
         native_kind = ("image" if (mime or "").startswith("image/") else "document") if kind == "binary" else kind
         if native_kind not in ("image", "document"):
-            raise UnsupportedContentError()
+            continue
         allowed = ("image/png", "image/jpeg", "image/gif", "image/webp") if native_kind == "image" else ("application/pdf", "text/plain")
         if mime and mime not in allowed:
-            raise UnsupportedContentError()
+            continue
         if kind == "binary":
             if part.get("id"):
                 native_source = {"type": "file", "file_id": part["id"]}
@@ -43,7 +40,7 @@ def user_content(message: Any) -> list[dict[str, Any]]:
             elif part.get("data") and mime:
                 native_source = {"type": "base64", "data": part["data"], "media_type": mime}
             else:
-                raise UnsupportedContentError()
+                continue
         elif source.get("type") == "file" and source.get("provider") in (None, "anthropic"):
             native_source = {"type": "file", "file_id": source["value"]}
         elif source.get("type") == "url":
@@ -51,7 +48,7 @@ def user_content(message: Any) -> list[dict[str, Any]]:
         elif source.get("type") == "data" and mime:
             native_source = {"type": "base64", "data": source["value"], "media_type": mime}
         else:
-            raise UnsupportedContentError()
+            continue
         block = {"type": native_kind, "source": native_source}
         metadata = part.get("metadata")
         filename = part.get("filename") if kind == "binary" else metadata.get("filename") if isinstance(metadata, dict) else None

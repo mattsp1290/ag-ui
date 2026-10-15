@@ -19,10 +19,13 @@ Document `metadata.filename` becomes the native document title. Image names and 
 app metadata remain in the original AG-UI input because the native image block has no
 filename field.
 
-Audio, video, foreign provider handles and unsupported media types produce an explicit
-`RUN_ERROR` with code `unsupported_content`; the original input remains recorded.
-A mixed message is not partially sent. File storage and model understanding are separate
-capabilities. This adapter does not mount arbitrary files into the managed sandbox.
+Unsupported audio/video parts, foreign provider handles and unsupported media types are
+skipped when sending to Claude, as required by AG-UI. The complete original input remains
+recorded, including skipped parts. Supported parts keep their order and meaningful text
+keeps its original whitespace. Blank text parts do not create a new user turn. A tool
+result with no supported parts still answers the pending call with an empty text result;
+the call is cleared only after delivery succeeds. The adapter does not mount arbitrary
+files into the managed sandbox.
 
 ## Native output
 

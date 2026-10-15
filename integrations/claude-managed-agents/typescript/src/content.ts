@@ -2,14 +2,6 @@
 import type { Message, ContentPart } from "@ag-ui/client";
 import type { BetaManagedAgentsUserMessageEventParams } from "@anthropic-ai/sdk/resources/beta/sessions/events";
 
-export class UnsupportedContentError extends Error {
-  constructor() {
-    super(
-      "This user message contains content that Claude Managed Agents cannot accept. Use image or document blocks with a supported source.",
-    );
-  }
-}
-
 type Blocks = BetaManagedAgentsUserMessageEventParams["content"];
 export const userContent = (
   message: Extract<Message, { role: "user" | "tool" }>,
@@ -18,10 +10,14 @@ export const userContent = (
     return message.content.trim()
       ? [{ type: "text", text: message.content }]
       : [];
-  return (message.content ?? []).map((part): Blocks[number] => {
-    if (part.type === "text") return { type: "text", text: part.text };
-    if (part.type !== "image" && part.type !== "document")
-      throw new UnsupportedContentError();
+  const blocks: Blocks = [];
+  for (const part of message.content ?? []) {
+    if (part.type === "text") {
+      if (message.role === "tool" || part.text.trim())
+        blocks.push({ type: "text", text: part.text });
+      continue;
+    }
+    if (part.type !== "image" && part.type !== "document") continue;
     const mime = part.source.mimeType;
     if (
       mime &&
@@ -29,7 +25,7 @@ export const userContent = (
         ? ["image/png", "image/jpeg", "image/gif", "image/webp"].includes(mime)
         : ["application/pdf", "text/plain"].includes(mime))
     )
-      throw new UnsupportedContentError();
+      continue;
     let source: Exclude<Blocks[number], { type: "text" }>["source"];
     if (
       part.source.type === "file" &&
@@ -44,7 +40,7 @@ export const userContent = (
         data: part.source.value,
         media_type: part.source.mimeType,
       };
-    else throw new UnsupportedContentError();
+    else continue;
     const filename =
       part.metadata &&
       typeof part.metadata === "object" &&
@@ -52,10 +48,17 @@ export const userContent = (
       typeof part.metadata.filename === "string"
         ? part.metadata.filename
         : undefined;
-    return part.type === "image"
-      ? { type: "image", source }
-      : { type: "document", source, ...(filename ? { title: filename } : {}) };
-  });
+    blocks.push(
+      part.type === "image"
+        ? { type: "image", source }
+        : {
+            type: "document",
+            source,
+            ...(filename ? { title: filename } : {}),
+          },
+    );
+  }
+  return blocks;
 };
 
 /** Preserve native rich blocks in standard AG-UI parts; RAW carries the exact event. */

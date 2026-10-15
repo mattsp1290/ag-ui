@@ -2147,3 +2147,139 @@ it("answers pending tools despite unsupported media already in session history",
   ]);
   expect(fake.spies.create).not.toHaveBeenCalled();
 });
+
+it.each([false, true])(
+  "skips unsupported tool parts and preserves delivery bookkeeping (mixed=%s)",
+  async (mixed) => {
+    const fake = createFakeClient({ streams: [[idleEndTurn]] });
+    const store = new InMemorySessionStore();
+    await store.set(SESSION_KEY, {
+      sessionId: "sesn_1",
+      toolNames: [],
+      pendingClientToolUseIds: ["ctu_1"],
+      lastUserMessageId: "u1",
+    });
+    const input = baseInput({
+      messages: [
+        { id: "u1", role: "user", content: "Hello" },
+        {
+          id: "t1",
+          role: "tool",
+          toolCallId: "ctu_1",
+          content: [
+            {
+              type: "audio",
+              source: { type: "url", value: "https://example.test/audio" },
+            },
+            {
+              type: "image",
+              source: { type: "file", value: "foreign", provider: "openai" },
+            },
+            {
+              type: "image",
+              source: { type: "data", value: "AAEC", mimeType: "image/tiff" },
+            },
+            ...(mixed
+              ? [
+                  { type: "text" as const, text: "  meaningful\n" },
+                  { type: "text" as const, text: " \n" },
+                  {
+                    type: "image" as const,
+                    source: {
+                      type: "url" as const,
+                      value: "https://example.test/image",
+                    },
+                  },
+                ]
+              : []),
+          ],
+        },
+      ],
+    });
+    const events = await collect(newAgent(fake, store), input);
+    expect(events[0]).toMatchObject({ input });
+    expect(fake.sent[0].events[0]).toMatchObject({
+      content: mixed
+        ? [
+            { type: "text", text: "  meaningful\n" },
+            { type: "text", text: " \n" },
+            {
+              type: "image",
+              source: { type: "url", url: "https://example.test/image" },
+            },
+          ]
+        : [{ type: "text", text: "" }],
+    });
+    expect((await store.get(SESSION_KEY))?.pendingClientToolUseIds).toEqual([]);
+    expect(types(events).at(-1)).toBe(EventType.RUN_FINISHED);
+  },
+);
+
+it.each([false, true])(
+  "blank user input preserves pending calls and cursor (multipart=%s)",
+  async (multipart) => {
+    const fake = createFakeClient({ streams: [] });
+    const store = new InMemorySessionStore();
+    await store.set(SESSION_KEY, {
+      sessionId: "sesn_1",
+      toolNames: [],
+      pendingClientToolUseIds: ["ctu_1"],
+      lastUserMessageId: "u1",
+    });
+    await collect(
+      newAgent(fake, store),
+      baseInput({
+        messages: [
+          { id: "u1", role: "user", content: "Hello" },
+          {
+            id: "u2",
+            role: "user",
+            content: multipart ? [{ type: "text", text: " \n" }] : " \n",
+          },
+        ],
+      }),
+    );
+    expect(fake.sent).toEqual([]);
+    expect(await store.get(SESSION_KEY)).toMatchObject({
+      pendingClientToolUseIds: ["ctu_1"],
+      lastUserMessageId: "u1",
+    });
+  },
+);
+
+it("retains pending calls when an empty filtered tool reply cannot be delivered", async () => {
+  const fake = createFakeClient({
+    streams: [[idleEndTurn]],
+    sendResults: [new Error("delivery failed")],
+  });
+  const store = new RecordingSessionStore();
+  await store.set(SESSION_KEY, {
+    sessionId: "sesn_1",
+    toolNames: [],
+    pendingClientToolUseIds: ["ctu_1"],
+    lastUserMessageId: "u1",
+  });
+  const events = await collect(
+    newAgent(fake, store),
+    baseInput({
+      messages: [
+        { id: "u1", role: "user", content: "Hello" },
+        {
+          id: "t1",
+          role: "tool",
+          toolCallId: "ctu_1",
+          content: [
+            {
+              type: "audio",
+              source: { type: "url", value: "https://example.test/audio" },
+            },
+          ],
+        },
+      ],
+    }),
+  );
+  expect(types(events).at(-1)).toBe(EventType.RUN_ERROR);
+  expect((await store.get(SESSION_KEY))?.pendingClientToolUseIds).toEqual([
+    "ctu_1",
+  ]);
+});

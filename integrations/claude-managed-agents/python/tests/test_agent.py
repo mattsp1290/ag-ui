@@ -20,7 +20,6 @@ from ag_ui_claude_managed_agents import (
 )
 
 from ag_ui_claude_managed_agents.agent import _tool_result_blocks
-from ag_ui_claude_managed_agents.content import UnsupportedContentError
 from ag_ui_claude_managed_agents.types import SessionStore
 
 from .fake_client import FakeAPIError, FakeClient
@@ -453,7 +452,7 @@ def test_parts_shaped_tool_result_becomes_claude_content_blocks():
         {"type": "image", "source": {"type": "url", "value": "https://example.com/scan.png"}},
         {"type": "audio", "source": {"type": "url", "value": "https://example.com/a.wav"}},
     ]
-    assert _tool_result_blocks(parts[:3], None) == [
+    assert _tool_result_blocks(parts, None) == [
         {"type": "text", "text": "Invoice attached."},
         {"type": "document", "source": {"type": "base64", "media_type": "application/pdf", "data": "JVBERi0x"}},
         {"type": "image", "source": {"type": "url", "url": "https://example.com/scan.png"}},
@@ -463,8 +462,7 @@ def test_parts_shaped_tool_result_becomes_claude_content_blocks():
         {"type": "text", "text": "boom"},
     ]
     # Nothing Claude can take still answers the call, with an empty text block.
-    with pytest.raises(UnsupportedContentError):
-        _tool_result_blocks(parts[3:], None)
+    assert _tool_result_blocks(parts[3:], None) == [{"type": "text", "text": ""}]
     # A string result keeps its shape, error appended on its own line as before.
     assert _tool_result_blocks("done", None) == [{"type": "text", "text": "done"}]
     assert _tool_result_blocks("done", "boom") == [{"type": "text", "text": "done\nboom"}]

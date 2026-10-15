@@ -173,13 +173,6 @@ public sealed class ManagedAgentsAgent
             var messages = input.Messages ?? [];
             if (!HasSendableContent(messages))
             {
-                // The newest user message is the one this run would have delivered: announce the
-                // media it is refused for, as the delivery site would.
-                if (messages.OfType<AGUIUserMessage>().LastOrDefault() is { } newestUser)
-                {
-                    ManagedAgentsContent.Blocks(newestUser.Content);
-                }
-
                 yield return new RunErrorEvent
                 {
                     Message = "There is nothing to send: this run has no user message or tool result.",
@@ -229,11 +222,6 @@ public sealed class ManagedAgentsAgent
                     };
                     break;
                 }
-                catch (UnsupportedContentException ex)
-                {
-                    errorEvent = new RunErrorEvent { Message = ex.Message, Code = "unsupported_content" };
-                    break;
-                }
                 catch (Exception ex)
                 {
                     // Detail to the hook, not to the client: see RunFailedMessage.
@@ -277,8 +265,6 @@ public sealed class ManagedAgentsAgent
         {
             // A tool result only answers a pending call, so it cannot start a thread: creating
             // a session for it would orphan the session.
-            var newest = messages.OfType<AGUIUserMessage>().LastOrDefault();
-            if (newest is not null) ManagedAgentsContent.Blocks(newest.Content);
             if (!HasUserText(messages))
             {
                 yield return new RunErrorEvent
@@ -730,7 +716,7 @@ public sealed class ManagedAgentsAgent
     /// </summary>
     private static bool HasUserText(IList<AGUIMessage> messages)
     {
-        return messages.Any(static message => message is AGUIUserMessage user && (user.Content.IsText ? user.Content.ToString().Trim().Length > 0 : user.Content.Count > 0));
+        return messages.Any(static message => message is AGUIUserMessage user && ManagedAgentsContent.Blocks(user.Content).Count > 0);
     }
 
     private sealed class RunContext

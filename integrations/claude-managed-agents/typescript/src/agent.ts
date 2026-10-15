@@ -1,5 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
-import { userContent, UnsupportedContentError } from "./content";
+import { userContent } from "./content";
 import type {
   BetaManagedAgentsEventParams,
   BetaManagedAgentsUserCustomToolResultEventParams,
@@ -42,13 +42,7 @@ type OverrideTools = NonNullable<
 
 /** Presence check; only undelivered content is converted. */
 const hasUserText = (messages: Message[]): boolean =>
-  messages.some(
-    (m) =>
-      m.role === "user" &&
-      (typeof m.content === "string"
-        ? m.content.trim().length > 0
-        : m.content.length > 0),
-  );
+  messages.some((m) => m.role === "user" && userContent(m).length > 0);
 
 /** Send supported tool parts without flattening or dropping them. */
 const toolResultBlocks = (
@@ -236,10 +230,6 @@ export class ManagedAgentsAgent extends AbstractAgent {
             );
             return;
           }
-          if (err instanceof UnsupportedContentError) {
-            emit(runError(err.message, "unsupported_content"));
-            return;
-          }
           // Detail to the hook, not to the client: see RUN_FAILED_MESSAGE.
           await this.report("run_failed", err, { threadId: input.threadId });
           emit(runError(RUN_FAILED_MESSAGE, "run_failed"));
@@ -309,12 +299,6 @@ export class ManagedAgentsAgent extends AbstractAgent {
     // Check for something sendable before touching the API, so a malformed
     // run does not create an orphan session.
     if (!this.hasSendableContent(input.messages)) {
-      // The newest user message is the one this run would have delivered:
-      // announce the media it is refused for, as the delivery site would.
-      const newestUser = input.messages.findLast(
-        (message) => message.role === "user",
-      );
-      if (newestUser) userContent(newestUser);
       emit(
         runError(
           "There is nothing to send: this run has no user message or tool result.",
@@ -622,8 +606,6 @@ export class ManagedAgentsAgent extends AbstractAgent {
   ): Promise<SessionRecord | undefined> {
     const existing = await this.store.get(key);
     if (existing) return existing;
-    const newestUser = input.messages.findLast((m) => m.role === "user");
-    if (newestUser) userContent(newestUser);
 
     // A tool result only answers a pending call on an existing session;
     // never create a session to receive one.

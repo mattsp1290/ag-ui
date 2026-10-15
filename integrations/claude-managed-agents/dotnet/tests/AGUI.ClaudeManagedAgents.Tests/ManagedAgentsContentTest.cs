@@ -44,13 +44,13 @@ public class ManagedAgentsContentTest
     [Theory]
     [InlineData("audio")]
     [InlineData("video")]
-    public async Task UnsupportedMediaIsRecordedBeforeError(string kind)
+    public async Task UnsupportedOnlyMediaIsRecordedWithoutSending(string kind)
     {
         AGUIInputContentSource source = new AGUIInputContentDataSource { Value = "AAEC", MimeType = kind + "/test" };
         AGUIInputContent part = kind == "audio" ? new AGUIAudioInputContent { Source = source } : new AGUIVideoInputContent { Source = source };
         var run = await RunAsync(new AGUIContent(new List<AGUIInputContent> { part }));
         Assert.Same(run.Input, Assert.IsType<RunStartedEvent>(run.Events[0]).Input);
-        Assert.Equal("unsupported_content", Assert.IsType<RunErrorEvent>(run.Events[^1]).Code);
+        Assert.Equal("empty_run", Assert.IsType<RunErrorEvent>(run.Events[^1]).Code);
         Assert.Empty(run.Fake.Sent);
         Assert.Empty(run.Fake.CreatedSessions);
     }
@@ -70,5 +70,19 @@ public class ManagedAgentsContentTest
         var preserved = result.Content.Select(p => (p is AGUIMediaInputContent media ? media.Metadata : ((AGUITextInputContent)p).Metadata)!.Value.GetProperty("claudeManagedAgents")).ToArray();
         Assert.True(JsonElement.DeepEquals(JsonSerializer.SerializeToElement(content), JsonSerializer.SerializeToElement(preserved)));
         Assert.Equal("AAEC/w==", Assert.IsType<AGUIInputContentDataSource>(Assert.IsType<AGUIImageInputContent>(result.Content[1]).Source).Value);
+    }
+    [Fact]
+    public async Task MixedUserContentSkipsUnsupportedPartsPreservingInputAndWhitespace()
+    {
+        var run = await RunAsync(new AGUIContent(new List<AGUIInputContent> {
+            new AGUITextInputContent { Text = "  meaningful\n" },
+            new AGUIAudioInputContent { Source = new AGUIInputContentUrlSource { Value = "https://example.test/audio" } },
+            new AGUIImageInputContent { Source = new AGUIInputContentDataSource { Value = "AAEC", MimeType = "image/tiff" } },
+            new AGUIImageInputContent { Source = new AGUIInputContentFileSource { Value = "foreign", Provider = "openai" } },
+        }));
+        Assert.Same(run.Input, Assert.IsType<RunStartedEvent>(run.Events[0]).Input);
+        Assert.Equal(1, run.Fake.Sent[0][0].GetProperty("content").GetArrayLength());
+        Assert.Equal("  meaningful\n", run.Fake.Sent[0][0].GetProperty("content")[0].GetProperty("text").GetString());
+        Assert.IsType<RunFinishedEvent>(run.Events[^1]);
     }
 }

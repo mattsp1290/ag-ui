@@ -4,24 +4,20 @@ using AGUI.Abstractions;
 
 namespace AGUI.ClaudeManagedAgents;
 
-internal sealed class UnsupportedContentException : Exception
-{
-    internal UnsupportedContentException() : base("This user message contains content that Claude Managed Agents cannot accept. Use image or document blocks with a supported source.") { }
-}
-
 internal static class ManagedAgentsContent
 {
-    internal static JsonArray Blocks(AGUIContent content)
+    internal static JsonArray Blocks(AGUIContent content, bool preserveBlankText = false)
     {
         var blocks = new JsonArray();
         foreach (var part in content)
         {
             if (part is AGUITextInputContent text)
             {
-                blocks.Add(new JsonObject { ["type"] = "text", ["text"] = text.Text });
+                if (preserveBlankText || !string.IsNullOrWhiteSpace(text.Text))
+                    blocks.Add(new JsonObject { ["type"] = "text", ["text"] = text.Text });
                 continue;
             }
-            if (part is not AGUIImageInputContent && part is not AGUIDocumentInputContent) throw new UnsupportedContentException();
+            if (part is not AGUIImageInputContent && part is not AGUIDocumentInputContent) continue;
             var media = (AGUIMediaInputContent)part;
             string? mime = media.Source switch
             {
@@ -31,14 +27,15 @@ internal static class ManagedAgentsContent
                 _ => null,
             };
             string[] allowed = part is AGUIImageInputContent ? ["image/png", "image/jpeg", "image/gif", "image/webp"] : ["application/pdf", "text/plain"];
-            if (mime is not null && !allowed.Contains(mime, StringComparer.Ordinal)) throw new UnsupportedContentException();
-            JsonObject source = media.Source switch
+            if (mime is not null && !allowed.Contains(mime, StringComparer.Ordinal)) continue;
+            JsonObject? source = media.Source switch
             {
                 AGUIInputContentDataSource data => new() { ["type"] = "base64", ["data"] = data.Value, ["media_type"] = data.MimeType },
                 AGUIInputContentUrlSource url => new() { ["type"] = "url", ["url"] = url.Value },
                 AGUIInputContentFileSource file when file.Provider is null or "anthropic" => new() { ["type"] = "file", ["file_id"] = file.Value },
-                _ => throw new UnsupportedContentException(),
+                _ => null,
             };
+            if (source is null) continue;
             var block = new JsonObject { ["type"] = part.Type, ["source"] = source };
             if (part is AGUIDocumentInputContent && media.Metadata is JsonElement metadata && metadata.ValueKind == JsonValueKind.Object && metadata.TryGetProperty("filename", out var filename) && filename.ValueKind == JsonValueKind.String)
                 block["title"] = filename.GetString();
@@ -51,8 +48,9 @@ internal static class ManagedAgentsContent
     {
         if (message.Content.IsText)
             return new JsonArray(new JsonObject { ["type"] = "text", ["text"] = string.Join("\n", new[] { message.Content.ToString(), message.Error }.Where(p => !string.IsNullOrEmpty(p))) });
-        var blocks = Blocks(message.Content);
+        var blocks = Blocks(message.Content, preserveBlankText: true);
         if (!string.IsNullOrEmpty(message.Error)) blocks.Add(new JsonObject { ["type"] = "text", ["text"] = message.Error });
+        if (blocks.Count == 0) blocks.Add(new JsonObject { ["type"] = "text", ["text"] = "" });
         return blocks;
     }
 

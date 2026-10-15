@@ -86,10 +86,10 @@ describe("lossless live conversation", () => {
   );
 
   it.each(["audio", "video"] as const)(
-    "records unsupported %s before reporting it, without sending a partial message",
+    "records unsupported %s while sending supported parts",
     async (type) => {
       const { events, input, fake } = await run([
-        { type: "text", text: "describe" },
+        { type: "text", text: "  describe\n" },
         {
           type,
           source: { type: "data", value: "AAEC", mimeType: `${type}/test` },
@@ -98,11 +98,11 @@ describe("lossless live conversation", () => {
       ]);
       expect(events[0].input).toEqual(input);
       expect(events.at(-1)).toMatchObject({
-        type: EventType.RUN_ERROR,
-        code: "unsupported_content",
+        type: EventType.RUN_FINISHED,
       });
-      expect(fake.sent).toEqual([]);
-      expect(fake.spies.create).not.toHaveBeenCalled();
+      expect(fake.sent[0].events[0]).toMatchObject({
+        content: [{ type: "text", text: "  describe\n" }],
+      });
     },
   );
 
@@ -113,7 +113,7 @@ describe("lossless live conversation", () => {
         source: { type: "file", value: "opaque", provider: "openai" },
       },
     ]);
-    expect(events.at(-1).code).toBe("unsupported_content");
+    expect(events.at(-1).code).toBe("empty_run");
     expect(fake.sent).toEqual([]);
   });
 

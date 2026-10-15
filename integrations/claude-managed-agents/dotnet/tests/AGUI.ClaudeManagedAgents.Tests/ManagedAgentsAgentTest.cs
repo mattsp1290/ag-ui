@@ -1503,4 +1503,64 @@ public class ManagedAgentsAgentTest
         Assert.All(abandoned, evt => Assert.True(evt.GetProperty("is_error").GetBoolean()));
         AssertJson("""{"type":"user.message","content":[{"type":"text","text":"never mind"}]}""", fake.Sent[1].Single());
     }
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task SkipsUnsupportedToolPartsAndPreservesSupportedContent(bool mixed)
+    {
+        var fake = new FakeManagedAgentsClient([IdleEndTurn]);
+        var store = new InMemorySessionStore();
+        await store.SetAsync(SessionKey, Record(["ctu_1"]), default);
+        var parts = new List<AGUIInputContent> {
+            new AGUIAudioInputContent { Source = new AGUIInputContentUrlSource { Value = "https://example.test/audio" } },
+            new AGUIImageInputContent { Source = new AGUIInputContentFileSource { Value = "foreign", Provider = "openai" } },
+            new AGUIImageInputContent { Source = new AGUIInputContentDataSource { Value = "AAEC", MimeType = "image/tiff" } },
+        };
+        if (mixed) parts.AddRange([
+            new AGUITextInputContent { Text = "  meaningful\n" },
+            new AGUITextInputContent { Text = " \n" },
+            new AGUIImageInputContent { Source = new AGUIInputContentUrlSource { Value = "https://example.test/image" } },
+        ]);
+        var input = BaseInput(i => i.Messages.Add(new AGUIToolMessage { Id = "t1", ToolCallId = "ctu_1", Content = new AGUIContent(parts) }));
+        var events = await CollectAsync(NewAgent(fake, store), input);
+        Assert.Same(input, Assert.IsType<RunStartedEvent>(events[0]).Input);
+        var content = fake.Sent[0][0].GetProperty("content");
+        Assert.Equal(mixed ? 3 : 1, content.GetArrayLength());
+        Assert.Equal(mixed ? "  meaningful\n" : "", content[0].GetProperty("text").GetString());
+        if (mixed) {
+            Assert.Equal(" \n", content[1].GetProperty("text").GetString());
+            Assert.Equal("https://example.test/image", content[2].GetProperty("source").GetProperty("url").GetString());
+        }
+        Assert.Empty((await store.GetAsync(SessionKey, default))!.PendingClientToolUseIds);
+        Assert.IsType<RunFinishedEvent>(events[^1]);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task BlankUserDoesNotAbandonPendingCallsOrAdvanceCursor(bool multipart)
+    {
+        var fake = new FakeManagedAgentsClient([]);
+        var store = new InMemorySessionStore();
+        await store.SetAsync(SessionKey, Record(["ctu_1"]), default);
+        AGUIContent content = multipart ? new AGUIContent(new List<AGUIInputContent> { new AGUITextInputContent { Text = " \n" } }) : " \n";
+        await CollectAsync(NewAgent(fake, store), BaseInput(i => i.Messages.Add(new AGUIUserMessage { Id = "u2", Content = content })));
+        Assert.Empty(fake.Sent);
+        var record = (await store.GetAsync(SessionKey, default))!;
+        Assert.Equal(["ctu_1"], record.PendingClientToolUseIds);
+        Assert.Equal("u1", record.LastUserMessageId);
+    }
+    [Fact]
+    public async Task FailedDeliveryOfFilteredEmptyToolReplyRetainsPending()
+    {
+        var fake = new FakeManagedAgentsClient([IdleEndTurn]);
+        fake.SendGuard = _ => new InvalidOperationException("delivery failed");
+        var store = new RecordingSessionStore();
+        await store.SetAsync(SessionKey, Record(["ctu_1"]), default);
+        var events = await CollectAsync(NewAgent(fake, store), BaseInput(i => i.Messages.Add(new AGUIToolMessage {
+            Id = "t1", ToolCallId = "ctu_1", Content = new AGUIContent(new List<AGUIInputContent> { new AGUIAudioInputContent { Source = new AGUIInputContentUrlSource { Value = "https://example.test/audio" } } })
+        })));
+        Assert.IsType<RunErrorEvent>(events[^1]);
+        Assert.Equal(["ctu_1"], (await store.GetAsync(SessionKey, default))!.PendingClientToolUseIds);
+    }
 }

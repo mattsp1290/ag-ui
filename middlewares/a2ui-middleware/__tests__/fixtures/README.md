@@ -48,9 +48,20 @@ The flight envelope includes both DL123 and AA456. No AWS access is needed to
 replay this synthetic capture.
 
 A parent message ID identifies an assistant message, not a parent tool call.
-Calls with message identities remain independent. Legacy nested renders that
-omit message identity still use the active outer call, even when its arguments
-have ended. Without message identity, parallel versus nested calls remain
-ambiguous; the legacy fallback is retained for compatibility with existing
-recovery adapters. Nested calls with message identities need an explicit nesting
-contract; different message IDs alone cannot distinguish them from siblings.
+Calls sharing a nonempty message ID are siblings. Calls with distinct identities
+remain independent for ordinary tools. Known generation wrappers (default
+`generate_a2ui`, configurable through `a2uiGenerationToolNames`) retain nested
+render ownership across distinct identities. Custom toolkit `toolName` values
+must be included in that configuration. Missing/empty identities retain the
+legacy nesting fallback; without reliable identity or a declared wrapper,
+parallel versus nested calls remain ambiguous.
+
+`langgraph-nested-recovery.json` extracts the first run's tool events from the
+committed Dojo LangGraph TypeScript recovery traces (successful retry and
+exhaustion). Generated activities and synthetic inner results are excluded so
+the middleware regenerates them. Tool IDs, distinct parent message IDs, argument
+chunks, and result order are preserved; catalog IDs alone are normalized to
+`copilotkit://app-dashboard-catalog`. Tests assert that retries and final success
+or failure replace one wrapper activity. The same traces also exercise a custom
+configured wrapper name. These regressions reproduce the initial PR's CI failure
+without starting a server or calling a provider.

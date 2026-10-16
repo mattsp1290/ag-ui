@@ -25,7 +25,12 @@ import {
 } from "./types";
 import { RENDER_A2UI_TOOL, RENDER_A2UI_TOOL_NAME, RENDER_A2UI_TOOL_GUIDELINES, LOG_A2UI_EVENT_TOOL_NAME } from "./tools";
 import { getOperationSurfaceId, tryParseA2UIOperations, A2UI_OPERATIONS_KEY, extractCompleteItemsWithStatus, extractCompleteObject, extractDataArrayItems, extractStringField } from "./schema";
-import { validateA2UIComponents, MAX_A2UI_ATTEMPTS, type A2UIValidationCatalog } from "@ag-ui/a2ui-toolkit";
+import {
+  validateA2UIComponents,
+  MAX_A2UI_ATTEMPTS,
+  GENERATE_A2UI_TOOL_NAME,
+  type A2UIValidationCatalog,
+} from "@ag-ui/a2ui-toolkit";
 
 /**
  * Detect a structured hard-failure envelope produced by the toolkit's recovery
@@ -478,6 +483,9 @@ export class A2UIMiddleware extends Middleware {
         ...a2uiToolNames,
         LOG_A2UI_EVENT_TOOL_NAME,
       ]);
+      const generationToolNames = new Set(
+        this.config.a2uiGenerationToolNames ?? [GENERATE_A2UI_TOOL_NAME],
+      );
       let currentOuterCall: ToolCallStartEvent | null = null;
 
       const subscription = source.subscribe({
@@ -492,16 +500,21 @@ export class A2UIMiddleware extends Middleware {
             // If streaming extraction fails, auto-detect on the outer
             // tool's TOOL_CALL_RESULT still works as a fallback.
             if (a2uiToolNames.has(startEvent.toolCallName)) {
-              // A message ID identifies the assistant that emitted a call,
-              // not tool nesting. Adapters may give sibling calls distinct IDs.
-              // Retain the legacy nesting fallback only when message identity
-              // is missing (the existing recovery adapters omit it).
-              const hasMessageIdentities =
+              // Shared message IDs prove sibling calls. Distinct IDs do not
+              // prove nesting: only known generation wrappers may own a render
+              // from another message. Keep the legacy missing-identity fallback.
+              const sameMessage =
                 !!startEvent.parentMessageId &&
-                !!currentOuterCall?.parentMessageId;
-              const outerCallId = hasMessageIdentities
-                ? null
-                : (currentOuterCall?.toolCallId ?? null);
+                startEvent.parentMessageId ===
+                  currentOuterCall?.parentMessageId;
+              const independentMessages =
+                !!startEvent.parentMessageId &&
+                !!currentOuterCall?.parentMessageId &&
+                !generationToolNames.has(currentOuterCall.toolCallName);
+              const outerCallId =
+                sameMessage || independentMessages
+                  ? null
+                  : (currentOuterCall?.toolCallId ?? null);
               streamingToolCalls.set(startEvent.toolCallId, {
                 schema: null, args: "",
                 outerCallId,

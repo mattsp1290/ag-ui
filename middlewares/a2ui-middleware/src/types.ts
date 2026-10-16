@@ -89,6 +89,14 @@ export interface A2UIMiddlewareConfig {
   a2uiToolNames?: string[];
 
   /**
+   * Tools that delegate to nested A2UI render calls. Their render attempts share
+   * the wrapper's activity even when the adapter supplies distinct message IDs.
+   * Calls sharing the wrapper's parentMessageId remain siblings.
+   * Defaults to `["generate_a2ui"]`; include custom toolkit toolName values here.
+   */
+  a2uiGenerationToolNames?: string[];
+
+  /**
    * Catalog id used when the middleware creates a surface from a STREAMED
    * render tool call.
    *
@@ -103,7 +111,6 @@ export interface A2UIMiddlewareConfig {
    * streamed args, then to the v0.9 basic catalog.
    */
   defaultCatalogId?: string;
-
 }
 
 /**
@@ -138,7 +145,11 @@ export interface A2UIForwardedProps {
 /**
  * A2UI message types (v0.9)
  */
-export type A2UIMessageType = "createSurface" | "updateComponents" | "updateDataModel" | "deleteSurface";
+export type A2UIMessageType =
+  | "createSurface"
+  | "updateComponents"
+  | "updateDataModel"
+  | "deleteSurface";
 
 /**
  * A2UI message structure (v0.9)
@@ -163,4 +174,3 @@ export interface A2UIMessage {
     surfaceId: string;
   };
 }
-

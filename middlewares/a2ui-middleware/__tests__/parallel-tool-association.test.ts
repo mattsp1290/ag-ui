@@ -1,16 +1,18 @@
 import { describe, expect, it } from "vitest";
 import { ActivitySnapshotEvent, BaseEvent, EventType } from "@ag-ui/client";
-import { A2UIMiddleware } from "../src";
+import { A2UIMiddleware, A2UIMiddlewareConfig } from "../src";
 import { MockAgent, collectEvents, createRunAgentInput } from "./test-utils";
 import langgraphImport from "./fixtures/langgraph-import.json";
 import langgraphLive from "./fixtures/langgraph-live.json";
 import strandsImport from "./fixtures/strands-ts-import.json";
 import strandsLive from "./fixtures/strands-ts-live.json";
+import nestedRecovery from "./fixtures/langgraph-nested-recovery.json";
 
-async function paint(events: BaseEvent[]) {
+async function paint(events: BaseEvent[], config: A2UIMiddlewareConfig = {}) {
   const output = await collectEvents(
     new A2UIMiddleware({
       defaultCatalogId: "copilotkit://app-dashboard-catalog",
+      ...config,
     }).run(createRunAgentInput(), new MockAgent(events)),
   );
   return output.filter(
@@ -137,6 +139,80 @@ describe("parallel A2UI tool association", () => {
     expect(
       snapshots.filter((event) => event.content.a2ui_operations),
     ).toHaveLength(1);
+  });
+
+  it.each(
+    Object.entries(nestedRecovery).flatMap(([name, events]) => [
+      { name, events, custom: false },
+      { name, events, custom: true },
+    ]),
+  )(
+    "preserves recorded nested recovery: $name (custom wrapper: $custom)",
+    async ({ name, events, custom }) => {
+      const typedEvents = events.map((event) => {
+        const type = Object.values(EventType).find(
+          (type) => type === event.type,
+        );
+        if (!type) throw new Error(`Unknown event type: ${event.type}`);
+        return {
+          ...event,
+          type,
+          ...("toolCallName" in event &&
+          event.toolCallName === "generate_a2ui" &&
+          custom
+            ? { toolCallName: "custom_generate" }
+            : {}),
+        };
+      });
+      const snapshots = await paint(
+        typedEvents,
+        custom ? { a2uiGenerationToolNames: ["custom_generate"] } : {},
+      );
+      expect(snapshots.length).toBeGreaterThan(0);
+      expect(new Set(snapshots.map((event) => event.messageId))).toEqual(
+        new Set(["a2ui-surface-id-4"]),
+      );
+      expect(
+        snapshots.some((event) => event.content.status === "retrying"),
+      ).toBe(true);
+      if (name.includes("Exhaustion")) {
+        expect(snapshots.at(-1)?.content.status).toBe("failed");
+        expect(
+          snapshots.filter((event) => event.content.a2ui_operations),
+        ).toHaveLength(0);
+      } else {
+        expect(snapshots.at(-1)?.content.a2ui_operations).toBeDefined();
+      }
+    },
+  );
+
+  it("keeps same-message siblings separate even for a generation wrapper", async () => {
+    const events = strandsImport.map((event) => {
+      const type = Object.values(EventType).find((type) => type === event.type);
+      if (!type) throw new Error(`Unknown event type: ${event.type}`);
+      return {
+        ...event,
+        type,
+        ...("toolCallName" in event && event.toolCallName === "search_flights"
+          ? { toolCallName: "generate_a2ui" }
+          : {}),
+      };
+    });
+    const render = events.find(
+      (event) =>
+        "toolCallName" in event && event.toolCallName === "render_a2ui",
+    );
+    if (!render || !("toolCallId" in render)) throw new Error("Missing render");
+    const snapshots = await paint(events);
+    const dashboard = snapshots.filter((event) =>
+      JSON.stringify(event.content).includes('"canary-dashboard"'),
+    );
+    expect(dashboard.length).toBeGreaterThan(0);
+    expect(
+      dashboard.every(
+        (event) => event.messageId === `a2ui-surface-${render.toolCallId}`,
+      ),
+    ).toBe(true);
   });
 
   it("attributes out-of-order results and failures to their own calls", async () => {

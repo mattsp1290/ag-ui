@@ -92,7 +92,12 @@ export interface A2UIMiddlewareConfig {
    * Tools that delegate to nested A2UI render calls. Their render attempts share
    * the wrapper's activity even when the adapter supplies distinct message IDs.
    * Calls sharing the wrapper's parentMessageId remain siblings.
-   * Defaults to `["generate_a2ui"]`; include custom toolkit toolName values here.
+   * Defaults to `["generate_a2ui"]`. An explicit array replaces the default.
+   * Upgrade from 0.0.12: custom toolkit toolName values must be listed here to
+   * keep distinct-message nested retries in one activity. Without this migration,
+   * failed attempts can remain alongside a successful render.
+   * Distinct-message siblings involving a declared wrapper and a direct render
+   * remain ambiguous and can still be incorrectly combined.
    */
   a2uiGenerationToolNames?: string[];
 

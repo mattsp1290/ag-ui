@@ -18,6 +18,14 @@ binding + invoke. Nothing in this package depends on any agent framework.
 - High-level orchestration: `prepareA2UIRequest`, `buildA2UIEnvelope`
 - Output wrappers: `assembleOps`, `wrapAsOperationsEnvelope`, `wrapErrorEnvelope`
 
+## Custom tool names and middleware upgrades
+
+If you customize a generation wrapper's `toolName`, the middleware's sibling-call
+fix changes the default association for nested renders with distinct message IDs.
+Declare that name in `a2uiGenerationToolNames` to retain a single recovery
+activity. See the [middleware upgrade notice](../../../../middlewares/a2ui-middleware/README.md#upgrade-notice-custom-generation-wrappers-pni-679)
+for the breaking behavior change, configuration example, and ancestry limitations.
+
 ## See also
 
 The Python counterpart lives in

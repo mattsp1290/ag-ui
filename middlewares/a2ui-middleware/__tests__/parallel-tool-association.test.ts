@@ -186,6 +186,46 @@ describe("parallel A2UI tool association", () => {
     },
   );
 
+  it("requires custom-wrapper migration to replace a rejected attempt with success", async () => {
+    const events =
+      nestedRecovery.a2uiRecoveryInvalidRenderRecoversToAValidSurface.map(
+        (event) => {
+          const type = Object.values(EventType).find(
+            (type) => type === event.type,
+          );
+          if (!type) throw new Error(`Unknown event type: ${event.type}`);
+          return {
+            ...event,
+            type,
+            ...("toolCallName" in event &&
+            event.toolCallName === "generate_a2ui"
+              ? { toolCallName: "custom_generate" }
+              : {}),
+          };
+        },
+      );
+    const snapshots = await paint(events);
+    const latestById = new Map(
+      snapshots.map((event) => [event.messageId, event]),
+    );
+    expect(
+      [...latestById.values()].some(
+        (event) => event.content.status === "failed",
+      ),
+    ).toBe(true);
+    expect(
+      [...latestById.values()].some((event) => event.content.a2ui_operations),
+    ).toBe(true);
+
+    const migrated = await paint(events, {
+      a2uiGenerationToolNames: ["generate_a2ui", "custom_generate"],
+    });
+    expect(new Set(migrated.map((event) => event.messageId))).toEqual(
+      new Set(["a2ui-surface-id-4"]),
+    );
+    expect(migrated.at(-1)?.content.a2ui_operations).toBeDefined();
+  });
+
   it("keeps same-message siblings separate even for a generation wrapper", async () => {
     const events = strandsImport.map((event) => {
       const type = Object.values(EventType).find((type) => type === event.type);

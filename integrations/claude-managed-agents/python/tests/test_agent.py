@@ -495,8 +495,8 @@ def test_parts_shaped_tool_result_becomes_claude_content_blocks():
         {"type": "text", "text": "Invoice attached."},
         {"type": "text", "text": "boom"},
     ]
-    # Nothing Claude can take still answers the call, with an empty text block.
-    assert _tool_result_blocks(parts[3:], None) == [{"type": "text", "text": ""}]
+    # Nothing Claude can take still answers the call, with no content blocks.
+    assert _tool_result_blocks(parts[3:], None) == []
     # A string result keeps its shape, error appended on its own line as before.
     assert _tool_result_blocks("done", None) == [{"type": "text", "text": "done"}]
     assert _tool_result_blocks("done", "boom") == [

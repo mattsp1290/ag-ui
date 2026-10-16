@@ -54,16 +54,15 @@ const hasUserText = (messages: Message[]): boolean =>
 const toolResultBlocks = (
   message: Extract<Message, { role: "tool" }>,
 ): ToolResultBlock[] => {
-  if (typeof message.content === "string")
-    return [
-      {
-        type: "text",
-        text: [message.content, message.error].filter(Boolean).join("\n"),
-      },
-    ];
+  if (typeof message.content === "string") {
+    const text = [message.content, message.error].filter(Boolean).join("\n");
+    return text ? [{ type: "text", text }] : [];
+  }
   const blocks = userContent(message);
   if (message.error) blocks.push({ type: "text", text: message.error });
-  return blocks.length ? blocks : [{ type: "text", text: "" }];
+  // Managed Agents accepts no result blocks, but rejects an empty text block.
+  // Keep nonempty text (including whitespace) and supported media unchanged.
+  return blocks.filter((block) => block.type !== "text" || block.text !== "");
 };
 
 const runError = (message: string, code: string): BaseEvent =>

@@ -2185,7 +2185,7 @@ it.each([false, true])(
               source: { type: "url", url: "https://example.test/image" },
             },
           ]
-        : [{ type: "text", text: "" }],
+        : [],
     });
     expect((await store.get(SESSION_KEY))?.pendingClientToolUseIds).toEqual([]);
     expect(types(events).at(-1)).toBe(EventType.RUN_FINISHED);

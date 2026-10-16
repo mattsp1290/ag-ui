@@ -721,7 +721,7 @@ jobs:
       - name: Assert no lockfile was rewritten
         # See adk-middleware-python for why both conditions are needed.
         if: ${{ !cancelled() && steps.checkout.outcome == 'success' }}
-        uses: ./.github/actions/assert-lockfiles-unchanged
+        uses: $/.github/actions/assert-lockfiles-unchanged
 
   adk-compatibility:
     name: ADK compatibility (${{ matrix.adk }})

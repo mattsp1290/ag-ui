@@ -22,6 +22,8 @@ async def test_continues_native_call_once(content, error, expected):
         {"id": "u1", "role": "user", "content": "Chart"},
         {"id": "t1", "role": "tool", "toolCallId": "chart_1", "content": content, "error": error},
     ])
+    # Duplicate frontend delivery within one request still resolves only once.
+    value.messages.append(value.messages[-1].model_copy(update={"id": "t1-copy"}))
     events = await collect(new_agent(fake, store), value)
     assert events[-1].type.value == "RUN_FINISHED"
     assert fake.sent == [{"session_id": "sesn_original", "events": [{

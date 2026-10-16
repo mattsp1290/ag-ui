@@ -90,6 +90,8 @@ it.each([
         },
       ],
     };
+    // Duplicate frontend delivery within one request still resolves only once.
+    input.messages.push({ ...input.messages[1]!, id: "t1-copy" });
     const events = await lastValueFrom(agent().run(input).pipe(toArray()));
     expect(events.at(-1)?.type).toBe(EventType.RUN_FINISHED);
     expect(fake.sent).toEqual([

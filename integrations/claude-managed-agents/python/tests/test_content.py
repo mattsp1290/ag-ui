@@ -81,7 +81,7 @@ async def test_unsupported_tool_parts_skip_and_preserve_supported_content(mixed)
     value = base_input(messages=[{"id": "u1", "role": "user", "content": "Hello"}, {"id": "t1", "role": "tool", "toolCallId": "ctu_1", "content": parts}])
     events = [e async for e in new_agent(fake, store).run(value)]
     assert events[0].input == value
-    expected = [{"type": "text", "text": "  meaningful\n"}, {"type": "text", "text": " \n"}, {"type": "image", "source": {"type": "url", "url": "https://example.test/image"}}] if mixed else [{"type": "text", "text": ""}]
+    expected = [{"type": "text", "text": "  meaningful\n"}, {"type": "text", "text": " \n"}, {"type": "image", "source": {"type": "url", "url": "https://example.test/image"}}] if mixed else []
     assert fake.sent[0]["events"][0]["content"] == expected
     assert store.get(SESSION_KEY).pending_client_tool_use_ids == []
     assert events[-1].type.value == "RUN_FINISHED"

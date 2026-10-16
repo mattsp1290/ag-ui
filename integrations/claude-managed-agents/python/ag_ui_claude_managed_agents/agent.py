@@ -54,11 +54,14 @@ def _has_user_content(message: Any) -> bool:
 
 def _tool_result_blocks(content: Any, error: str | None) -> list[dict[str, Any]]:
     if isinstance(content, str):
-        return [{"type": "text", "text": "\n".join(p for p in (content, error) if p)}]
+        text = "\n".join(p for p in (content, error) if p)
+        return [{"type": "text", "text": text}] if text else []
     blocks = user_content({"content": content}, preserve_blank_text=True)
     if error:
         blocks.append({"type": "text", "text": error})
-    return blocks or [{"type": "text", "text": ""}]
+    # Managed Agents accepts no result blocks, but rejects an empty text block.
+    # Keep nonempty text (including whitespace) and supported media unchanged.
+    return [block for block in blocks if block["type"] != "text" or block["text"] != ""]
 
 
 @dataclass

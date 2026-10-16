@@ -26,7 +26,7 @@ describe("parallel A2UI tool association", () => {
     ["LangGraph native import", langgraphImport],
     ["LangGraph live stream", langgraphLive],
     ["Strands TypeScript native import", strandsImport],
-    ["Strands TypeScript live stream with distinct message IDs", strandsLive],
+    ["Strands TypeScript live stream with explicit wrapper names", strandsLive],
   ])(
     "keeps sibling flight and dashboard surfaces separate: %s",
     async (_name, events) => {
@@ -53,7 +53,10 @@ describe("parallel A2UI tool association", () => {
           throw new Error(`Unknown recorded event type: ${event.type}`);
         return { ...event, type };
       });
-      const snapshots = await paint(typedEvents);
+      const snapshots = await paint(
+        typedEvents,
+        events === strandsLive ? { a2uiGenerationToolNames: [] } : {},
+      );
       const dashboardPaint = snapshots.filter((event) =>
         JSON.stringify(event.content).includes('"canary-dashboard"'),
       );
@@ -143,12 +146,13 @@ describe("parallel A2UI tool association", () => {
 
   it.each(
     Object.entries(nestedRecovery).flatMap(([name, events]) => [
-      { name, events, custom: false },
-      { name, events, custom: true },
+      { name, events, custom: false, configured: false },
+      { name, events, custom: true, configured: false },
+      { name, events, custom: true, configured: true },
     ]),
   )(
-    "preserves recorded nested recovery: $name (custom wrapper: $custom)",
-    async ({ name, events, custom }) => {
+    "preserves recorded nested recovery: $name (custom wrapper: $custom, configured: $configured)",
+    async ({ name, events, custom, configured }) => {
       const typedEvents = events.map((event) => {
         const type = Object.values(EventType).find(
           (type) => type === event.type,
@@ -166,7 +170,7 @@ describe("parallel A2UI tool association", () => {
       });
       const snapshots = await paint(
         typedEvents,
-        custom ? { a2uiGenerationToolNames: ["custom_generate"] } : {},
+        configured ? { a2uiGenerationToolNames: ["custom_generate"] } : {},
       );
       expect(snapshots.length).toBeGreaterThan(0);
       expect(new Set(snapshots.map((event) => event.messageId))).toEqual(
@@ -185,46 +189,6 @@ describe("parallel A2UI tool association", () => {
       }
     },
   );
-
-  it("requires custom-wrapper migration to replace a rejected attempt with success", async () => {
-    const events =
-      nestedRecovery.a2uiRecoveryInvalidRenderRecoversToAValidSurface.map(
-        (event) => {
-          const type = Object.values(EventType).find(
-            (type) => type === event.type,
-          );
-          if (!type) throw new Error(`Unknown event type: ${event.type}`);
-          return {
-            ...event,
-            type,
-            ...("toolCallName" in event &&
-            event.toolCallName === "generate_a2ui"
-              ? { toolCallName: "custom_generate" }
-              : {}),
-          };
-        },
-      );
-    const snapshots = await paint(events);
-    const latestById = new Map(
-      snapshots.map((event) => [event.messageId, event]),
-    );
-    expect(
-      [...latestById.values()].some(
-        (event) => event.content.status === "failed",
-      ),
-    ).toBe(true);
-    expect(
-      [...latestById.values()].some((event) => event.content.a2ui_operations),
-    ).toBe(true);
-
-    const migrated = await paint(events, {
-      a2uiGenerationToolNames: ["generate_a2ui", "custom_generate"],
-    });
-    expect(new Set(migrated.map((event) => event.messageId))).toEqual(
-      new Set(["a2ui-surface-id-4"]),
-    );
-    expect(migrated.at(-1)?.content.a2ui_operations).toBeDefined();
-  });
 
   it("keeps same-message siblings separate even for a generation wrapper", async () => {
     const events = strandsImport.map((event) => {

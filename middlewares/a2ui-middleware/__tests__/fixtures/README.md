@@ -48,17 +48,15 @@ The flight envelope includes both DL123 and AA456. No AWS access is needed to
 replay this synthetic capture.
 
 A parent message ID identifies an assistant message, not a parent tool call.
-Calls sharing a nonempty message ID are siblings. Calls with distinct identities
-remain independent for ordinary tools. Known generation wrappers (default
-`generate_a2ui`, configurable through `a2uiGenerationToolNames`) retain nested
-render ownership across distinct identities. Custom toolkit `toolName` values
-must be included in that configuration; this is a breaking behavior change from
-0.0.12. See the [consumer upgrade notice](../../README.md#upgrade-notice-custom-generation-wrappers-pni-679). Missing/empty identities retain the
-legacy nesting fallback; without reliable identity or a declared wrapper,
-parallel versus nested calls remain ambiguous. Distinct-ID siblings involving
-`generate_a2ui` (or a configured wrapper) and a direct `render_a2ui` can still be
-mistaken for nested calls and suppress valid output. Concurrent wrappers also
-retain the most-recent-candidate heuristic; wrapper names do not prove ancestry.
+Calls sharing a nonempty message ID are siblings. Distinct IDs remain ambiguous.
+The live Strands regression opts into `a2uiGenerationToolNames: []`, because this
+capture has no nested generation wrappers. This separates the dashboard and
+flight activities without changing existing consumers' default nesting behavior.
+See the [configuration guide](../../README.md#optional-sibling-call-disambiguation).
+Omitting the option preserves custom wrappers without migration. Missing/empty
+identities retain the legacy fallback in either mode. Distinct-ID siblings
+involving a listed wrapper and a direct render can still be mistaken for nested
+calls and suppress valid output; concurrent wrappers remain heuristic as well.
 
 `langgraph-nested-recovery.json` extracts the first run's tool events from the
 committed Dojo LangGraph TypeScript recovery traces (successful retry and
@@ -67,5 +65,5 @@ the middleware regenerates them. Tool IDs, distinct parent message IDs, argument
 chunks, and result order are preserved; catalog IDs alone are normalized to
 `copilotkit://app-dashboard-catalog`. Tests assert that retries and final success
 or failure replace one wrapper activity. The same traces also exercise a custom
-configured wrapper name. These regressions reproduce the initial PR's CI failure
+wrapper name with and without explicit configuration. These regressions reproduce the initial PR's CI failure
 without starting a server or calling a provider.

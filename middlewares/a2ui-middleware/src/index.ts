@@ -28,7 +28,6 @@ import { getOperationSurfaceId, tryParseA2UIOperations, A2UI_OPERATIONS_KEY, ext
 import {
   validateA2UIComponents,
   MAX_A2UI_ATTEMPTS,
-  GENERATE_A2UI_TOOL_NAME,
   type A2UIValidationCatalog,
 } from "@ag-ui/a2ui-toolkit";
 
@@ -483,9 +482,10 @@ export class A2UIMiddleware extends Middleware {
         ...a2uiToolNames,
         LOG_A2UI_EVENT_TOOL_NAME,
       ]);
-      const generationToolNames = new Set(
-        this.config.a2uiGenerationToolNames ?? [GENERATE_A2UI_TOOL_NAME],
-      );
+      const generationToolNames =
+        this.config.a2uiGenerationToolNames === undefined
+          ? null
+          : new Set(this.config.a2uiGenerationToolNames);
       let currentOuterCall: ToolCallStartEvent | null = null;
 
       const subscription = source.subscribe({
@@ -501,8 +501,9 @@ export class A2UIMiddleware extends Middleware {
             // tool's TOOL_CALL_RESULT still works as a fallback.
             if (a2uiToolNames.has(startEvent.toolCallName)) {
               // Shared message IDs prove sibling calls. Distinct IDs do not
-              // prove nesting: only known generation wrappers may own a render
-              // from another message. Keep the legacy missing-identity fallback.
+              // prove nesting. An explicit wrapper list opts into separating
+              // other tools; omission preserves custom-wrapper compatibility.
+              // Keep the legacy missing-identity fallback in either mode.
               const sameMessage =
                 !!startEvent.parentMessageId &&
                 startEvent.parentMessageId ===
@@ -510,6 +511,7 @@ export class A2UIMiddleware extends Middleware {
               const independentMessages =
                 !!startEvent.parentMessageId &&
                 !!currentOuterCall?.parentMessageId &&
+                generationToolNames !== null &&
                 !generationToolNames.has(currentOuterCall.toolCallName);
               const outerCallId =
                 sameMessage || independentMessages

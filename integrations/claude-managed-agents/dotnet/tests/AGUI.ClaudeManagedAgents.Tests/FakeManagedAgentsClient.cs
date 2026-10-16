@@ -39,6 +39,7 @@ public sealed class FakeManagedAgentsClient : IManagedAgentsClient
 
     /// <summary>The events posted into the session, one entry per send call.</summary>
     public List<IReadOnlyList<JsonElement>> Sent { get; } = [];
+    public List<string> SentSessionIds { get; } = [];
 
     /// <summary>When set, streams wait for this to complete before yielding their events.</summary>
     public TaskCompletionSource? Gate { get; set; }
@@ -96,6 +97,7 @@ public sealed class FakeManagedAgentsClient : IManagedAgentsClient
             return Task.FromException(failure);
         }
 
+        SentSessionIds.Add(sessionId);
         Sent.Add(events);
         History = History.Concat(events).ToList();
         return Task.CompletedTask;

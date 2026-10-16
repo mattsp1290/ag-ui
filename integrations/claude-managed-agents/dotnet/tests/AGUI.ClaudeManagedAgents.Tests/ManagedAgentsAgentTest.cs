@@ -1511,9 +1511,9 @@ public class ManagedAgentsAgentTest
         var events = await CollectAsync(NewAgent(fake, store), input);
         Assert.Same(input, Assert.IsType<RunStartedEvent>(events[0]).Input);
         var content = fake.Sent[0][0].GetProperty("content");
-        Assert.Equal(mixed ? 3 : 1, content.GetArrayLength());
-        Assert.Equal(mixed ? "  meaningful\n" : "", content[0].GetProperty("text").GetString());
+        Assert.Equal(mixed ? 3 : 0, content.GetArrayLength());
         if (mixed) {
+            Assert.Equal("  meaningful\n", content[0].GetProperty("text").GetString());
             Assert.Equal(" \n", content[1].GetProperty("text").GetString());
             Assert.Equal("https://example.test/image", content[2].GetProperty("source").GetProperty("url").GetString());
         }

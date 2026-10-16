@@ -50,10 +50,20 @@ internal static class ManagedAgentsContent
     internal static JsonArray ToolBlocks(AGUIToolMessage message)
     {
         if (message.Content.IsText)
-            return new JsonArray(new JsonObject { ["type"] = "text", ["text"] = string.Join("\n", new[] { message.Content.ToString(), message.Error }.Where(p => !string.IsNullOrEmpty(p))) });
+        {
+            var text = string.Join("\n", new[] { message.Content.ToString(), message.Error }.Where(p => !string.IsNullOrEmpty(p)));
+            return text.Length == 0 ? new JsonArray() : new JsonArray(new JsonObject { ["type"] = "text", ["text"] = text });
+        }
         var blocks = Blocks(message.Content, preserveBlankText: true);
         if (!string.IsNullOrEmpty(message.Error)) blocks.Add(new JsonObject { ["type"] = "text", ["text"] = message.Error });
-        if (blocks.Count == 0) blocks.Add(new JsonObject { ["type"] = "text", ["text"] = "" });
+        // Empty completions are valid; the provider rejects zero-length text blocks.
+        for (var i = blocks.Count - 1; i >= 0; i--)
+        {
+            if (blocks[i]?["type"]?.GetValue<string>() == "text" && blocks[i]?["text"]?.GetValue<string>() == "")
+            {
+                blocks.RemoveAt(i);
+            }
+        }
         return blocks;
     }
 

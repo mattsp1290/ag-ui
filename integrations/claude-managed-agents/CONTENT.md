@@ -23,11 +23,10 @@ Unsupported audio/video parts, foreign provider handles and unsupported media ty
 skipped when sending to Claude, as required by AG-UI. The complete original input remains
 recorded, including skipped parts. Supported parts keep their order and meaningful text
 keeps its original whitespace. Whitespace-only parts within a meaningful message are retained; wholly blank user
-messages do not create a new turn. In TypeScript and Python, a frontend tool result
+messages do not create a new turn. In TypeScript, Python, and .NET, a frontend tool result
 with no supported parts still answers the pending call with `content: []`. Zero-length
 text parts are omitted because Claude rejects empty text blocks; nonempty text and
-supported media remain unchanged. The call is cleared only after delivery succeeds.
-This empty-result handling has not yet been applied to the .NET adapter. The adapters
+supported media remain unchanged. The call is cleared only after delivery succeeds. The adapters
 do not mount arbitrary files into the managed sandbox.
 
 ## Native output

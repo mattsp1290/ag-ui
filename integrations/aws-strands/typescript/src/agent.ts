@@ -647,6 +647,8 @@ type FieldDisposition =
  * Keys the running SDK does not have simply never resolve and cost nothing.
  */
 const NEWER_SDK_FIELD_PLAN = {
+  // A separate Model instance for auxiliary work, when explicitly configured.
+  auxModel: "copy",
   // Registered into an intervention registry, which keeps the caller's own
   // handler objects. This is the field that turns on native human-in-the-loop,
   // and the Python adapter already carries it, so it is carried here too.
@@ -768,6 +770,9 @@ type TemplateAgentCloneFields = Partial<AgentConfig> & {
  */
 function _readTemplateField(agent: StrandsAgentCore, key: string): unknown {
   const record = agent as unknown as Record<string, unknown>;
+  // The getter falls back to `model`. Preserve an unset auxiliary model so it
+  // follows a threadAgentConfig model override instead of pinning the template.
+  if (key === "auxModel" && "_auxModel" in record) return record._auxModel;
   for (const attribute of [key, `_${key}`]) {
     const value = record[attribute];
     if (value !== undefined) return value;

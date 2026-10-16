@@ -25,7 +25,7 @@ recorded, including skipped parts. Supported parts keep their order and meaningf
 keeps its original whitespace. Whitespace-only parts within a meaningful message are retained; wholly blank user
 messages do not create a new turn. In TypeScript, Python, and .NET, a frontend tool result
 with no supported parts still answers the pending call with `content: []`. Zero-length
-text parts are omitted because Claude rejects empty text blocks; nonempty text and
+text parts in frontend tool results are omitted because Claude rejects empty text blocks; nonempty text and
 supported media remain unchanged. The call is cleared only after delivery succeeds. The adapters
 do not mount arbitrary files into the managed sandbox.
 

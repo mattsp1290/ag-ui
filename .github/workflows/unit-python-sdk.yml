@@ -721,7 +721,8 @@ jobs:
       - name: Assert no lockfile was rewritten
         # See adk-middleware-python for why both conditions are needed.
         if: ${{ !cancelled() && steps.checkout.outcome == 'success' }}
-        uses: $/.github/actions/assert-lockfiles-unchanged
+        # actionlint 1.7.12 does not support $/ references; checkout is gated above.
+        uses: ./.github/actions/assert-lockfiles-unchanged # zizmor: ignore[self-repository]
 
   adk-compatibility:
     name: ADK compatibility (${{ matrix.adk }})
@@ -1343,7 +1344,8 @@ jobs:
         run: uv run --locked python -m pytest tests/ -v
       - name: Assert no lockfile was rewritten
         if: ${{ !cancelled() && steps.checkout.outcome == 'success' }}
-        uses: $/.github/actions/assert-lockfiles-unchanged
+        # actionlint 1.7.12 does not support $/ references; checkout is gated above.
+        uses: ./.github/actions/assert-lockfiles-unchanged # zizmor: ignore[self-repository]
 
   claude-managed-agents-python:
     name: claude-managed-agents-python

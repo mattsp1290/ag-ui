@@ -1,6 +1,7 @@
 # Parallel flight/dashboard regression traces (PNI-490)
 
-These are recorded protocol traces, not hand-authored tool sequences. Both tools
+The original three traces below are recorded protocol traces, not hand-authored
+tool sequences. Both tools
 belong to the same native assistant message and retain its `parentMessageId`.
 Only the run boundaries and `search_flights` / `render_a2ui` events are retained;
 transport debug metadata, import provenance, timestamps and unrelated tools are
@@ -36,10 +37,20 @@ own flight call. Existing recovery tests cover the legacy nested-render path
 where adapters omit parent message IDs. Separate synthetic unit events exercise
 out-of-order ordinary results and failure envelopes.
 
-## Parallel-call limitation
+## Live sibling calls with distinct message IDs (PNI-679)
 
-Sibling detection requires matching, nonempty `parentMessageId` values on both
-`TOOL_CALL_START` events. If an adapter omits either parent ID, the middleware
-retains the legacy nesting fallback, so independent parallel calls may still
-share an activity or have their output suppressed. Adapters should preserve the
-originating assistant message ID on each sibling call.
+`strands-ts-live.json` retains all tool start/args/end/result events, in order,
+from the October 16 deterministic Strands TypeScript SDK 1.20.0 capture used to
+reproduce the failure in middleware 0.0.12. Run boundaries are retained; message
+and state snapshots are omitted. The five sibling calls each have a distinct
+`parentMessageId`, and all calls finish emitting arguments before results arrive.
+The flight envelope includes both DL123 and AA456. No AWS access is needed to
+replay this synthetic capture.
+
+A parent message ID identifies an assistant message, not a parent tool call.
+Calls with message identities remain independent. Legacy nested renders that
+omit message identity still use the active outer call, even when its arguments
+have ended. Without message identity, parallel versus nested calls remain
+ambiguous; the legacy fallback is retained for compatibility with existing
+recovery adapters. Nested calls with message identities need an explicit nesting
+contract; different message IDs alone cannot distinguish them from siblings.

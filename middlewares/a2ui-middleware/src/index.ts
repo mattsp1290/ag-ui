@@ -492,12 +492,16 @@ export class A2UIMiddleware extends Middleware {
             // If streaming extraction fails, auto-detect on the outer
             // tool's TOOL_CALL_RESULT still works as a fallback.
             if (a2uiToolNames.has(startEvent.toolCallName)) {
-              // Calls emitted by the same assistant message are siblings, not
-              // a nested render. Keep the legacy nesting fallback when either
-              // message identity is absent (older subagent adapters omit it).
-              const isSibling = !!startEvent.parentMessageId &&
-                startEvent.parentMessageId === currentOuterCall?.parentMessageId;
-              const outerCallId = isSibling ? null : currentOuterCall?.toolCallId ?? null;
+              // A message ID identifies the assistant that emitted a call,
+              // not tool nesting. Adapters may give sibling calls distinct IDs.
+              // Retain the legacy nesting fallback only when message identity
+              // is missing (the existing recovery adapters omit it).
+              const hasMessageIdentities =
+                !!startEvent.parentMessageId &&
+                !!currentOuterCall?.parentMessageId;
+              const outerCallId = hasMessageIdentities
+                ? null
+                : (currentOuterCall?.toolCallId ?? null);
               streamingToolCalls.set(startEvent.toolCallId, {
                 schema: null, args: "",
                 outerCallId,
@@ -519,8 +523,8 @@ export class A2UIMiddleware extends Middleware {
                 subscriber.next(this.buildLifecycleActivity(key, { status: "building" }));
               }
             } else if (!nonOuterToolNames.has(startEvent.toolCallName)) {
-              // Track a candidate outer call. A render from the same assistant
-              // message is a sibling and must not inherit this context.
+              // Track a candidate outer call for legacy adapters that omit
+              // message identity on their nested renders.
               currentOuterCall = startEvent;
             }
           }

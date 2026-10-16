@@ -5,6 +5,7 @@ import { MockAgent, collectEvents, createRunAgentInput } from "./test-utils";
 import langgraphImport from "./fixtures/langgraph-import.json";
 import langgraphLive from "./fixtures/langgraph-live.json";
 import strandsImport from "./fixtures/strands-ts-import.json";
+import strandsLive from "./fixtures/strands-ts-live.json";
 
 async function paint(events: BaseEvent[]) {
   const output = await collectEvents(
@@ -23,6 +24,7 @@ describe("parallel A2UI tool association", () => {
     ["LangGraph native import", langgraphImport],
     ["LangGraph live stream", langgraphLive],
     ["Strands TypeScript native import", strandsImport],
+    ["Strands TypeScript live stream with distinct message IDs", strandsLive],
   ])(
     "keeps sibling flight and dashboard surfaces separate: %s",
     async (_name, events) => {
@@ -63,6 +65,13 @@ describe("parallel A2UI tool association", () => {
         ),
       ).toBe(true);
       expect(flightPaint.length).toBeGreaterThan(0);
+      if (events === strandsLive) {
+        const content = JSON.stringify(
+          flightPaint.map((event) => event.content),
+        );
+        expect(content).toContain("DL123");
+        expect(content).toContain("AA456");
+      }
       expect(
         flightPaint.every((event) =>
           event.messageId.endsWith(`-${flight.toolCallId}`),
@@ -78,6 +87,57 @@ describe("parallel A2UI tool association", () => {
       ).toBe(true);
     },
   );
+
+  it("preserves legacy nested renders after the outer arguments end", async () => {
+    const snapshots = await paint([
+      { type: EventType.RUN_STARTED, threadId: "test", runId: "test" },
+      {
+        type: EventType.TOOL_CALL_START,
+        toolCallId: "outer",
+        toolCallName: "generate_a2ui",
+        parentMessageId: "outer-message",
+      },
+      { type: EventType.TOOL_CALL_END, toolCallId: "outer" },
+      {
+        type: EventType.TOOL_CALL_START,
+        toolCallId: "inner",
+        toolCallName: "render_a2ui",
+      },
+      {
+        type: EventType.TOOL_CALL_ARGS,
+        toolCallId: "inner",
+        delta: JSON.stringify({
+          surfaceId: "nested",
+          components: [{ id: "root", component: "Text", text: "Nested" }],
+        }),
+      },
+      { type: EventType.TOOL_CALL_END, toolCallId: "inner" },
+      {
+        type: EventType.TOOL_CALL_RESULT,
+        toolCallId: "outer",
+        messageId: "outer-result",
+        content: JSON.stringify({
+          a2ui_operations: [
+            {
+              version: "v0.9",
+              createSurface: {
+                surfaceId: "nested",
+                catalogId: "copilotkit://app-dashboard-catalog",
+              },
+            },
+          ],
+        }),
+      },
+      { type: EventType.RUN_FINISHED, threadId: "test", runId: "test" },
+    ]);
+    expect(snapshots.length).toBeGreaterThan(0);
+    expect(
+      snapshots.every((event) => event.messageId === "a2ui-surface-outer"),
+    ).toBe(true);
+    expect(
+      snapshots.filter((event) => event.content.a2ui_operations),
+    ).toHaveLength(1);
+  });
 
   it("attributes out-of-order results and failures to their own calls", async () => {
     const envelope = JSON.stringify({

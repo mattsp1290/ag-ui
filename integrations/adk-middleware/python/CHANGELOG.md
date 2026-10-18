@@ -203,11 +203,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- Allow `a2ui-agent-sdk` 0.2.2 and exclude 0.2.3/0.2.4, whose upstream ADK
-  toolset raises `NameError: name 'models' is not defined` on import (#3089).
-  The 0.2.2 floor preserves the common-types schema pruning fix used by catalog
-  prompts; future 0.2.x patch releases remain allowed. Applications using the
-  upstream toolset directly also need `a2a-sdk<1` for its legacy A2A API.
+- Pin `a2ui-agent-sdk==0.2.2` to the verified release until an explicit SDK
+  compatibility verification and migration (#3089). Versions 0.2.3/0.2.4
+  raise `NameError: name 'models' is not defined` when importing the upstream
+  ADK toolset. Version 0.2.2 preserves the common-types schema pruning fix used
+  by catalog prompts; future releases require review before adoption.
+  Applications using the upstream toolset directly also need `a2a-sdk<1` for
+  its legacy A2A API.
 - Session lookup failures no longer fork a thread. A failed `list_sessions`
   or `get_session` during lookup, in either mode, was logged and treated as
   not found, so the run created a new session and split the thread's

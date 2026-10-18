@@ -11,9 +11,10 @@ name: Auto-approve community PRs
 # step input that runs as code: run:, and also the github-script script: below.
 # Read that data from context.payload or the API inside the script.
 #
-# Approval lifecycle: every run FIRST withdraws this workflow's own earlier
-# approvals, then evaluates, then re-checks the head, and approves only as its
-# last step. A run that fails or is cancelled during the withdrawal can leave an
+# Approval lifecycle: stale events exit without changing reviews. A current run
+# withdraws this workflow's earlier approvals, evaluates an immutable comparison,
+# then re-checks the head and base and approves only as its last step.
+# A run that fails or is cancelled during the withdrawal can leave an
 # older approval on the PR, and a cancelled run's approval can land late. The
 # approval is pinned to the head commit that was checked, and ag-ui's "dismiss
 # stale approvals" branch rule dismisses it on a new push. "edited" covers a
@@ -37,8 +38,8 @@ jobs:
       cancel-in-progress: true
     runs-on: ubuntu-latest
     permissions:
-      contents: read # read CODEOWNERS from the default branch
-      pull-requests: write # list PR files and reviews, dismiss and post approvals
+      contents: read # compare immutable commits and read trusted CODEOWNERS
+      pull-requests: write # list reviews, dismiss and post approvals
     steps:
       - name: Auto-approve based on CODEOWNERS
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3  # v9.0.0
@@ -49,24 +50,36 @@ jobs:
             const prAuthor = pr.user.login;
             const prNumber = pr.number;
 
-            // The commit and base branch this run evaluates. The approval is pinned to them.
+            // Compare immutable commit SHAs, never the mutable PR file list.
             const evaluatedSha = pr.head.sha;
             const evaluatedBase = pr.base.ref;
-            console.log(`Evaluating PR #${prNumber} at head ${evaluatedSha} against ${evaluatedBase}`);
+            const evaluatedBaseSha = pr.base.sha;
+            console.log(`Evaluating PR #${prNumber} at head ${evaluatedSha} against ${evaluatedBase} (${evaluatedBaseSha})`);
 
             // Every approval body this workflow posts contains this marker.
             const approvalPrefix = 'Auto-approved: PR author ';
             const approvalMarker = 'has CODEOWNERS access to all changed files';
 
-            // Step 1: withdraw this workflow's own earlier approvals, on any commit,
-            // BEFORE anything else. A failure or cancellation during this step can
+            // Step 1: snapshot reviews, then check freshness BEFORE any dismissal.
+            // An old event or rerun must not withdraw a newer head's valid approval.
+            // Reviews posted after this snapshot are never dismissed by this run.
+            const reviews = await github.paginate(github.rest.pulls.listReviews, {
+              owner, repo, pull_number: prNumber, per_page: 100
+            });
+            const before = await github.rest.pulls.get({ owner, repo, pull_number: prNumber });
+            if (before.data.head.sha !== evaluatedSha ||
+                before.data.base.ref !== evaluatedBase ||
+                before.data.base.sha !== evaluatedBaseSha) {
+              console.log(`\n❌ Not auto-approved: PR moved to head ${before.data.head.sha} / base ${before.data.base.ref} (${before.data.base.sha}) before evaluation; reviews left unchanged`);
+              return;
+            }
+
+            // Step 2: withdraw this workflow's own earlier approvals, on any commit,
+            // before evaluating ownership. A failure or cancellation during this step can
             // leave an older approval. After it, this run approves only in the last step.
             // Only reviews by the GitHub Actions bot whose body carries this workflow's
             // marker are dismissed. Human reviews and other workflows' approvals are kept.
             // The loop continues past a failed dismissal; any failure then fails the job.
-            const reviews = await github.paginate(github.rest.pulls.listReviews, {
-              owner, repo, pull_number: prNumber, per_page: 100
-            });
             const ownApprovals = reviews.filter(
               review => review.user &&
                         review.user.login === 'github-actions[bot]' &&
@@ -98,25 +111,23 @@ jobs:
               console.log('No earlier auto-approval to withdraw');
             }
 
-            // Step 2: evaluate. Every exit below this point, including an unhandled
+            // Step 3: evaluate. Every exit below this point, including an unhandled
             // error, ends this run without a new approval.
 
-            // The file list below comes from the PR's current head. If the head has
-            // already moved past the event's commit, a newer run handles the new head.
-            const before = await github.rest.pulls.get({ owner, repo, pull_number: prNumber });
-            if (before.data.head.sha !== evaluatedSha || before.data.base.ref !== evaluatedBase) {
-              console.log(`\n❌ Not auto-approved: PR moved to head ${before.data.head.sha} / base ${before.data.base.ref} before evaluation`);
-              return;
-            }
-
-            // Changed files from the API. A rename lists both the old and the new
-            // path, so moving a file out of a path the author does not own is checked too.
-            const files = await github.paginate(github.rest.pulls.listFiles, {
-              owner, repo, pull_number: prNumber, per_page: 100
+            // listFiles reads the current PR and cannot be pinned to a commit. A head
+            // that moves A -> B -> A could pass both freshness checks with B's files.
+            // Compare the event's immutable base/head instead; it remains A's diff
+            // even if the PR moves. Renames still check both old and new paths below.
+            const comparison = await github.rest.repos.compareCommitsWithBasehead({
+              owner, repo,
+              basehead: `${evaluatedBaseSha}...${evaluatedSha}`,
+              page: 1, per_page: 1
             });
-            // The API returns at most 3000 files. A longer list is incomplete.
-            if (files.length >= 3000) {
-              console.log(`\n❌ Not auto-approved: file list is truncated (${files.length} files)`);
+            // Comparison files appear only on page 1, capped at 300 regardless of
+            // commit pagination. At the cap, completeness cannot be established.
+            const files = comparison.data.files;
+            if (!Array.isArray(files) || files.length >= 300) {
+              console.log('\n❌ Not auto-approved: comparison file list missing or possibly truncated (300-file limit)');
               return;
             }
             const changedFiles = [];
@@ -249,15 +260,17 @@ jobs:
 
             console.log(`\n✅ All changed files are owned by ${prAuthor} according to CODEOWNERS`);
 
-            // Step 3: re-check the head and base right before approving. A push or a
+            // Step 4: re-check the head and base right before approving. A push or a
             // base change after the file list was read must never be approved unchecked.
             const after = await github.rest.pulls.get({ owner, repo, pull_number: prNumber });
-            if (after.data.head.sha !== evaluatedSha || after.data.base.ref !== evaluatedBase) {
-              console.log(`\n❌ Not auto-approved: PR moved to head ${after.data.head.sha} / base ${after.data.base.ref} during evaluation`);
+            if (after.data.head.sha !== evaluatedSha ||
+                after.data.base.ref !== evaluatedBase ||
+                after.data.base.sha !== evaluatedBaseSha) {
+              console.log(`\n❌ Not auto-approved: PR moved to head ${after.data.head.sha} / base ${after.data.base.ref} (${after.data.base.sha}) during evaluation`);
               return;
             }
 
-            // Step 4, the last step: approve the evaluated commit as the GitHub Actions
+            // Step 5, the last step: approve the evaluated commit as the GitHub Actions
             // bot. If a push lands after the re-check, this approval sits on the older
             // commit. The push's run withdraws it if it lands first. If it lands later,
             // the "dismiss stale approvals" branch rule covers the new push.

@@ -1,6 +1,7 @@
 import { startLoopbackMcp } from "./loopback-mcp";
 import {
   RecoveryRun,
+  unresolvedToolUses,
   historicalToolResults,
   type SessionBinding,
 } from "./recovery";
@@ -250,16 +251,36 @@ export class ClaudeAgentAdapter extends AbstractAgent {
         profileOptions,
         (name, args) => recovery.resolveFrontendResult(name, args),
       );
+      let nativeHistory:
+        | Awaited<ReturnType<typeof getSessionMessages>>
+        | undefined;
+      if (binding?.pending && !binding.unsupportedPendingTools?.length) {
+        nativeHistory = await getSessionMessages(binding.sessionId, {
+          dir: options.cwd,
+          sessionStore: options.sessionStore,
+        });
+        const unresolved = unresolvedToolUses(nativeHistory);
+        if (
+          unresolved.length > 1 &&
+          unresolved.some((call) => call.id === binding.pending!.id)
+        ) {
+          binding.unsupportedPendingTools = unresolved;
+          if (recoveryConfig)
+            await recoveryConfig.store.save(threadId, structuredClone(binding));
+          this.bindings.set(threadId, structuredClone(binding));
+        }
+      }
       const recovery = await RecoveryRun.restore(
         binding,
         input,
         recoveryConfig?.deferTools ?? [],
         async () => {
           return historicalToolResults(
-            await getSessionMessages(binding!.sessionId, {
-              dir: options.cwd,
-              sessionStore: options.sessionStore,
-            }),
+            nativeHistory ??
+              (await getSessionMessages(binding!.sessionId, {
+                dir: options.cwd,
+                sessionStore: options.sessionStore,
+              })),
           );
         },
       );
@@ -489,6 +510,7 @@ export class ClaudeAgentAdapter extends AbstractAgent {
             );
           this.bindings.set(threadId, structuredClone(recovery.binding));
         }
+        recovery.assertSupported();
         if (message.type === "result" && message.is_error)
           throw new Error(
             "SDK resume/run failed; check the original files, tools, credentials and execution configuration.",

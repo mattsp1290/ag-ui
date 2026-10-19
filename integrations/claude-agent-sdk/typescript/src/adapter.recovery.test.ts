@@ -5,7 +5,11 @@ import { beforeEach, expect, it, vi } from "vitest";
 import { lastValueFrom, toArray, Subscriber } from "rxjs";
 import { buildAguiToolMessage } from "./utils";
 import type { RunAgentInput, BaseEvent } from "@ag-ui/core";
-const sdk = vi.hoisted(() => ({ query: vi.fn(), getSessionInfo: vi.fn() }));
+const sdk = vi.hoisted(() => ({
+  query: vi.fn(),
+  getSessionInfo: vi.fn(),
+  getSessionMessages: vi.fn(),
+}));
 vi.mock("@anthropic-ai/claude-agent-sdk", async (original) => ({
   ...(await original<object>()),
   ...sdk,
@@ -43,6 +47,7 @@ const collect = (
 ): Promise<BaseEvent[]> => lastValueFrom(adapter.run(input).pipe(toArray()));
 beforeEach(() => {
   vi.clearAllMocks();
+  sdk.getSessionMessages.mockResolvedValue([]);
   sdk.getSessionInfo.mockResolvedValue({ sessionId: "original-session" });
 });
 for (const behavior of ["allow", "deny"])
@@ -529,3 +534,74 @@ it("closes the SDK query when a middleware consumer cancels", async () => {
   subscription.unsubscribe();
   expect(close).toHaveBeenCalledOnce();
 });
+
+for (const native of [false, true])
+  it(`rejects legacy ${native ? "native" : "frontend"} batches before consuming the surviving call`, async () => {
+    const calls = [0, 1, 2].map((i) => ({
+      ...pending,
+      id: `batch-${i}`,
+      name: native ? "Bash" : "mcp__ag_ui__confirm",
+    }));
+    let saved: SessionBinding = {
+      sessionId: "original-session",
+      profile: "original",
+      pending: calls[2],
+    };
+    sdk.getSessionMessages.mockResolvedValue([
+      {
+        message: {
+          content: calls.map((call) => ({ type: "tool_use", ...call })),
+        },
+      },
+    ]);
+    const adapter = new ClaudeAgentAdapter({
+      sessionRecovery: {
+        profile: "original",
+        resolveProfile: async () => ({ cwd: "/original" }),
+        store: {
+          load: async () => structuredClone(saved),
+          save: async (_id, value) => {
+            saved = structuredClone(value);
+          },
+        },
+      },
+    });
+    const submitted: RunAgentInput = {
+      ...request(),
+      messages: [
+        ...(native
+          ? []
+          : [
+              {
+                id: "answer",
+                role: "tool" as const,
+                toolCallId: calls[2].id,
+                content: "actual result",
+              },
+            ]),
+        { id: "next-user", role: "user", content: "Keep this next message" },
+      ],
+      ...(native
+        ? {
+            resume: [
+              {
+                interruptId: calls[2].id,
+                status: "resolved" as const,
+                payload: { behavior: "allow" },
+              },
+            ],
+          }
+        : {}),
+    };
+    const before = structuredClone(submitted);
+    const events = await collect(adapter, submitted);
+    expect(events.at(-1)).toMatchObject({
+      type: "RUN_ERROR",
+      message: expect.stringContaining("multiple pending tool calls"),
+    });
+    expect(saved.unsupportedPendingTools).toEqual(calls);
+    expect(saved.pending).toEqual(calls[2]);
+    expect(saved.sessionId).toBe("original-session");
+    expect(submitted).toEqual(before);
+    expect(sdk.query).not.toHaveBeenCalled();
+  });

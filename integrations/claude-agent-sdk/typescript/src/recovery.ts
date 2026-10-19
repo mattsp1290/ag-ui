@@ -67,9 +67,19 @@ export class RecoveryRun {
       if (results.length > 1)
         throw new Error("Multiple results for one deferred tool call.");
       if (results.length === 1 && results[0].role === "tool") {
+        // TOOL_CALL_RESULT has no error field. Middleware carries the marker
+        // in metadata so ordinary client reduction and cold restore retain it.
+        const marker = results[0].metadata?.["ag-ui:tool-result"];
+        const middlewareError =
+          marker &&
+          typeof marker === "object" &&
+          "error" in marker &&
+          typeof marker.error === "string"
+            ? marker.error
+            : undefined;
         this.frontendResult = {
           content: results[0].content,
-          error: results[0].error,
+          error: results[0].error ?? middlewareError,
         };
         this.decision = { behavior: "allow" };
       }

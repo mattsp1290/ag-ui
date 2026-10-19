@@ -127,3 +127,39 @@ it("does not reopen an answered approval if the model subsequently fails", async
   run.observe("native", "profile", { is_error: true });
   expect(run.binding?.pending).toBeUndefined();
 });
+
+it("restores middleware error metadata with the original payload after client reduction", async () => {
+  const deferred = { id: "mcp-call", name: "mcp__ag_ui__draw", input: {} };
+  const run = new RecoveryRun(
+    { sessionId: "native", profile: "profile", pending: deferred },
+    {
+      ...input(),
+      messages: [
+        {
+          id: "result",
+          role: "tool",
+          toolCallId: deferred.id,
+          content: "original MCP error",
+          metadata: { "ag-ui:tool-result": { error: "" } },
+        },
+      ],
+    },
+  );
+  await run.hook(
+    {
+      ...hookInput,
+      tool_use_id: deferred.id,
+      tool_name: deferred.name,
+      tool_input: {},
+    },
+    deferred.id,
+    { signal: new AbortController().signal },
+  );
+  expect(run.resolveFrontendResult("draw", {})).toEqual({
+    content: "original MCP error",
+    error: "",
+  });
+  expect(() => run.resolveFrontendResult("draw", {})).toThrow(
+    "no matching resumed result",
+  );
+});

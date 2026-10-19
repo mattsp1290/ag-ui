@@ -83,9 +83,16 @@ class RecoveryRun:
             if self.frontend_result is not None and message.tool_call_id == pending['id']:
                 continue
             saved = [result for result in historical_results if result.tool_call_id == message.tool_call_id]
+            # Client reduction can retain an error only in result-event metadata.
+            # Keep an explicit error authoritative and accept only string markers.
+            metadata = getattr(message, 'metadata', None)
+            marker = metadata.get('ag-ui:tool-result') if isinstance(metadata, dict) else None
+            error = getattr(message, 'error', None)
+            if error is None and isinstance(marker, dict) and isinstance(marker.get('error'), str):
+                error = marker['error']
             if ((pending and message.tool_call_id == pending['id']) or len(saved) != 1
                     or saved[0].content != message.content
-                    or getattr(saved[0], 'error', None) != getattr(message, 'error', None)):
+                    or getattr(saved[0], 'error', None) != error):
                 raise UnmatchedToolResult()
 
     def resolve_frontend_result(self, name, args):

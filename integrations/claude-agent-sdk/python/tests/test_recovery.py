@@ -300,3 +300,32 @@ async def test_real_sdk_session_store_reader_verifies_legacy_state_result():
     run = await RecoveryRun.restore(SessionBinding(session_id, 'original', deepcopy(PENDING)), value, (), load_history)
     assert run.decision == {'behavior': 'allow'}
     assert run.binding.session_id == session_id
+
+
+@pytest.mark.asyncio
+async def test_verified_native_historical_error_in_client_metadata():
+    history = historical_tool_results([SimpleNamespace(message={'content': [{
+        'type': 'tool_result', 'tool_use_id': 'state-call',
+        'content': 'Permission denied', 'is_error': True,
+    }]})])
+    value, _ = mixed_request('allow')
+    result = history[0].model_copy(update={'error': None, 'metadata': {
+        'ag-ui:tool-result': {'error': 'Tool execution failed'},
+    }})
+    value.messages[1] = result
+    binding = SessionBinding('native', 'original', deepcopy(PENDING))
+    async def load_history():
+        return history
+    run = await RecoveryRun.restore(binding, value, (), load_history)
+    output = await run.hook(hook_input(), PENDING['id'], {})
+    assert output['hookSpecificOutput']['permissionDecision'] == 'allow'
+    for update in (
+        {'content': 'changed'},
+        {'error': 'different explicit error'},
+        {'metadata': {'ag-ui:tool-result': {'error': 'different metadata error'}}},
+        {'metadata': {'ag-ui:tool-result': {'error': True}}},
+        {'metadata': {'ag-ui:tool-result': None}},
+    ):
+        value.messages[1] = result.model_copy(update=update)
+        with pytest.raises(ValueError, match='matches this frontend result'):
+            await RecoveryRun.restore(binding, value, (), load_history)

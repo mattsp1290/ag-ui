@@ -339,3 +339,58 @@ it("verifies legacy state history through the real SDK session-store reader", as
   expect(run.resuming).toBe(true);
   expect(run.binding?.sessionId).toBe(sessionId);
 });
+
+it("accepts a verified native historical error carried only in client metadata", async () => {
+  const history = historicalToolResults([
+    {
+      message: {
+        content: [
+          {
+            type: "tool_result",
+            tool_use_id: "state-call",
+            content: "Permission denied",
+            is_error: true,
+          },
+        ],
+      },
+    },
+  ]);
+  const request = mixedInput("allow");
+  const result = {
+    ...history[0],
+    error: undefined,
+    metadata: { "ag-ui:tool-result": { error: "Tool execution failed" } },
+  };
+  request.messages[1] = result;
+  const binding = { sessionId: "native", profile: "original", pending };
+  const run = await RecoveryRun.restore(
+    binding,
+    request,
+    [],
+    async () => history,
+  );
+  expect(
+    await run.hook(hookInput, pending.id, {
+      signal: new AbortController().signal,
+    }),
+  ).toMatchObject({ hookSpecificOutput: { permissionDecision: "allow" } });
+  for (const invalid of [
+    { ...result, content: "changed" },
+    { ...result, error: "different explicit error" },
+    {
+      ...result,
+      metadata: { "ag-ui:tool-result": { error: "different metadata error" } },
+    },
+    { ...result, metadata: { "ag-ui:tool-result": { error: true } } },
+    { ...result, metadata: { "ag-ui:tool-result": null } },
+  ]) {
+    await expect(
+      RecoveryRun.restore(
+        binding,
+        { ...request, messages: [invalid] },
+        [],
+        async () => history,
+      ),
+    ).rejects.toThrow("matches this frontend result");
+  }
+});

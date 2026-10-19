@@ -184,11 +184,22 @@ export class RecoveryRun {
       const saved = historicalResults.filter(
         (result) => result.toolCallId === message.toolCallId,
       );
+      // Client reduction can retain an error only in result-event metadata.
+      // An explicit error remains authoritative; never coerce the marker.
+      const marker: unknown = message.metadata?.["ag-ui:tool-result"];
+      const metadataError =
+        marker &&
+        typeof marker === "object" &&
+        "error" in marker &&
+        typeof marker.error === "string"
+          ? marker.error
+          : undefined;
+      const error = message.error ?? metadataError;
       if (
         message.toolCallId === pending?.id ||
         saved.length !== 1 ||
         !sameJson(saved[0].content, message.content) ||
-        saved[0].error !== message.error
+        saved[0].error !== error
       )
         throw new UnmatchedToolResult();
     }

@@ -684,11 +684,15 @@ class ClaudeAgentAdapter:
                 return
 
     async def _observe_recovery(self, stream, recovery, thread_id, profile):
-        from claude_agent_sdk import SystemMessage, ResultMessage, UserMessage, ToolResultBlock
+        from claude_agent_sdk import SystemMessage, ResultMessage, UserMessage, ToolResultBlock, AssistantMessage, ToolUseBlock
         async for message in stream:
+            if isinstance(message, AssistantMessage) and message.parent_tool_use_id:
+                for block in message.content:
+                    if isinstance(block, ToolUseBlock):
+                        recovery.observe_child_tool({'id': block.id, 'name': block.name, 'input': block.input}, message.parent_tool_use_id)
             if isinstance(message, UserMessage) and isinstance(message.content, list):
                 for block in message.content:
-                    if isinstance(block, ToolResultBlock) and recovery.observe_tool_result(block.tool_use_id):
+                    if isinstance(block, ToolResultBlock) and recovery.observe_tool_result(block.tool_use_id, message.parent_tool_use_id):
                         await self._save_binding(thread_id, recovery.binding)
             session_id = None
             if isinstance(message, SystemMessage) and message.subtype == "init":

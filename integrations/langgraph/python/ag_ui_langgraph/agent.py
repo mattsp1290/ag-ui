@@ -153,6 +153,37 @@ class SubagentContext:
     parent_subagent_run_id: Optional[str] = None
 
 
+def _ensure_tool_message_id(message: Any) -> None:
+    """Give a tool message without an id a stable uuid4 id, in place.
+
+    At ``on_tool_end`` the ToolMessage a tool returned usually has no id yet:
+    LangGraph's ``add_messages`` reducer assigns a fresh uuid4 only when it
+    writes the message to state. Emitting TOOL_CALL_RESULT with
+    ``message_id = tool_call_id`` (the old fallback) therefore never matched
+    the id the later MESSAGES_SNAPSHOT carries, and the client's id-based
+    snapshot merge appended the tool message after the assistant's final
+    text instead of replacing the streamed copy. Assigning the id here, on
+    the very object LangGraph is about to store, makes the reducer keep it
+    (``add_messages`` only fills a missing id), so the streamed result and
+    the snapshot agree.
+
+    The mutation has to reach the stored object, so it is applied to the
+    original ToolMessage / dict entry, never to a copy. An existing id is
+    left untouched.
+
+    Limitation: this only works when the graph runs in-process. When the
+    graph runs remotely (e.g. LangGraph Platform), the adapter only sees
+    serialized events and cannot affect what the server stores; that case
+    relies on the client-side snapshot-merge fixes
+    (ag-ui-protocol/ag-ui#3114, CopilotKit/CopilotKit#7877).
+    """
+    if isinstance(message, ToolMessage):
+        if not message.id:
+            message.id = str(uuid.uuid4())
+    elif isinstance(message, dict) and not message.get("id"):
+        message["id"] = str(uuid.uuid4())
+
+
 def _command_update_tool_messages(messages: Any) -> List[ToolMessage]:
     entries = [] if messages is None else (
         messages if isinstance(messages, (list, tuple)) else [messages]
@@ -163,6 +194,10 @@ def _command_update_tool_messages(messages: Any) -> List[ToolMessage]:
             tool_messages.append(entry)
         elif (isinstance(entry, dict) and entry.get("tool_call_id")
               and (entry.get("type") == "tool" or entry.get("role") == "tool")):
+            # The ToolMessage built below is a copy; LangGraph stores (a
+            # message converted from) the dict itself. Assign the id on the
+            # dict so it reaches state and the copy carries the same id.
+            _ensure_tool_message_id(entry)
             tool_messages.append(ToolMessage(content=entry.get("content") or "",
                                              tool_call_id=entry["tool_call_id"],
                                              name=entry.get("name"), id=entry.get("id")))
@@ -3702,6 +3737,9 @@ class LangGraphAgent:
                 # tool's Args to be emitted twice when the inner tool's
                 # OnToolEnd fires first.
                 for tool_msg in tool_messages:
+                    # Stable id shared with the stored message (see
+                    # _ensure_tool_message_id) so MESSAGES_SNAPSHOT matches.
+                    _ensure_tool_message_id(tool_msg)
                     # Same lane as the streamed call, so the resolve returns the
                     # public id its START carried (or the raw id when this call
                     # was never streamed and is being emitted here first).
@@ -3738,7 +3776,8 @@ class LangGraphAgent:
                         ToolCallResultEvent(
                             type=EventType.TOOL_CALL_RESULT,
                             tool_call_id=public_call_id,
-                            # Match ToolMessage.id (or tool_call_id) so MESSAGES_SNAPSHOT merge works.
+                            # Match ToolMessage.id (assigned above when missing) so the
+                            # MESSAGES_SNAPSHOT merge works; tool_call_id is a last resort.
                             # Resolved through the same lane map as the START above.
                             message_id=self._resolve_public_message_id(
                                 str(tool_msg.id or tool_msg.tool_call_id)
@@ -3762,6 +3801,10 @@ class LangGraphAgent:
                     type(tool_call_output).__name__,
                 )
                 return
+
+            # Stable id shared with the stored message (see
+            # _ensure_tool_message_id) so MESSAGES_SNAPSHOT matches.
+            _ensure_tool_message_id(tool_call_output)
 
             # Same lane as the streamed call, so the resolve returns the public
             # id its START carried (or the raw id when this call was never
@@ -3799,7 +3842,8 @@ class LangGraphAgent:
                 ToolCallResultEvent(
                     type=EventType.TOOL_CALL_RESULT,
                     tool_call_id=public_call_id,
-                    # Match ToolMessage.id (or tool_call_id) so MESSAGES_SNAPSHOT merge works.
+                    # Match ToolMessage.id (assigned above when missing) so the
+                    # MESSAGES_SNAPSHOT merge works; tool_call_id is a last resort.
                     # Resolved through the same lane map as the START above.
                     message_id=self._resolve_public_message_id(
                         str(tool_call_output.id or tool_call_output.tool_call_id)

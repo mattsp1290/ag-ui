@@ -10,6 +10,7 @@ Mirrors integrations/langgraph/typescript/src/predict-state-e2e.test.ts.
 
 import asyncio
 import unittest
+import uuid
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from langchain_core.messages import AIMessageChunk
@@ -409,14 +410,24 @@ class TestPredictStateOutcome(unittest.IsolatedAsyncioTestCase):
 
 
 class TestToolCallResultMessageId(unittest.IsolatedAsyncioTestCase):
-    """message_id on TOOL_CALL_RESULT must use ToolMessage.id (or tool_call_id
-    as fallback) so the streamed event matches the MESSAGES_SNAPSHOT id-based merge."""
+    """message_id on TOOL_CALL_RESULT must use ToolMessage.id so the streamed
+    event matches the MESSAGES_SNAPSHOT id-based merge. A ToolMessage without
+    an id is given a fresh uuid4 in place — on the object LangGraph stores, so
+    add_messages keeps it — rather than falling back to tool_call_id, which
+    never matched the id the checkpoint assigned."""
 
-    async def test_direct_tool_end_uses_tool_call_id_when_id_absent(self):
-        """Non-Command OnToolEnd with ToolMessage.id=None falls back to tool_call_id."""
+    def _assert_fresh_uuid(self, value, tool_call_id):
+        self.assertNotEqual(value, tool_call_id)
+        uuid.UUID(value)  # raises if not a uuid
+
+    async def test_direct_tool_end_assigns_stable_id_when_id_absent(self):
+        """Non-Command OnToolEnd with ToolMessage.id=None gets a uuid4 id, set
+        on the ToolMessage itself and emitted as message_id."""
+        tool_end = _tool_end_event("my_tool", tool_call_id="tc_abc")
+        tool_msg = tool_end["data"]["output"]
         events = [
             _event("on_chain_start", node="model"),
-            _tool_end_event("my_tool", tool_call_id="tc_abc"),
+            tool_end,
             _chain_end_event("tools", output={"messages": []}),
         ]
         dispatched = await _run_stream(events)
@@ -425,7 +436,8 @@ class TestToolCallResultMessageId(unittest.IsolatedAsyncioTestCase):
             if getattr(ev, "type", None) == EventType.TOOL_CALL_RESULT
         ]
         self.assertEqual(len(results), 1)
-        self.assertEqual(results[0].message_id, "tc_abc")
+        self._assert_fresh_uuid(results[0].message_id, "tc_abc")
+        self.assertEqual(tool_msg.id, results[0].message_id)
         self.assertEqual(results[0].tool_call_id, "tc_abc")
 
     async def test_direct_tool_end_uses_tool_message_id_when_present(self):
@@ -458,11 +470,14 @@ class TestToolCallResultMessageId(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(results[0].message_id, "msg_explicit_id")
         self.assertEqual(results[0].tool_call_id, "tc_abc")
 
-    async def test_command_tool_end_uses_tool_call_id_when_id_absent(self):
-        """Command-style OnToolEnd with ToolMessage.id=None falls back to tool_call_id."""
+    async def test_command_tool_end_assigns_stable_id_when_id_absent(self):
+        """Command-style OnToolEnd with ToolMessage.id=None gets a uuid4 id, set
+        on the ToolMessage inside Command.update and emitted as message_id."""
+        tool_end = _command_tool_end_event("my_tool", tool_call_id="tc_xyz")
+        tool_msg = tool_end["data"]["output"].update["messages"][0]
         events = [
             _event("on_chain_start", node="model"),
-            _command_tool_end_event("my_tool", tool_call_id="tc_xyz"),
+            tool_end,
             _chain_end_event("tools", output={"messages": []}),
         ]
         dispatched = await _run_stream(events)
@@ -471,8 +486,33 @@ class TestToolCallResultMessageId(unittest.IsolatedAsyncioTestCase):
             if getattr(ev, "type", None) == EventType.TOOL_CALL_RESULT
         ]
         self.assertEqual(len(results), 1)
-        self.assertEqual(results[0].message_id, "tc_xyz")
+        self._assert_fresh_uuid(results[0].message_id, "tc_xyz")
+        self.assertEqual(tool_msg.id, results[0].message_id)
         self.assertEqual(results[0].tool_call_id, "tc_xyz")
+
+    async def test_command_tool_end_assigns_stable_id_to_dict_entry(self):
+        """A dict-shaped tool message in Command.update gets the id on the dict
+        itself (the entry LangGraph stores), not only on the adapter's copy."""
+        from langgraph.types import Command
+        entry = {"type": "tool", "content": "Done.", "tool_call_id": "tc_dict", "name": "my_tool"}
+        tool_end = _event(
+            "on_tool_end",
+            node="tools",
+            data={"output": Command(update={"messages": [entry]}), "input": {}},
+        )
+        events = [
+            _event("on_chain_start", node="model"),
+            tool_end,
+            _chain_end_event("tools", output={"messages": []}),
+        ]
+        dispatched = await _run_stream(events)
+        results = [
+            ev for ev in dispatched
+            if getattr(ev, "type", None) == EventType.TOOL_CALL_RESULT
+        ]
+        self.assertEqual(len(results), 1)
+        self._assert_fresh_uuid(results[0].message_id, "tc_dict")
+        self.assertEqual(entry["id"], results[0].message_id)
 
     async def test_command_tool_end_uses_tool_message_id_when_present(self):
         """Command-style OnToolEnd with ToolMessage.id set uses that id."""

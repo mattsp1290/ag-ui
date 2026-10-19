@@ -59,7 +59,14 @@ class RecoveryRun:
             if len(results) > 1:
                 raise ValueError('Multiple results for one deferred tool call')
             if results:
-                self.frontend_result = {'content': results[0].content, 'error': getattr(results[0], 'error', None)}
+                # The protocol result event carries error status in metadata;
+                # the client reducer preserves this through a cold restart.
+                metadata = getattr(results[0], 'metadata', None) or {}
+                marker = metadata.get('ag-ui:tool-result') if isinstance(metadata, dict) else None
+                error = getattr(results[0], 'error', None)
+                if error is None and isinstance(marker, dict) and isinstance(marker.get('error'), str):
+                    error = marker['error']
+                self.frontend_result = {'content': results[0].content, 'error': error}
                 self.decision = {'behavior': 'allow'}
         responses = getattr(input_data, 'resume', None) or []
         if responses and (self.frontend_result is not None or any(m.role == 'tool' and pending and m.tool_call_id == pending['id'] for m in messages)):

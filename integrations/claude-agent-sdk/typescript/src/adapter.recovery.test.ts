@@ -302,3 +302,234 @@ for (const isError of [false, true])
         history.length + 1,
       );
     });
+
+for (const newInput of [false, true])
+  it(`retains new user input after durable recovery, newInput=${newInput}`, async () => {
+    const received: unknown[] = [];
+    sdk.query.mockImplementation(({ options, prompt }) =>
+      (async function* () {
+        const incoming = (async () => {
+          for await (const message of prompt)
+            received.push(message.message.content);
+        })();
+        await options.hooks.PreToolUse.at(-1).hooks[0]({
+          hook_event_name: "PreToolUse",
+          tool_use_id: pending.id,
+          tool_name: pending.name,
+          tool_input: pending.input,
+        });
+        expect(received).toEqual([]);
+        yield {
+          type: "result",
+          subtype: "success",
+          session_id: "original-session",
+          is_error: false,
+        };
+        await incoming;
+        if (newInput)
+          yield {
+            type: "result",
+            subtype: "success",
+            session_id: "original-session",
+            is_error: false,
+          };
+      })(),
+    );
+    const adapter = new ClaudeAgentAdapter({
+      sessionRecovery: {
+        profile: "profile",
+        resolveProfile: async () => ({}),
+        store: {
+          load: async () => ({
+            sessionId: "original-session",
+            profile: "profile",
+            pending: structuredClone(pending),
+          }),
+          save: async () => {},
+        },
+      },
+    });
+    const events = await collect(adapter, {
+      ...request("allow"),
+      messages: [
+        { id: "old", role: "user", content: "Old instruction" },
+        {
+          id: "call",
+          role: "assistant",
+          toolCalls: [
+            {
+              id: pending.id,
+              type: "function",
+              function: {
+                name: pending.name,
+                arguments: JSON.stringify(pending.input),
+              },
+            },
+          ],
+        },
+        ...(newInput
+          ? [{ id: "new", role: "user" as const, content: "New instruction" }]
+          : []),
+      ],
+    });
+    expect(events.at(-1)?.type).toBe("RUN_FINISHED");
+    expect(received).toEqual(newInput ? ["New instruction"] : []);
+    expect(sdk.query).toHaveBeenCalledTimes(1);
+  });
+
+it("completes an A2UI call through the actual SDK loopback tool with its native ID", async () => {
+  const { A2UIMiddleware } = await import(
+    "../../../../middlewares/a2ui-middleware/src"
+  );
+  const { Client } = await import("@modelcontextprotocol/sdk/client/index.js");
+  const { StreamableHTTPClientTransport } = await import(
+    "@modelcontextprotocol/sdk/client/streamableHttp.js"
+  );
+  const original = {
+    id: "native-render",
+    name: "mcp__ag_ui__render_a2ui",
+    input: {
+      surfaceId: "card",
+      components: [{ id: "root", component: "Text", text: "Hello" }],
+    },
+  };
+  const delivered: unknown[] = [];
+  let runs = 0;
+  sdk.query.mockImplementation(({ options, prompt }) =>
+    (async function* () {
+      const resumed = runs++ > 0;
+      yield { type: "system", subtype: "init", session_id: "original-session" };
+      const decision = await options.hooks.PreToolUse.at(-1).hooks[0]({
+        hook_event_name: "PreToolUse",
+        tool_use_id: original.id,
+        tool_name: original.name,
+        tool_input: original.input,
+      });
+      expect(decision.hookSpecificOutput.permissionDecision).toBe(
+        resumed ? "allow" : "defer",
+      );
+      if (!resumed) {
+        yield {
+          type: "assistant",
+          uuid: "assistant-uuid",
+          session_id: "original-session",
+          message: {
+            id: "assistant",
+            role: "assistant",
+            content: [{ type: "tool_use", ...original }],
+          },
+        };
+        yield {
+          type: "result",
+          subtype: "success",
+          session_id: "original-session",
+          is_error: false,
+          stop_reason: "tool_deferred",
+          deferred_tool_use: original,
+        };
+        return;
+      }
+      const client = new Client({ name: "provider-free-sdk", version: "1" });
+      const config = options.mcpServers.ag_ui;
+      try {
+        await client.connect(
+          new StreamableHTTPClientTransport(new URL(config.url), {
+            requestInit: { headers: config.headers },
+          }),
+        );
+        const result = await client.callTool({
+          name: "render_a2ui",
+          arguments: original.input,
+        });
+        delivered.push(result);
+        yield {
+          type: "user",
+          session_id: "original-session",
+          message: {
+            role: "user",
+            content: [
+              {
+                type: "tool_result",
+                tool_use_id: original.id,
+                content: result.content,
+                is_error: result.isError,
+              },
+            ],
+          },
+        };
+      } finally {
+        await client.close();
+      }
+      yield {
+        type: "result",
+        subtype: "success",
+        session_id: "original-session",
+        is_error: false,
+        result: "Here is your card",
+      };
+      const extra = [];
+      for await (const message of prompt) extra.push(message);
+      expect(extra).toEqual([]);
+    })(),
+  );
+  const adapter = new ClaudeAgentAdapter();
+  const input = {
+    ...request(),
+    messages: [{ id: "user", role: "user" as const, content: "Show a card" }],
+  };
+  const events = await lastValueFrom(
+    new A2UIMiddleware({
+      injectA2UITool: true,
+      schema: {
+        catalogId: "test",
+        components: { Text: { type: "object", required: ["text"] } },
+      },
+    })
+      .run(input, adapter)
+      .pipe(toArray()),
+  );
+  expect(events.filter((event) => event.type === "RUN_ERROR")).toEqual([]);
+  expect(runs).toBe(2);
+  expect(delivered).toEqual([
+    { content: [{ type: "text", text: '{"status":"rendered"}' }] },
+  ]);
+  expect(
+    new Set(
+      events
+        .filter((event) => event.type === "TOOL_CALL_RESULT")
+        .map((event) => event.messageId),
+    ).size,
+  ).toBe(1);
+  expect(events.filter((event) => event.type === "RUN_STARTED")).toHaveLength(
+    1,
+  );
+  expect(events.filter((event) => event.type === "RUN_FINISHED")).toHaveLength(
+    1,
+  );
+});
+
+it("closes the SDK query when a middleware consumer cancels", async () => {
+  let started!: () => void;
+  const ready = new Promise<void>((resolve) => {
+    started = resolve;
+  });
+  let stopped!: () => void;
+  const closed = new Promise<void>((resolve) => {
+    stopped = resolve;
+  });
+  const close = vi.fn(() => stopped());
+  sdk.query.mockImplementation(() =>
+    Object.assign(
+      (async function* () {
+        started();
+        await closed;
+      })(),
+      { close },
+    ),
+  );
+  const adapter = new ClaudeAgentAdapter();
+  const subscription = adapter.run({ ...request(), state: null }).subscribe();
+  await ready;
+  subscription.unsubscribe();
+  expect(close).toHaveBeenCalledOnce();
+});

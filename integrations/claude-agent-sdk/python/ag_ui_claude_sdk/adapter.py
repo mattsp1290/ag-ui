@@ -67,6 +67,7 @@ from .handlers import (
 from .session import SessionWorker
 from .loopback_mcp import LoopbackMcpServer
 from .recovery import historical_tool_results, SessionBinding, RecoveryRun
+from .utils import recovery_user_messages
 
 logger = logging.getLogger(__name__)
 
@@ -338,6 +339,7 @@ class ClaudeAgentAdapter:
         # to avoid decrementing the peer's refcount. (Item 7a)
         counted_in = False
         recovery = None
+        recovery_prompts = []
         loopback = None
 
         try:
@@ -405,6 +407,8 @@ class ClaudeAgentAdapter:
                 if recovery.decision:
                     # Resume replays the deferred call automatically. Sending an
                     # empty user message would enqueue an extra model turn.
+                    recovery_prompts = [process_messages(input_data.model_copy(update={"messages": [message]}))[0]
+                                        for message in recovery_user_messages(input_data, binding.pending["id"])]
                     prompt = None
                 # Recovery owns a new SDK process for each run so hooks and restored
                 # execution configuration cannot be retained from a previous run.
@@ -490,7 +494,7 @@ class ClaudeAgentAdapter:
 
             message_stream = worker.query(prompt, session_id=thread_id)
             if recovery is not None:
-                message_stream = self._observe_recovery(message_stream, recovery, thread_id, profile)
+                message_stream = self._resume_with_user_input(worker, message_stream, recovery, thread_id, profile, recovery_prompts)
 
             # Log parent_run_id if provided (for branching/time travel tracking)
             if input_data.parent_run_id:
@@ -650,6 +654,25 @@ class ClaudeAgentAdapter:
                 self._per_run_result.pop(result_key, None)
                 run_lock.release()
                 self._evict_memory_bindings()
+
+    async def _resume_with_user_input(self, worker, stream, recovery, thread_id, profile, prompts):
+        # Drain the original tool's response first. Each subsequent query is a
+        # genuine user turn on the same SDK client/session, never a Continue stub.
+        from claude_agent_sdk import ResultMessage
+        failed = False
+        async for message in self._observe_recovery(stream, recovery, thread_id, profile):
+            if isinstance(message, ResultMessage):
+                failed = message.is_error
+            yield message
+        if failed:
+            return
+        for prompt in prompts:
+            async for message in self._observe_recovery(worker.query(prompt, session_id=thread_id), recovery, thread_id, profile):
+                if isinstance(message, ResultMessage):
+                    failed = message.is_error
+                yield message
+            if failed:
+                return
 
     async def _observe_recovery(self, stream, recovery, thread_id, profile):
         from claude_agent_sdk import SystemMessage, ResultMessage, UserMessage, ToolResultBlock
@@ -1172,7 +1195,10 @@ class ClaudeAgentAdapter:
                         if tool_use_id:
                             upsert_message(build_agui_tool_message(tool_use_id, block_content, bool(getattr(block, "is_error", False))))
                         parent_id = getattr(message, 'parent_tool_use_id', None)
+                        submitted = next((item for item in input_data.messages if item.role == "tool" and item.tool_call_id == tool_use_id), None)
                         async for event in handle_tool_result_block(block, thread_id, run_id, parent_id, getattr(message, "tool_use_result", None), getattr(message, "uuid", None)):
+                            if submitted and event.type == EventType.TOOL_CALL_RESULT:
+                                event = event.model_copy(update={"message_id": submitted.id})
                             yield event
             
             elif isinstance(message, SystemMessage):

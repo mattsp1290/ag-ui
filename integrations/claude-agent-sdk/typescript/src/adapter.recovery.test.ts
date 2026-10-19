@@ -1,3 +1,6 @@
+import { A2UIMiddleware } from "../../../../middlewares/a2ui-middleware/src";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { beforeEach, expect, it, vi } from "vitest";
 import { lastValueFrom, toArray, Subscriber } from "rxjs";
 import { buildAguiToolMessage } from "./utils";
@@ -378,13 +381,6 @@ for (const newInput of [false, true])
   });
 
 it("completes an A2UI call through the actual SDK loopback tool with its native ID", async () => {
-  const { A2UIMiddleware } = await import(
-    "../../../../middlewares/a2ui-middleware/src"
-  );
-  const { Client } = await import("@modelcontextprotocol/sdk/client/index.js");
-  const { StreamableHTTPClientTransport } = await import(
-    "@modelcontextprotocol/sdk/client/streamableHttp.js"
-  );
   const original = {
     id: "native-render",
     name: "mcp__ag_ui__render_a2ui",

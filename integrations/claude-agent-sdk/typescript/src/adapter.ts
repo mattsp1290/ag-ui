@@ -1,6 +1,14 @@
 import { startLoopbackMcp } from "./loopback-mcp";
-import { RecoveryRun, type SessionBinding } from "./recovery";
-import { getSessionInfo } from "@anthropic-ai/claude-agent-sdk";
+import {
+  RecoveryRun,
+  unresolvedToolUses,
+  historicalToolResults,
+  type SessionBinding,
+} from "./recovery";
+import {
+  getSessionInfo,
+  getSessionMessages,
+} from "@anthropic-ai/claude-agent-sdk";
 /**
  * Claude Agent SDK adapter for AG-UI protocol.
  */
@@ -37,6 +45,7 @@ import {
 import {
   type FrontendToolResult,
   processMessages,
+  recoveryUserMessages,
   buildStateContextAddendum,
   extractToolNames,
   stripMcpPrefix,
@@ -170,6 +179,7 @@ export class ClaudeAgentAdapter extends AbstractAgent {
       this.translateStream(runInput, subscriber).catch((error) => {
         subscriber.error(error);
       });
+      return () => this.activeQueries.get(threadId)?.close?.();
     });
   }
 
@@ -226,19 +236,53 @@ export class ClaudeAgentAdapter extends AbstractAgent {
           sessionId: requested as string,
           profile: recoveryConfig?.profile ?? "default",
         };
-      const recovery = new RecoveryRun(
-        binding,
-        input,
-        recoveryConfig?.deferTools,
-      );
       const profile = binding?.profile ?? recoveryConfig?.profile ?? "default";
       const profileOptions = recoveryConfig
         ? await recoveryConfig.resolveProfile(profile)
         : {};
       const options = this.buildOptions(
-        { ...input, tools: recovery.tools },
+        {
+          ...input,
+          tools:
+            binding?.pending && binding.frontendTools
+              ? binding.frontendTools
+              : input.tools,
+        },
         profileOptions,
-        recovery.resolveFrontendResult,
+        (name, args) => recovery.resolveFrontendResult(name, args),
+      );
+      let nativeHistory:
+        | Awaited<ReturnType<typeof getSessionMessages>>
+        | undefined;
+      if (binding?.pending && !binding.unsupportedPendingTools?.length) {
+        nativeHistory = await getSessionMessages(binding.sessionId, {
+          dir: options.cwd,
+          sessionStore: options.sessionStore,
+        });
+        const unresolved = unresolvedToolUses(nativeHistory);
+        if (
+          unresolved.length > 1 &&
+          unresolved.some((call) => call.id === binding.pending!.id)
+        ) {
+          binding.unsupportedPendingTools = unresolved;
+          if (recoveryConfig)
+            await recoveryConfig.store.save(threadId, structuredClone(binding));
+          this.bindings.set(threadId, structuredClone(binding));
+        }
+      }
+      const recovery = await RecoveryRun.restore(
+        binding,
+        input,
+        recoveryConfig?.deferTools ?? [],
+        async () => {
+          return historicalToolResults(
+            nativeHistory ??
+              (await getSessionMessages(binding!.sessionId, {
+                dir: options.cwd,
+                sessionStore: options.sessionStore,
+              })),
+          );
+        },
       );
       const proxy = options.mcpServers?.[AG_UI_MCP_SERVER_NAME];
       if (proxy && typeof proxy === "object" && proxy.type === "sdk") {
@@ -302,9 +346,29 @@ export class ClaudeAgentAdapter extends AbstractAgent {
       const resumeGate = new Promise<void>((resolve) => {
         releaseResumeInput = resolve;
       });
+      const newMessages = recovery.resuming
+        ? recoveryUserMessages(input, binding!.pending!.id)
+        : [];
       const prompt = recovery.resuming
         ? (async function* (): AsyncIterable<SDKUserMessage> {
             await resumeGate;
+            if (subscriber.closed) return;
+            for (const message of newMessages) {
+              const converted = processMessages({
+                ...input,
+                messages: [message],
+              }).userMessage;
+              if (typeof converted === "string") {
+                yield {
+                  type: "user",
+                  session_id: binding!.sessionId,
+                  parent_tool_use_id: null,
+                  message: { role: "user", content: converted },
+                };
+              } else {
+                yield* converted;
+              }
+            }
           })()
         : processMessages(input).userMessage;
       for (const notice of unsupportedInputParts(input)) {
@@ -325,6 +389,7 @@ export class ClaudeAgentAdapter extends AbstractAgent {
         );
       }
 
+      if (subscriber.closed) return;
       const messageStream = query({
         prompt,
         options: {
@@ -412,7 +477,6 @@ export class ClaudeAgentAdapter extends AbstractAgent {
     releaseInput: () => void,
   ): AsyncIterable<SDKMessage> {
     for await (const message of stream) {
-      if (message.type === "result") releaseInput();
       if (message.type === "user" && Array.isArray(message.message.content)) {
         for (const block of message.message.content) {
           if (
@@ -446,11 +510,13 @@ export class ClaudeAgentAdapter extends AbstractAgent {
             );
           this.bindings.set(threadId, structuredClone(recovery.binding));
         }
+        recovery.assertSupported();
         if (message.type === "result" && message.is_error)
           throw new Error(
             "SDK resume/run failed; check the original files, tools, credentials and execution configuration.",
           );
       }
+      if (message.type === "result") releaseInput();
       yield message;
     }
   }
@@ -1002,7 +1068,14 @@ export class ClaudeAgentAdapter extends AbstractAgent {
                   type: EventType.TOOL_CALL_RESULT,
                   threadId,
                   runId,
-                  messageId: toolMsg.id,
+                  // The native echo updates the submitted result, rather than
+                  // introducing a second outward message for the same call.
+                  messageId:
+                    input.messages.find(
+                      (message) =>
+                        message.role === "tool" &&
+                        message.toolCallId === toolUseId,
+                    )?.id ?? toolMsg.id,
                   toolCallId: toolUseId,
                   content: toolMsg.content!,
                   rawEvent: {

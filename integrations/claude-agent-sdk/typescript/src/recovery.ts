@@ -1,3 +1,5 @@
+import { buildAguiToolMessage } from "./utils";
+
 /** Session bindings are host-owned metadata, separate from SDK transcript storage. */
 import type {
   HookCallback,
@@ -14,6 +16,8 @@ export interface SessionBinding {
   sessionId: string;
   profile: string;
   pending?: SDKDeferredToolUse;
+  /** Unsupported batch retained for diagnosis; never replay these as separate calls. */
+  unsupportedPendingTools?: SDKDeferredToolUse[];
   frontendTools?: RunAgentInput["tools"];
 }
 export interface SessionBindingStore {
@@ -29,7 +33,72 @@ export interface SessionRecoveryConfig {
   deferTools?: string[];
 }
 
+class UnmatchedToolResult extends Error {
+  constructor() {
+    super("No saved SDK deferral matches this frontend result.");
+  }
+}
+
+/** Convert trusted native transcript results using the same projection as live events. */
+export function historicalToolResults(
+  messages: { message: unknown }[],
+): ToolMessage[] {
+  const results: ToolMessage[] = [];
+  for (const { message } of messages) {
+    if (
+      !message ||
+      typeof message !== "object" ||
+      !("content" in message) ||
+      !Array.isArray(message.content)
+    )
+      continue;
+    const content: unknown[] = message.content;
+    for (const block of content) {
+      if (
+        block &&
+        typeof block === "object" &&
+        "type" in block &&
+        block.type === "tool_result" &&
+        "tool_use_id" in block &&
+        typeof block.tool_use_id === "string"
+      )
+        results.push(
+          buildAguiToolMessage(
+            block.tool_use_id,
+            "content" in block ? block.content : undefined,
+            "is_error" in block && block.is_error === true,
+          ),
+        );
+    }
+  }
+  return results;
+}
+
 export class RecoveryRun {
+  static async restore(
+    binding: SessionBinding | undefined,
+    input: RunAgentInput,
+    deferTools: string[],
+    loadHistory: () => Promise<ToolMessage[]>,
+  ): Promise<RecoveryRun> {
+    try {
+      return new RecoveryRun(binding, input, deferTools);
+    } catch (error) {
+      if (!(error instanceof UnmatchedToolResult) || !binding) throw error;
+      // History is host-loaded from this binding's original SDK session, never
+      // inferred from client message order, tool names, or forwarded props.
+      return new RecoveryRun(binding, input, deferTools, await loadHistory());
+    }
+  }
+
+  private deferredTools = new Map<string, SDKDeferredToolUse>();
+  assertSupported() {
+    if ((this.binding?.unsupportedPendingTools?.length ?? 0) > 1)
+      throw new Error(
+        "Claude SDK cannot resume multiple pending tool calls. The original pending batch is retained; SDK batch recovery is unsupported.",
+      );
+  }
+
   private decision?: {
     behavior: "allow" | "deny";
     message?: string;
@@ -48,7 +117,9 @@ export class RecoveryRun {
     public binding: SessionBinding | undefined,
     input: RunAgentInput,
     deferTools: string[] = [],
+    historicalResults: ToolMessage[] = [],
   ) {
+    this.assertSupported();
     this.tools = structuredClone(
       binding?.pending && binding.frontendTools
         ? binding.frontendTools
@@ -67,20 +138,32 @@ export class RecoveryRun {
       if (results.length > 1)
         throw new Error("Multiple results for one deferred tool call.");
       if (results.length === 1 && results[0].role === "tool") {
+        // TOOL_CALL_RESULT has no error field. Middleware carries the marker
+        // in metadata so ordinary client reduction and cold restore retain it.
+        const marker = results[0].metadata?.["ag-ui:tool-result"];
+        const middlewareError =
+          marker &&
+          typeof marker === "object" &&
+          "error" in marker &&
+          typeof marker.error === "string"
+            ? marker.error
+            : undefined;
         this.frontendResult = {
           content: results[0].content,
-          error: results[0].error,
+          error: results[0].error ?? middlewareError,
         };
         this.decision = { behavior: "allow" };
       }
     }
-    if (
-      input.messages[input.messages.length - 1]?.role === "tool" &&
-      this.frontendResult === undefined
-    )
-      throw new Error("No saved SDK deferral matches this frontend result.");
     const responses = input.resume ?? [];
-    if (responses.length && this.frontendResult !== undefined)
+    if (
+      responses.length &&
+      (this.frontendResult !== undefined ||
+        input.messages.some(
+          (message) =>
+            message.role === "tool" && message.toolCallId === pending?.id,
+        ))
+    )
       throw new Error(
         "Submit either a native decision or a frontend result, not both.",
       );
@@ -102,6 +185,44 @@ export class RecoveryRun {
       if (!payload || !["allow", "deny"].includes(payload.behavior))
         throw new Error("Approval payload requires behavior: allow or deny.");
       this.decision = payload;
+    }
+    // Only a result proved to exist in native storage can be ignored as
+    // history. Check every trailing result, not just the last one.
+    for (let i = input.messages.length - 1; i >= 0; i--) {
+      const message = input.messages[i];
+      if (message.role !== "tool") break;
+      if (
+        input.messages.filter(
+          (m) => m.role === "tool" && m.toolCallId === message.toolCallId,
+        ).length > 1
+      )
+        throw new Error("Multiple results for one deferred tool call.");
+      if (
+        this.frontendResult !== undefined &&
+        message.toolCallId === pending?.id
+      )
+        continue;
+      const saved = historicalResults.filter(
+        (result) => result.toolCallId === message.toolCallId,
+      );
+      // Client reduction can retain an error only in result-event metadata.
+      // An explicit error remains authoritative; never coerce the marker.
+      const marker: unknown = message.metadata?.["ag-ui:tool-result"];
+      const metadataError =
+        marker &&
+        typeof marker === "object" &&
+        "error" in marker &&
+        typeof marker.error === "string"
+          ? marker.error
+          : undefined;
+      const error = message.error ?? metadataError;
+      if (
+        message.toolCallId === pending?.id ||
+        saved.length !== 1 ||
+        !sameJson(saved[0].content, message.content) ||
+        saved[0].error !== error
+      )
+        throw new UnmatchedToolResult();
     }
   }
   readonly resolveFrontendResult = (
@@ -156,6 +277,22 @@ export class RecoveryRun {
     if (input.hook_event_name !== "PreToolUse") return {};
     const pending = this.binding?.pending;
     if (!pending || this.consumed) {
+      if (this.frontendNames.has(input.tool_name)) {
+        if (
+          !input.tool_input ||
+          typeof input.tool_input !== "object" ||
+          Array.isArray(input.tool_input)
+        )
+          throw new Error("Deferred tool input must be an object.");
+        this.deferredTools.set(
+          input.tool_use_id,
+          structuredClone({
+            id: input.tool_use_id,
+            name: input.tool_name,
+            input: { ...input.tool_input },
+          }),
+        );
+      }
       return this.frontendNames.has(input.tool_name)
         ? {
             hookSpecificOutput: {
@@ -201,6 +338,7 @@ export class RecoveryRun {
     };
   };
   observeToolResult(toolUseId: string): boolean {
+    this.deferredTools.delete(toolUseId);
     if (this.binding?.pending?.id !== toolUseId) return false;
     if (!this.consumed)
       throw new Error(
@@ -243,6 +381,7 @@ export class RecoveryRun {
           "SDK deferral is missing its original tool identity/input.",
         );
       this.binding.pending = pending;
+      this.deferredTools.set(pending.id, structuredClone(pending));
     } else if (!result.is_error && this.binding.pending) {
       if (this.frontendResult !== undefined && !this.delivered)
         throw new Error(
@@ -252,6 +391,8 @@ export class RecoveryRun {
         throw new Error("SDK did not replay the saved deferred tool call.");
       delete this.binding.pending;
     }
+    if (this.deferredTools.size > 1)
+      this.binding.unsupportedPendingTools = [...this.deferredTools.values()];
   }
 }
 function sameJson(a: unknown, b: unknown): boolean {
@@ -271,4 +412,39 @@ function sameJson(a: unknown, b: unknown): boolean {
         ),
     )
   );
+}
+
+/** Read-only diagnostic for legacy bindings that retained only the SDK's last call. */
+export function unresolvedToolUses(
+  messages: { message: unknown }[],
+): SDKDeferredToolUse[] {
+  const pending = new Map<string, SDKDeferredToolUse>();
+  for (const { message } of messages) {
+    if (
+      !message ||
+      typeof message !== "object" ||
+      !("content" in message) ||
+      !Array.isArray(message.content)
+    )
+      continue;
+    for (const block of message.content) {
+      if (
+        block?.type === "tool_use" &&
+        typeof block.id === "string" &&
+        typeof block.name === "string" &&
+        block.input &&
+        typeof block.input === "object"
+      )
+        pending.set(
+          block.id,
+          structuredClone({
+            id: block.id,
+            name: block.name,
+            input: block.input,
+          }),
+        );
+      else if (block?.type === "tool_result") pending.delete(block.tool_use_id);
+    }
+  }
+  return [...pending.values()];
 }

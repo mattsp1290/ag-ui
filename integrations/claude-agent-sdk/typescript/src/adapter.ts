@@ -37,6 +37,7 @@ import {
 import {
   type FrontendToolResult,
   processMessages,
+  recoveryUserMessages,
   buildStateContextAddendum,
   extractToolNames,
   stripMcpPrefix,
@@ -170,6 +171,7 @@ export class ClaudeAgentAdapter extends AbstractAgent {
       this.translateStream(runInput, subscriber).catch((error) => {
         subscriber.error(error);
       });
+      return () => this.activeQueries.get(threadId)?.close?.();
     });
   }
 
@@ -302,9 +304,29 @@ export class ClaudeAgentAdapter extends AbstractAgent {
       const resumeGate = new Promise<void>((resolve) => {
         releaseResumeInput = resolve;
       });
+      const newMessages = recovery.resuming
+        ? recoveryUserMessages(input, binding!.pending!.id)
+        : [];
       const prompt = recovery.resuming
         ? (async function* (): AsyncIterable<SDKUserMessage> {
             await resumeGate;
+            if (subscriber.closed) return;
+            for (const message of newMessages) {
+              const converted = processMessages({
+                ...input,
+                messages: [message],
+              }).userMessage;
+              if (typeof converted === "string") {
+                yield {
+                  type: "user",
+                  session_id: binding!.sessionId,
+                  parent_tool_use_id: null,
+                  message: { role: "user", content: converted },
+                };
+              } else {
+                yield* converted;
+              }
+            }
           })()
         : processMessages(input).userMessage;
       for (const notice of unsupportedInputParts(input)) {
@@ -325,6 +347,7 @@ export class ClaudeAgentAdapter extends AbstractAgent {
         );
       }
 
+      if (subscriber.closed) return;
       const messageStream = query({
         prompt,
         options: {
@@ -412,7 +435,6 @@ export class ClaudeAgentAdapter extends AbstractAgent {
     releaseInput: () => void,
   ): AsyncIterable<SDKMessage> {
     for await (const message of stream) {
-      if (message.type === "result") releaseInput();
       if (message.type === "user" && Array.isArray(message.message.content)) {
         for (const block of message.message.content) {
           if (
@@ -451,6 +473,7 @@ export class ClaudeAgentAdapter extends AbstractAgent {
             "SDK resume/run failed; check the original files, tools, credentials and execution configuration.",
           );
       }
+      if (message.type === "result") releaseInput();
       yield message;
     }
   }
@@ -1002,7 +1025,14 @@ export class ClaudeAgentAdapter extends AbstractAgent {
                   type: EventType.TOOL_CALL_RESULT,
                   threadId,
                   runId,
-                  messageId: toolMsg.id,
+                  // The native echo updates the submitted result, rather than
+                  // introducing a second outward message for the same call.
+                  messageId:
+                    input.messages.find(
+                      (message) =>
+                        message.role === "tool" &&
+                        message.toolCallId === toolUseId,
+                    )?.id ?? toolMsg.id,
                   toolCallId: toolUseId,
                   content: toolMsg.content!,
                   rawEvent: {

@@ -194,3 +194,80 @@ async def test_local_frontend_bindings_are_bounded(eviction):
     assert "old" not in adapter._memory_bindings
     assert len(adapter._memory_bindings) <= 1
     await adapter.shutdown()
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("new_input", [False, True])
+async def test_new_user_input_survives_recovery_once_in_order(monkeypatch, make_input, new_input):
+    from claude_agent_sdk import ResultMessage
+    from ag_ui_claude_sdk import ClaudeAgentAdapter
+    import ag_ui_claude_sdk.adapter as module
+    import claude_agent_sdk
+    calls = []
+    class Store:
+        async def load(self, thread): return SessionBinding("native-uuid", "profile", deepcopy(PENDING))
+        async def save(self, thread, binding): pass
+    class Worker:
+        def __init__(self, thread, options): self.options = options
+        async def start(self): pass
+        async def stop(self): pass
+        def is_alive(self): return True
+        async def query(self, prompt, session_id):
+            calls.append(prompt)
+            if len(calls) == 1:
+                assert prompt is None
+                await self.options.hooks["PreToolUse"][-1].hooks[0](hook_input(), PENDING["id"], {})
+            yield ResultMessage(subtype="success", duration_ms=1, duration_api_ms=1, is_error=False, num_turns=1, session_id="native-uuid")
+    monkeypatch.setattr(module, "SessionWorker", Worker)
+    monkeypatch.setattr(claude_agent_sdk, "get_session_info", lambda *a, **kw: SimpleNamespace(session_id="native-uuid"))
+    async def profile_options(profile): return {}
+    adapter = ClaudeAgentAdapter("test", session_binding_store=Store(), resolve_profile=profile_options, execution_profile="profile")
+    messages = [{"id": "old", "role": "user", "content": "Old instruction"},
+                {"id": "call", "role": "assistant", "toolCalls": [{"id": PENDING["id"], "type": "function", "function": {"name": "Bash", "arguments": "{}"}}]}]
+    if new_input: messages.append({"id": "new", "role": "user", "content": "New instruction"})
+    inp = make_input(messages=messages)
+    from ag_ui.core import RunAgentInput
+    inp = RunAgentInput.model_validate({**inp.model_dump(), "resume": [dict(interruptId=PENDING["id"], status="resolved", payload={"behavior": "allow"})]})
+    events = [e async for e in adapter.run(inp)]
+    assert events[-1].type == "RUN_FINISHED"
+    assert calls == ([None, "New instruction"] if new_input else [None])
+    await adapter.shutdown()
+
+def test_recovery_preserves_users_before_and_after_tool_result(make_input):
+    from ag_ui_claude_sdk.utils import recovery_user_messages
+    inp = make_input(messages=[
+        {"id": "old", "role": "user", "content": "Old"},
+        {"id": "call", "role": "assistant", "toolCalls": [{"id": "native", "type": "function", "function": {"name": "render", "arguments": "{}"}}]},
+        {"id": "new-1", "role": "user", "content": "First"},
+        {"id": "result", "role": "tool", "toolCallId": "native", "content": "Rendered"},
+        {"id": "new-2", "role": "user", "content": [{"type": "text", "text": "Second"}]},
+    ])
+    assert [message.id for message in recovery_user_messages(inp, "native")] == ["new-1", "new-2"]
+
+@pytest.mark.asyncio
+async def test_failed_queued_user_turn_stops_later_prompts():
+    from ag_ui_claude_sdk import ClaudeAgentAdapter
+    from claude_agent_sdk import ResultMessage
+    adapter = ClaudeAgentAdapter("test")
+    recovery = RecoveryRun(None, request())
+    calls = []
+    def result(error=False):
+        return ResultMessage(subtype="success", duration_ms=1, duration_api_ms=1, is_error=error, num_turns=1, session_id="native")
+    async def initial(): yield result()
+    class Worker:
+        async def query(self, prompt, session_id):
+            calls.append(prompt)
+            yield result(True)
+    events = [e async for e in adapter._resume_with_user_input(Worker(), initial(), recovery, "thread", "profile", ["First", "Second"])]
+    assert calls == ["First"]
+    assert events[-1].is_error
+    await adapter.shutdown()
+
+@pytest.mark.asyncio
+async def test_middleware_error_metadata_survives_restart(make_input):
+    pending = {"id": "mcp-call", "name": "mcp__ag_ui__draw", "input": {}}
+    inp = make_input(messages=[{"id": "result", "role": "tool", "toolCallId": pending["id"], "content": "original MCP error", "metadata": {"ag-ui:tool-result": {"error": ""}}}])
+    run = RecoveryRun(SessionBinding("native", "profile", pending), inp)
+    await run.hook({"hook_event_name": "PreToolUse", "tool_use_id": pending["id"], "tool_name": pending["name"], "tool_input": {}}, pending["id"], {})
+    assert run.resolve_frontend_result("draw", {}) == {"content": "original MCP error", "error": ""}
+    with pytest.raises(ValueError, match="no matching resumed result"):
+        run.resolve_frontend_result("draw", {})

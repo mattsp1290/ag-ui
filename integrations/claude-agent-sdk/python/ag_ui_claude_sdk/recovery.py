@@ -31,7 +31,14 @@ class RecoveryRun:
             if len(results) > 1:
                 raise ValueError('Multiple results for one deferred tool call')
             if results:
-                self.frontend_result = {'content': results[0].content, 'error': getattr(results[0], 'error', None)}
+                # The protocol result event carries error status in metadata;
+                # the client reducer preserves this through a cold restart.
+                metadata = getattr(results[0], 'metadata', None) or {}
+                marker = metadata.get('ag-ui:tool-result') if isinstance(metadata, dict) else None
+                error = getattr(results[0], 'error', None)
+                if error is None and isinstance(marker, dict) and isinstance(marker.get('error'), str):
+                    error = marker['error']
+                self.frontend_result = {'content': results[0].content, 'error': error}
                 self.decision = {'behavior': 'allow'}
         if messages and messages[-1].role == 'tool' and self.frontend_result is None:
             raise ValueError('No saved SDK deferral matches this frontend result')

@@ -508,3 +508,56 @@ async def test_unresolved_batch_is_retained_on_sdk_error():
     assert [call['id'] for call in run.binding.unsupported_pending_tools] == ['first', 'second']
     with pytest.raises(ValueError, match='multiple pending tool calls'):
         run.assert_supported()
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('cancelled', [False, True])
+async def test_interrupted_batch_survives_fresh_adapter(monkeypatch, cancelled):
+    import asyncio
+    from dataclasses import asdict
+    from ag_ui.core import RunAgentInput
+    from claude_agent_sdk import SystemMessage
+    from ag_ui_claude_sdk import ClaudeAgentAdapter
+    import ag_ui_claude_sdk.adapter as module
+    ready = asyncio.Event()
+    calls = [{**PENDING, 'id': f'interrupted-{i}'} for i in range(2)]
+    class Store:
+        value = None
+        async def load(self, thread): return SessionBinding(**deepcopy(self.value)) if self.value else None
+        async def save(self, thread, binding): self.value = asdict(binding)
+    store = Store()
+    queries = []
+    class Worker:
+        def __init__(self, thread, options): self.options = options
+        async def start(self): pass
+        async def stop(self): pass
+        def is_alive(self): return True
+        async def query(self, prompt, session_id):
+            queries.append(prompt)
+            yield SystemMessage(subtype='init', data={'session_id': 'original'})
+            for call in calls:
+                await self.options.hooks['PreToolUse'][-1].hooks[0](hook_input(session_id='original', tool_use_id=call['id']), call['id'], {})
+            ready.set()
+            if cancelled: await asyncio.Event().wait()
+            else: raise RuntimeError('transport disconnected before result')
+    monkeypatch.setattr(module, 'SessionWorker', Worker)
+    async def profile(name): return {}
+    def agent(): return ClaudeAgentAdapter('test', session_binding_store=store, resolve_profile=profile, defer_tools=['Bash'])
+    initial = RunAgentInput(thread_id='thread', run_id='run', state=None, tools=[], context=[], forwarded_props={}, messages=[{'id':'user','role':'user','content':'start'}])
+    first = agent()
+    async def consume(): return [e async for e in first.run(initial)]
+    task = asyncio.create_task(consume())
+    await ready.wait()
+    if cancelled:
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError): await task
+    else: await task
+    assert store.value['unsupported_pending_tools'] == calls
+    before = deepcopy(store.value)
+    second = agent()
+    events = [e async for e in second.run(initial.model_copy(update={'run_id': 'fresh'}))]
+    assert events[-1].type == 'RUN_ERROR'
+    assert 'multiple pending tool calls' in events[-1].message
+    assert store.value == before
+    assert len(queries) == 1
+    await first.shutdown()
+    await second.shutdown()

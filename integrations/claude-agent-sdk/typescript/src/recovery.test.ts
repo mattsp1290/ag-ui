@@ -521,6 +521,7 @@ it("restores middleware error metadata with the original payload after client re
   expect(() => run.resolveFrontendResult("draw", {})).toThrow(
     "no matching resumed result",
   );
+});
 
 it("retains every deferred sibling and refuses cold batch continuation", async () => {
   const run = new RecoveryRun(undefined, input(), ["Bash"]);

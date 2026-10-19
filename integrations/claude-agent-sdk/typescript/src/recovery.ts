@@ -92,6 +92,16 @@ export class RecoveryRun {
   }
 
   private deferredTools = new Map<string, SDKDeferredToolUse>();
+  checkpointDeferred(sessionId: string, profile: string): boolean {
+    if (this.deferredTools.size < 2) return false;
+    if (!sessionId)
+      throw new Error("Deferred batch is missing its original session UUID.");
+    this.observe(sessionId, profile);
+    this.binding!.unsupportedPendingTools = structuredClone([
+      ...this.deferredTools.values(),
+    ]);
+    return true;
+  }
   assertSupported() {
     if ((this.binding?.unsupportedPendingTools?.length ?? 0) > 1)
       throw new Error(
@@ -393,6 +403,7 @@ export class RecoveryRun {
     }
     if (this.deferredTools.size > 1)
       this.binding.unsupportedPendingTools = [...this.deferredTools.values()];
+    else if (!result.is_error) delete this.binding.unsupportedPendingTools;
   }
 }
 function sameJson(a: unknown, b: unknown): boolean {

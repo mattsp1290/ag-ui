@@ -605,3 +605,77 @@ for (const native of [false, true])
     expect(submitted).toEqual(before);
     expect(sdk.query).not.toHaveBeenCalled();
   });
+
+for (const cancelled of [false, true])
+  it(`retains a batch before a result on ${cancelled ? "cancellation" : "exception"} across fresh adapters`, async () => {
+    let saved: SessionBinding | undefined;
+    let ready!: () => void, release!: () => void;
+    const deferred = new Promise<void>((resolve) => {
+      ready = resolve;
+    });
+    const closed = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const calls = [0, 1].map((n) => ({ ...pending, id: `interrupted-${n}` }));
+    sdk.query.mockImplementation(({ options }) =>
+      Object.assign(
+        (async function* () {
+          yield {
+            type: "system",
+            subtype: "init",
+            session_id: "original-session",
+          };
+          for (const call of calls)
+            await options.hooks.PreToolUse.at(-1).hooks[0]({
+              hook_event_name: "PreToolUse",
+              session_id: "original-session",
+              tool_use_id: call.id,
+              tool_name: call.name,
+              tool_input: call.input,
+            });
+          ready();
+          if (cancelled) await closed;
+          else throw new Error("transport disconnected before result");
+        })(),
+        { close: release },
+      ),
+    );
+    const config = {
+      sessionRecovery: {
+        profile: "original",
+        deferTools: ["Bash"],
+        resolveProfile: async () => ({}),
+        store: {
+          load: async () => saved && JSON.parse(JSON.stringify(saved)),
+          save: async (_id: string, value: SessionBinding) => {
+            saved = JSON.parse(JSON.stringify(value));
+          },
+        },
+      },
+    };
+    const initial = {
+      ...request(),
+      state: null,
+      messages: [{ id: "user", role: "user" as const, content: "start" }],
+    };
+    if (cancelled) {
+      const subscription = new ClaudeAgentAdapter(config)
+        .run(initial)
+        .subscribe();
+      await deferred;
+      subscription.unsubscribe();
+    } else await collect(new ClaudeAgentAdapter(config), initial);
+    expect(saved?.unsupportedPendingTools).toEqual(calls);
+    const before = structuredClone(saved);
+    const events = await collect(new ClaudeAgentAdapter(config), {
+      ...initial,
+      runId: "fresh",
+      messages: [{ id: "next", role: "user", content: "do not consume" }],
+    });
+    expect(events.at(-1)).toMatchObject({
+      type: "RUN_ERROR",
+      message: expect.stringContaining("multiple pending tool calls"),
+    });
+    expect(saved).toEqual(before);
+    expect(sdk.query).toHaveBeenCalledOnce();
+  });

@@ -443,3 +443,68 @@ async def test_parallel_siblings_require_native_results(completed):
         run.resolve_frontend_result('scheduleTime', meeting['input'])
     assert run.observe_tool_result(meeting['id'])
     assert binding.pending is None
+
+@pytest.mark.asyncio
+async def test_batch_retains_all_siblings_and_refuses_cold_continuation():
+    run = RecoveryRun(None, request(), ['Bash'])
+    calls = [{**PENDING, 'id': f'batch-{i}', 'input': {'command': f'echo {i}'}} for i in range(3)]
+    for call in calls:
+        await run.hook(hook_input(tool_use_id=call['id'], tool_input=call['input']), call['id'], {})
+    run.observe('native', 'profile', event('tool_deferred', calls[-1]))
+    assert run.binding.unsupported_pending_tools == calls
+    with pytest.raises(ValueError, match='multiple pending tool calls'):
+        run.assert_supported()
+    saved = deepcopy(run.binding)
+    with pytest.raises(ValueError, match='multiple pending tool calls'):
+        RecoveryRun(saved, request())
+    assert saved == run.binding
+
+
+def test_unresolved_native_siblings_exclude_completed_empty_results():
+    from ag_ui_claude_sdk.recovery import unresolved_tool_uses
+    history = [SimpleNamespace(message={'content': [{'type': 'tool_use', **PENDING, 'id': f'call-{i}'} for i in range(3)]}),
+               SimpleNamespace(message={'content': [{'type': 'tool_result', 'tool_use_id': 'call-0', 'content': ''}]})]
+    assert [call['id'] for call in unresolved_tool_uses(history)] == ['call-1', 'call-2']
+    history.append(SimpleNamespace(message={'content': [{'type': 'tool_result', 'tool_use_id': 'call-1', 'content': ''}]}))
+    assert [call['id'] for call in unresolved_tool_uses(history)] == ['call-2']
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('native', [False, True])
+async def test_legacy_batch_is_saved_and_rejected_before_query(monkeypatch, native):
+    from ag_ui.core import RunAgentInput
+    from ag_ui_claude_sdk import ClaudeAgentAdapter
+    import ag_ui_claude_sdk.adapter as module
+    import claude_agent_sdk
+    calls = [{**PENDING, 'id': f'batch-{i}', 'name': 'Bash' if native else 'mcp__ag_ui__confirm'} for i in range(3)]
+    class Store:
+        value = SessionBinding('original', 'profile', pending=calls[-1])
+        async def load(self, thread): return deepcopy(self.value)
+        async def save(self, thread, binding): self.value = deepcopy(binding)
+    store = Store()
+    monkeypatch.setattr(claude_agent_sdk, 'get_session_messages', lambda *a, **k: [SimpleNamespace(message={'content': [{'type': 'tool_use', **call} for call in calls]})])
+    def unexpected_worker(*args, **kwargs):
+        pytest.fail('Blocked batch must not start an SDK worker')
+    monkeypatch.setattr(module, 'SessionWorker', unexpected_worker)
+    submitted = RunAgentInput(thread_id='thread', run_id='run', state={}, tools=[], context=[], forwarded_props={},
+        messages=([{'id': 'answer', 'role': 'tool', 'toolCallId': calls[-1]['id'], 'content': 'actual result'}] if not native else []) + [{'id': 'next', 'role': 'user', 'content': 'Keep this next message'}],
+        resume=[{'interruptId': calls[-1]['id'], 'status': 'resolved', 'payload': {'behavior': 'allow'}}] if native else [])
+    before = submitted.model_dump()
+    async def profile(name): return {}
+    adapter = ClaudeAgentAdapter('test', session_binding_store=store, resolve_profile=profile)
+    events = [e async for e in adapter.run(submitted)]
+    assert events[-1].type == 'RUN_ERROR'
+    assert 'multiple pending tool calls' in events[-1].message
+    assert store.value.unsupported_pending_tools == calls
+    assert store.value.pending == calls[-1]
+    assert store.value.session_id == 'original'
+    assert submitted.model_dump() == before
+
+@pytest.mark.asyncio
+async def test_unresolved_batch_is_retained_on_sdk_error():
+    run = RecoveryRun(None, request(), ['Bash'])
+    for call_id in ('first', 'second'):
+        await run.hook(hook_input(tool_use_id=call_id), call_id, {})
+    run.observe('native', 'profile', event(error=True))
+    assert [call['id'] for call in run.binding.unsupported_pending_tools] == ['first', 'second']
+    with pytest.raises(ValueError, match='multiple pending tool calls'):
+        run.assert_supported()

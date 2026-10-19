@@ -14,6 +14,7 @@ from ag_ui.core import (
     ToolCallResultEvent,
 )
 
+from .context import attach_context, split_outbound, restore_context
 from ._util import get, maybe_await
 from .turn import _close_stream, _consume, _send_follow_ups
 from .text import text_of
@@ -92,6 +93,8 @@ async def recover_turn(
         latest_status = None
         for event in history:
             kind = get(event, "type")
+            if kind == "system.message":
+                restore_context(get(event, "content"), record)
             event_id = get(event, "id")
             if kind in ("session.status_terminated", "session.deleted") or (
                 record.session_thread_id and kind == "session.thread_status_terminated"
@@ -374,8 +377,13 @@ async def recover_turn(
         }
         if not record.adopted and followups and not pending:
             await agent._sync_client_tools(record, input.tools or [])
+        sends = answers + ([] if remaining else followups)
+        context_delivery = attach_context(sends, input.context, record)
+        answers, followups = split_outbound(sends)
         if answers:
             await events_api.send(record.session_id, events=answers)
+            if context_delivery:
+                context_delivery.acknowledge(record, results=True)
         record.pending_client_tool_use_ids = [id for id in outbound.still_parked]
         record.pending_confirmations = [
             e for e in record.pending_confirmations if e["id"] not in resolved
@@ -398,6 +406,8 @@ async def recover_turn(
             return
         if followups:
             await _send_follow_ups(agent.client, record.session_id, followups)
+            if context_delivery:
+                context_delivery.acknowledge(record, results=False)
             record.last_user_message_id = outbound.last_user_message_id
             await maybe_await(agent.store.set(key, record))
         elif not answers and get(latest_status, "type") in (
@@ -447,6 +457,7 @@ async def recover_turn(
                 *[
                     answer.get("custom_tool_use_id") or answer["tool_use_id"]
                     for answer in answers
+                    if answer["type"] != "system.message"
                 ],
             ],
             emit=emit,

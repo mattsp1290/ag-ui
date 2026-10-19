@@ -40,6 +40,8 @@ export type ManagedAgentsErrorHandler = (
 /** Persistent mapping between an AG-UI thread and a managed session. */
 export interface SessionRecord {
   sessionId: string;
+  /** Last successfully delivered runtime context snapshot; persist across restarts. */
+  runtimeContext?: string;
   sessionThreadId?: string;
   lastEventId?: string;
   /** Adopted sessions retain the tools configured by their owner. */

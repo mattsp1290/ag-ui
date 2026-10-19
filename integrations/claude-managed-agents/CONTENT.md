@@ -32,6 +32,40 @@ text parts in frontend tool results are omitted because Claude rejects empty tex
 supported media remain unchanged. The call is cleared only after delivery succeeds. The adapters
 do not mount arbitrary files into the managed sandbox.
 
+## Runtime context
+
+All three Managed adapters forward `RunAgentInput.context` descriptions and values as
+one native `system.message` snapshot, preserving order, whitespace, Unicode, and schema
+text. It accompanies the user message or tool-result batch that first resumes inference;
+no synthetic user message is created and recorded AG-UI input remains unchanged.
+The complete snapshot instructs the model to supersede earlier runtime snapshots. An
+empty list clears the effective runtime context after a prior snapshot. Native history
+is append-only: clearing does not erase earlier values from the provider's history.
+
+The last successfully delivered snapshot is persisted per session (`runtimeContext` /
+`runtime_context` / `RuntimeContext`). Custom stores must retain that optional field.
+Recovery also restores the latest recognized snapshot from native history, including
+when an imported session has no local record. Unchanged snapshots are not resent; a
+failed native send does not acknowledge delivery. An unchanged context can therefore
+survive approval-only continuation, restarts, and native imports. Passive reconnects
+without a new user message or tool answer do not manufacture a model turn.
+
+This uses the native system-injection API and requires a
+[supported primary model](https://platform.claude.com/docs/en/managed-agents/events-and-streaming#supported-models)
+(the examples default to Sonnet 5). System injection applies to the primary thread.
+Changed context cannot accompany an approval-only reply or target a native child thread;
+those attempts return `RUN_ERROR` with `context_delivery_unsupported` before sending the
+reply. They must be retried through a supported primary user-message/tool-result turn,
+or with the previously delivered context for an approval. Context is never silently
+redirected from a child into its parent session. Applications should provide context
+only through their trusted runtime and continue to authorize native session bindings.
+
+Deterministic tests capture serialized HTTP requests from the real Anthropic SDKs,
+plus fresh, continuing, imported, cold-store, partial-result, failed-send, and isolation
+cases. They verify forwarding, not model compliance with an A2UI schema. No paid
+provider calls are needed for these tests; generated UI validity remains a separate
+live-model validation question.
+
 ## Native output
 
 Canonical `agent.*` and echoed `user.*` events exposed by the installed SDK are emitted

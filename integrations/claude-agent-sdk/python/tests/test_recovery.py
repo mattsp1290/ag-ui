@@ -2,7 +2,8 @@
 from copy import deepcopy
 from types import SimpleNamespace
 import pytest
-from ag_ui_claude_sdk.recovery import RecoveryRun, SessionBinding
+from ag_ui_claude_sdk.recovery import RecoveryRun, SessionBinding, historical_tool_results
+from claude_agent_sdk import get_session_messages_from_store
 
 PENDING = {'id': 'call-original', 'name': 'Bash', 'input': {'command': 'echo test'}}
 
@@ -194,3 +195,108 @@ async def test_local_frontend_bindings_are_bounded(eviction):
     assert "old" not in adapter._memory_bindings
     assert len(adapter._memory_bindings) <= 1
     await adapter.shutdown()
+
+
+def mixed_request(behavior=None):
+    result = SimpleNamespace(id='state-call-result', role='tool', tool_call_id='state-call',
+                             content='State updated successfully', error=None)
+    value = request(behavior)
+    value.messages = [SimpleNamespace(role='assistant'), result]
+    value.state = {'todos': [{'title': 'Persist across reload'}]}
+    return value, result
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('behavior', ['allow', 'deny'])
+async def test_native_decision_with_verified_historical_state_result(behavior):
+    value, historical = mixed_request(behavior)
+    before = deepcopy(value)
+    run = RecoveryRun(SessionBinding('native', 'original', deepcopy(PENDING)), value,
+                      historical_results=[historical])
+    output = await run.hook(hook_input(), PENDING['id'], {})
+    assert output['hookSpecificOutput']['permissionDecision'] == behavior
+    assert run.observe_tool_result(PENDING['id'])
+    assert not run.observe_tool_result(PENDING['id'])
+    run.observe('native', 'original', event(error=True))
+    assert run.binding.pending is None
+    assert run.binding.session_id == 'native'
+    assert value == before
+    reloaded, _ = mixed_request()
+    assert not RecoveryRun(deepcopy(run.binding), reloaded, historical_results=[historical]).awaiting_decision
+    with pytest.raises(ValueError, match='No saved SDK deferral'):
+        RecoveryRun(deepcopy(run.binding), value, historical_results=[historical])
+
+
+def test_mixed_history_rejects_unverified_changed_duplicate_conflicting_and_wrong_id():
+    binding = SessionBinding('native', 'original', deepcopy(PENDING))
+    for change in ({}, {'content': 'changed'}, {'error': 'changed'}):
+        value, historical = mixed_request('allow')
+        trusted = deepcopy(historical)
+        vars(historical).update(change)
+        with pytest.raises(ValueError, match='No saved SDK deferral'):
+            RecoveryRun(binding, value, historical_results=[trusted] if change else [])
+    value, historical = mixed_request('allow')
+    value.messages.append(deepcopy(historical))
+    with pytest.raises(ValueError, match='Multiple results'):
+        RecoveryRun(binding, value, historical_results=[historical])
+    value, historical = mixed_request('allow')
+    conflicting = deepcopy(historical)
+    conflicting.tool_call_id = PENDING['id']
+    value.messages.append(conflicting)
+    with pytest.raises(ValueError, match='either a native decision'):
+        RecoveryRun(binding, value, historical_results=[historical])
+    value, historical = mixed_request('allow')
+    value.resume[0].interrupt_id = 'wrong'
+    with pytest.raises(ValueError, match='No saved SDK deferral matches this approval'):
+        RecoveryRun(binding, value, historical_results=[historical])
+
+
+@pytest.mark.asyncio
+async def test_cold_restore_of_legacy_binding_verifies_transcript_and_fails_closed():
+    binding = SessionBinding('native', 'original', deepcopy(PENDING))
+    value, historical = mixed_request()
+    reads = []
+    async def load_history():
+        reads.append(True)
+        return [historical]
+    assert (await RecoveryRun.restore(binding, value, (), load_history)).awaiting_decision
+    value.resume = request('allow').resume
+    assert (await RecoveryRun.restore(binding, value, (), load_history)).decision == {'behavior': 'allow'}
+    assert len(reads) == 2
+    value.resume[0].interrupt_id = 'wrong'
+    with pytest.raises(ValueError, match='matches this approval'):
+        await RecoveryRun.restore(binding, value, (), load_history)
+    assert len(reads) == 2
+    value.resume = request('allow').resume
+    async def missing():
+        return []
+    with pytest.raises(ValueError, match='matches this frontend result'):
+        await RecoveryRun.restore(binding, value, (), missing)
+    async def unreadable():
+        raise OSError('unreadable transcript')
+    with pytest.raises(OSError, match='unreadable transcript'):
+        await RecoveryRun.restore(binding, value, (), unreadable)
+
+
+@pytest.mark.asyncio
+async def test_real_sdk_session_store_reader_verifies_legacy_state_result():
+    session_id = '11111111-1111-4111-8111-111111111111'
+    class Store:
+        async def append(self, key, entries):
+            raise AssertionError('History verification must not write')
+        async def load(self, key):
+            assert key == {'project_key': '-original', 'session_id': session_id}
+            return [
+                {'type': 'user', 'uuid': 'user', 'parentUuid': None, 'sessionId': session_id,
+                 'message': {'role': 'user', 'content': 'Update state then read'}},
+                {'type': 'assistant', 'uuid': 'state', 'parentUuid': 'user', 'sessionId': session_id,
+                 'message': {'role': 'assistant', 'content': [{'type': 'tool_use', 'id': 'state-call', 'name': 'mcp__ag_ui__ag_ui_update_state', 'input': {}}]}},
+                {'type': 'user', 'uuid': 'result', 'parentUuid': 'state', 'sessionId': session_id,
+                 'message': {'role': 'user', 'content': [{'type': 'tool_result', 'tool_use_id': 'state-call', 'content': [{'type': 'text', 'text': 'State updated successfully'}]}]}},
+            ]
+    async def load_history():
+        return historical_tool_results(await get_session_messages_from_store(Store(), session_id, '/original'))
+    value, _ = mixed_request('allow')
+    run = await RecoveryRun.restore(SessionBinding(session_id, 'original', deepcopy(PENDING)), value, (), load_history)
+    assert run.decision == {'behavior': 'allow'}
+    assert run.binding.session_id == session_id

@@ -777,3 +777,171 @@ it.each([
     );
   },
 );
+
+describe("captured child tool results (PNI-688)", () => {
+  it.each(["ts", "py", "dotnet"])(
+    "recovers %s canonical result after cold approval exactly once",
+    async (language) => {
+      const fixtures = JSON.parse(
+        await readFile(
+          new URL("../../../fixtures/child-results.json", import.meta.url),
+          "utf8",
+        ),
+      );
+      const row = fixtures[language];
+      const call = row.root[0];
+      const result = row.native.find(
+        (event: { type: string }) => event.type === "agent.tool_result",
+      );
+      const child = call.session_thread_id;
+      const store = new InMemorySessionStore();
+      const fake = createFakeClient({
+        histories: [[call]],
+        streams: [[row.root[1], idle]],
+        childHistories: { [child]: [...row.native, result] },
+      });
+      const events = await collect(
+        agent(fake, store),
+        input({
+          resume: [
+            {
+              interruptId: call.id,
+              status: "resolved",
+              payload: row.root[1].result,
+            },
+          ],
+        }),
+      );
+      expect(events.filter((e) => e.type === "TOOL_CALL_RESULT")).toEqual([
+        expect.objectContaining({
+          messageId: result.id,
+          toolCallId: call.id,
+          content: result.content[0].text,
+        }),
+      ]);
+      expect(events.filter((e) => e.type === "RAW")).toContainEqual(
+        expect.objectContaining({
+          event: expect.objectContaining({
+            id: result.id,
+            session_thread_id: child,
+            is_error: result.is_error,
+          }),
+        }),
+      );
+      const restarted = createFakeClient({
+        histories: [[...row.root, idle, result]],
+        childHistories: { [child]: row.native },
+      });
+      const replay = await collect(agent(restarted, store));
+      expect(replay.filter((e) => e.type === "TOOL_CALL_RESULT")).toEqual([]);
+      expect(replay.at(-1)?.type).toBe("RUN_FINISHED");
+    },
+  );
+
+  it("does not synthesize from confirmation, prose, or unrelated child results", async () => {
+    const call = { ...approval("child-call"), session_thread_id: "child" };
+    const fake = createFakeClient({
+      histories: [
+        [
+          call,
+          {
+            type: "user.tool_confirmation",
+            id: "confirmed",
+            tool_use_id: call.id,
+            result: "allow",
+          },
+          idle,
+        ],
+      ],
+      childHistories: {
+        child: [
+          {
+            type: "agent.tool_result",
+            id: "foreign",
+            tool_use_id: "other-call",
+            content: [{ type: "text", text: "wrong" }],
+          },
+          {
+            type: "agent.tool_result",
+            id: "wrong-scope",
+            tool_use_id: call.id,
+            session_thread_id: "other-child",
+            content: [{ type: "text", text: "wrong" }],
+          },
+          {
+            type: "agent.message",
+            id: "prose",
+            content: [{ type: "text", text: "Done!" }],
+          },
+        ],
+      },
+    });
+    const events = await collect(agent(fake));
+    expect(events.filter((e) => e.type === "TOOL_CALL_RESULT")).toEqual([]);
+    expect(events.at(-1)?.type).toBe("RUN_FINISHED");
+  });
+});
+
+it("recovers a late child result after a serialized-store restart past the root cursor", async () => {
+  const call = { ...approval("late-call"), session_thread_id: "child" };
+  let saved: string | undefined;
+  const store = {
+    get: () => (saved ? JSON.parse(saved) : undefined),
+    set: (_key: string, record: unknown) => {
+      saved = JSON.stringify(record);
+    },
+    delete: () => {
+      saved = undefined;
+    },
+  };
+  const make = (fake: ReturnType<typeof createFakeClient>) =>
+    new ManagedAgentsAgent({
+      managedAgentId: "agent",
+      environmentId: "env",
+      client: fake.client,
+      sessionStore: store,
+      resolveSession: () => ({
+        sessionId: "original",
+        lastUserMessageId: "old",
+      }),
+    });
+  const first = await collect(
+    make(
+      createFakeClient({
+        histories: [[call, idle]],
+        childHistories: { child: [] },
+      }),
+    ),
+  );
+  expect(first.filter((e) => e.type === "TOOL_CALL_RESULT")).toEqual([]);
+  const result = {
+    id: "late-result",
+    type: "agent.tool_result",
+    tool_use_id: call.id,
+    content: [{ type: "text", text: "exact result" }],
+  };
+  const second = await collect(
+    make(
+      createFakeClient({
+        histories: [[call, idle]],
+        childHistories: { child: [result] },
+      }),
+    ),
+  );
+  expect(second.filter((e) => e.type === "TOOL_CALL_RESULT")).toEqual([
+    expect.objectContaining({
+      toolCallId: call.id,
+      messageId: result.id,
+      content: "exact result",
+    }),
+  ]);
+  const third = await collect(
+    make(
+      createFakeClient({
+        histories: [[call, idle, result]],
+        childHistories: { child: [result] },
+      }),
+    ),
+  );
+  expect(third.filter((e) => e.type === "TOOL_CALL_RESULT")).toEqual([]);
+});

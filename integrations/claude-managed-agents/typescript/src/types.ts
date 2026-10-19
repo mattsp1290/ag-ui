@@ -46,6 +46,9 @@ export interface SessionRecord {
   preserveTools?: boolean;
   ended?: boolean;
   pendingConfirmations?: PendingConfirmation[];
+  /** Native child ownership and delivery state, independent of the root cursor. */
+  childToolCalls?: Record<string, string>;
+  deliveredChildResultIds?: string[];
   /** Custom tool names currently registered on the session's agent. */
   toolNames: string[];
   /** Fingerprint of the canonical custom tool definitions registered on the session's agent. */

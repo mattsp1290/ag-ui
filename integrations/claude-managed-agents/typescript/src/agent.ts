@@ -1,5 +1,7 @@
 import {
   recoverSession,
+  recoverChildResults,
+  rememberChildCall,
   recoveryFinished,
   RecoveryError,
   type SessionStream,
@@ -330,6 +332,37 @@ export class ManagedAgentsAgent extends AbstractAgent {
       }
       // A local the closures below can close over without re-narrowing.
       const session = record;
+      const output = emit;
+      const delivered = new Set([
+        ...(session.deliveredChildResultIds ?? []),
+        ...input.messages.flatMap((message) =>
+          message.role === "tool" ? [message.toolCallId] : [],
+        ),
+      ]);
+      emit = (event) => {
+        if (event.type === EventType.RAW) {
+          rememberChildCall(
+            session,
+            (event as import("@ag-ui/client").RawEvent).event,
+          );
+        }
+        if (event.type === EventType.TOOL_CALL_RESULT) {
+          const id = (event as import("@ag-ui/client").ToolCallResultEvent)
+            .toolCallId;
+          if (session.childToolCalls?.[id]) {
+            if (delivered.has(id)) return;
+            delivered.add(id);
+            session.deliveredChildResultIds = [...delivered];
+          }
+        }
+        output(event);
+      };
+      const reconcileChildren = async () => {
+        await recoverChildResults(this.client, session, signal, emit, () =>
+          this.store.set(key, session),
+        );
+        await this.store.set(key, session);
+      };
       sessionId = session.sessionId;
       const nativeKey = `session:${sessionId}`;
       if (this.busyThreads.has(nativeKey))
@@ -451,6 +484,7 @@ export class ManagedAgentsAgent extends AbstractAgent {
           (call) => outbound.stillParked.includes(call.id),
         );
         await this.store.set(key, session);
+        await reconcileChildren();
         emit(recoveryFinished(session, threadId, runId));
         return;
       }
@@ -516,6 +550,7 @@ export class ManagedAgentsAgent extends AbstractAgent {
 
       await this.recordOutcome(key, session, outcome);
       if (outcome.status !== "errored") {
+        await reconcileChildren();
         emit(recoveryFinished(session, threadId, runId));
       }
     } catch (err) {

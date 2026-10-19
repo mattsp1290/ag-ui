@@ -2,6 +2,7 @@
 from copy import deepcopy
 from types import SimpleNamespace
 import pytest
+from ag_ui.core import ToolMessage
 from ag_ui_claude_sdk.recovery import RecoveryRun, SessionBinding, historical_tool_results
 from claude_agent_sdk import get_session_messages_from_store
 
@@ -329,3 +330,40 @@ async def test_verified_native_historical_error_in_client_metadata():
         value.messages[1] = result.model_copy(update=update)
         with pytest.raises(ValueError, match='matches this frontend result'):
             await RecoveryRun.restore(binding, value, (), load_history)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('completed', [False, True])
+async def test_parallel_siblings_require_native_results(completed):
+    meeting = {'id': 'meeting', 'name': 'mcp__ag_ui__scheduleTime', 'input': {'duration': 30}}
+    binding = SessionBinding('native', 'original', deepcopy(meeting))
+    value = request()
+    value.messages = [
+        ToolMessage(id='pie-result', role='tool', tool_call_id='pie', content=''),
+        ToolMessage(id='bar-result', role='tool', tool_call_id='bar', content=''),
+        ToolMessage(id='meeting-result', role='tool', tool_call_id='meeting', content='Meeting declined'),
+    ]
+    content = [
+        {'type': 'tool_use', 'id': 'pie', 'name': 'mcp__ag_ui__pieChart', 'input': {}},
+        {'type': 'tool_use', 'id': 'bar', 'name': 'mcp__ag_ui__barChart', 'input': {}},
+        {'type': 'tool_use', **meeting},
+    ]
+    if completed:
+        content.extend({'type': 'tool_result', 'tool_use_id': call_id,
+                        'content': [{'type': 'text', 'text': ''}]} for call_id in ('pie', 'bar'))
+    history = historical_tool_results([SimpleNamespace(message={'content': content})])
+    async def load_history():
+        return history
+    if not completed:
+        # Native tool_use records alone do not establish delivered sibling replies.
+        with pytest.raises(ValueError, match='matches this frontend result'):
+            await RecoveryRun.restore(binding, value, (), load_history)
+        assert binding.pending == meeting
+        return
+    run = await RecoveryRun.restore(binding, value, (), load_history)
+    await run.hook(hook_input(tool_use_id=meeting['id'], tool_name=meeting['name'], tool_input=meeting['input']), meeting['id'], {})
+    assert run.resolve_frontend_result('scheduleTime', meeting['input']) == {'content': 'Meeting declined', 'error': None}
+    with pytest.raises(ValueError, match='no matching resumed result'):
+        run.resolve_frontend_result('scheduleTime', meeting['input'])
+    assert run.observe_tool_result(meeting['id'])
+    assert binding.pending is None

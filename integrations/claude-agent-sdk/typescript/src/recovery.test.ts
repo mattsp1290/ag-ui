@@ -394,3 +394,96 @@ it("accepts a verified native historical error carried only in client metadata",
     ).rejects.toThrow("matches this frontend result");
   }
 });
+
+it.each([false, true])(
+  "requires native results for parallel siblings (completed=%s)",
+  async (completed) => {
+    const meeting = {
+      id: "meeting",
+      name: "mcp__ag_ui__scheduleTime",
+      input: { duration: 30 },
+    };
+    const binding = {
+      sessionId: "native",
+      profile: "original",
+      pending: meeting,
+    };
+    const request: RunAgentInput = {
+      ...input(),
+      messages: [
+        { id: "pie-result", role: "tool", toolCallId: "pie", content: "" },
+        { id: "bar-result", role: "tool", toolCallId: "bar", content: "" },
+        {
+          id: "meeting-result",
+          role: "tool",
+          toolCallId: "meeting",
+          content: "Meeting declined",
+        },
+      ],
+    };
+    const history = historicalToolResults([
+      {
+        message: {
+          content: [
+            {
+              type: "tool_use",
+              id: "pie",
+              name: "mcp__ag_ui__pieChart",
+              input: {},
+            },
+            {
+              type: "tool_use",
+              id: "bar",
+              name: "mcp__ag_ui__barChart",
+              input: {},
+            },
+            {
+              type: "tool_use",
+              id: meeting.id,
+              name: meeting.name,
+              input: meeting.input,
+            },
+            ...(completed
+              ? ["pie", "bar"].map((id) => ({
+                  type: "tool_result",
+                  tool_use_id: id,
+                  content: [{ type: "text", text: "" }],
+                }))
+              : []),
+          ],
+        },
+      },
+    ]);
+    const restored = RecoveryRun.restore(
+      binding,
+      request,
+      [],
+      async () => history,
+    );
+    if (!completed) {
+      // Native tool_use records alone do not prove that sibling replies were delivered.
+      await expect(restored).rejects.toThrow("matches this frontend result");
+      expect(binding.pending).toEqual(meeting);
+      return;
+    }
+    const run = await restored;
+    await run.hook(
+      {
+        ...hookInput,
+        tool_use_id: meeting.id,
+        tool_name: meeting.name,
+        tool_input: meeting.input,
+      },
+      meeting.id,
+      { signal: new AbortController().signal },
+    );
+    expect(run.resolveFrontendResult("scheduleTime", meeting.input)).toEqual({
+      content: "Meeting declined",
+    });
+    expect(() =>
+      run.resolveFrontendResult("scheduleTime", meeting.input),
+    ).toThrow("no matching resumed result");
+    expect(run.observeToolResult(meeting.id)).toBe(true);
+    expect(run.binding?.pending).toBeUndefined();
+  },
+);

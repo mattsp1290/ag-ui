@@ -78,6 +78,8 @@ class SessionRecord:
     adopted: bool = False
     ended: bool = False
     pending_confirmations: list[dict[str, Any]] = field(default_factory=list)
+    runtime_context: str | None = None
+    """Last successfully delivered context snapshot; persist across restarts."""
 
 
 @runtime_checkable

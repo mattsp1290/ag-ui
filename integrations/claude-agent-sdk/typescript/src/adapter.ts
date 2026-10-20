@@ -371,7 +371,7 @@ export class ClaudeAgentAdapter extends AbstractAgent {
       };
       // Keep the SDK control channel alive for hook answers without enqueueing
       // an empty user turn after the CLI automatically replays the deferral.
-      const resumeGate = new Promise<void>((resolve) => {
+      let resumeGate = new Promise<void>((resolve) => {
         releaseResumeInput = resolve;
       });
       const newMessages = recovery.resuming
@@ -380,8 +380,14 @@ export class ClaudeAgentAdapter extends AbstractAgent {
       const prompt = recovery.resuming
         ? (async function* (): AsyncIterable<SDKUserMessage> {
             await resumeGate;
-            if (subscriber.closed) return;
             for (const message of newMessages) {
+              await resumeGate;
+              if (subscriber.closed) return;
+              // Arm before yielding: the SDK can consume the prompt immediately.
+              // Only a validated successful result unlocks the following turn.
+              resumeGate = new Promise<void>((resolve) => {
+                releaseResumeInput = resolve;
+              });
               const converted = processMessages({
                 ...input,
                 messages: [message],

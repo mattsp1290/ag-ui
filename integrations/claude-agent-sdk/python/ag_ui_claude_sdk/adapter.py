@@ -412,7 +412,15 @@ class ClaudeAgentAdapter:
                     yield RunStartedEvent(type=EventType.RUN_STARTED, thread_id=thread_id, run_id=run_id)
                     yield RunFinishedEvent(type=EventType.RUN_FINISHED, thread_id=thread_id, run_id=run_id, outcome=recovery.outcome)
                     return
-                options.hooks = {**(options.hooks or {}), "PreToolUse": [*(options.hooks or {}).get("PreToolUse", []), HookMatcher(hooks=[recovery.hook])]}
+                # Save before acknowledging deferral; cancellation may never
+                # deliver a terminal result. Serialize concurrent hook saves.
+                async def durable_hook(hook_input, tool_use_id, context):
+                    async with recovery.save_lock:
+                        output = await recovery.hook(hook_input, tool_use_id, context)
+                        if recovery.checkpoint_deferred(hook_input.get('session_id'), profile):
+                            await self._save_binding(thread_id, recovery.binding)
+                        return output
+                options.hooks = {**(options.hooks or {}), "PreToolUse": [*(options.hooks or {}).get("PreToolUse", []), HookMatcher(hooks=[durable_hook])]}
                 if recovery.decision:
                     # Resume replays the deferred call automatically. Sending an
                     # empty user message would enqueue an extra model turn.
@@ -689,7 +697,8 @@ class ClaudeAgentAdapter:
             if isinstance(message, UserMessage) and isinstance(message.content, list):
                 for block in message.content:
                     if isinstance(block, ToolResultBlock) and recovery.observe_tool_result(block.tool_use_id):
-                        await self._save_binding(thread_id, recovery.binding)
+                        async with recovery.save_lock:
+                            await self._save_binding(thread_id, recovery.binding)
             session_id = None
             if isinstance(message, SystemMessage) and message.subtype == "init":
                 session_id = message.data.get("session_id")
@@ -697,7 +706,8 @@ class ClaudeAgentAdapter:
                 session_id = message.session_id
             if session_id:
                 recovery.observe(session_id, profile, message if isinstance(message, ResultMessage) else None)
-                await self._save_binding(thread_id, recovery.binding)
+                async with recovery.save_lock:
+                    await self._save_binding(thread_id, recovery.binding)
                 recovery.assert_supported()
             yield message
 

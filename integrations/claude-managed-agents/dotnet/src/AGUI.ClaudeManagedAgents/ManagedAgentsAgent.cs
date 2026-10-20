@@ -413,6 +413,7 @@ public sealed partial class ManagedAgentsAgent
 
         await foreach (var evt in turn.RunAsync(cancellationToken).ConfigureAwait(false))
         {
+            if (!TrackChildResult(record, evt)) continue;
             yield return evt;
         }
 
@@ -421,6 +422,8 @@ public sealed partial class ManagedAgentsAgent
         await RecordOutcomeAsync(threadKey, record, outcome).ConfigureAwait(false);
         if (outcome.Status != ManagedAgentsTurnStatus.Errored)
         {
+            await foreach (var result in RecoverChildResultsAsync(threadKey, record, cancellationToken).ConfigureAwait(false)) yield return result;
+            await PersistDeliveredAsync(threadKey, record).ConfigureAwait(false);
             yield return RecoveredFinished(input, record, turn.ConfirmationEvents);
         }
     }

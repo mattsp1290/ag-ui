@@ -105,3 +105,23 @@ and [session files](https://platform.claude.com/docs/en/managed-agents/files).
 ## Intelligence compatibility blocker
 
 Intelligence baseline [`7ec248a8f`](https://github.com/CopilotKit/Intelligence/blob/7ec248a8f/pnpm-lock.yaml) uses `@ag-ui/client` 0.0.57, whose `ToolCallResultEventSchema` rejects `ContentPart[]`. Its raw gateway accepts maps, but reconstruction's `stringifyContent` converts multipart arrays into JSON text. [PNI-663](https://linear.app/copilotkit/issue/PNI-663) owns the separate live recorder and reconstruction compatibility work. This branch is not product-review-ready until that companion is implemented and validated.
+
+## Child results after approval
+
+The root stream may cross-post a child's tool call and approval confirmation without
+cross-posting its result. All three adapters reconcile the owning child history before
+finishing initial or recovered runs, using only call-to-child mappings from native root events.
+They emit the actual native result under its original call and result IDs. Recovered
+RAW envelopes include the child thread scope and preserve `is_error` and native content.
+Confirmation decisions and parent prose never become tool results.
+
+Session stores must round-trip the new child ownership and delivered-result fields.
+These fields are independent of the root cursor: an empty child read remains eligible
+for recovery on a later reload, and a delivered result is suppressed on subsequent
+reads or root cross-posts. Results already present in the client transcript are also
+recorded as delivered, even when no new result is emitted. The importing application remains responsible for persisting
+AG-UI events; this adapter does not write directly to Intelligence.
+
+`fixtures/child-results.json` preserves the captured TypeScript allow, Python deny,
+and .NET allow provider events from PNI-688. Tests replay them without provider calls,
+plus wrong-scope, duplicate, delayed-result, and serialized-store restart cases.

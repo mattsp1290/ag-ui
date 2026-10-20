@@ -73,6 +73,43 @@ async def history_list(api: Any, identity: str, **kwargs: Any) -> list[Any]:
     return result
 
 
+async def track_child_results(
+    record: Any, messages: Any, emit: Any, persist: Any
+) -> Any:
+    """Share durable transcript and live-result tracking across initial and recovered runs."""
+    delivered = set(record.delivered_child_result_ids)
+    delivered.update(
+        get(message, "tool_call_id") or get(message, "toolCallId")
+        for message in messages
+        if get(message, "role") == "tool"
+    )
+    record.delivered_child_result_ids = list(delivered)
+    await maybe_await(persist())
+
+    def tracked(event):
+        if isinstance(event, RawEvent):
+            native = event.event
+            if (
+                not record.session_thread_id
+                and get(native, "type") in ("agent.tool_use", "agent.mcp_tool_use")
+                and get(native, "session_thread_id")
+            ):
+                record.child_tool_calls[get(native, "id")] = get(
+                    native, "session_thread_id"
+                )
+        if (
+            isinstance(event, ToolCallResultEvent)
+            and event.tool_call_id in record.child_tool_calls
+        ):
+            if event.tool_call_id in delivered:
+                return
+            delivered.add(event.tool_call_id)
+            record.delivered_child_result_ids = list(delivered)
+        emit(event)
+
+    return tracked
+
+
 async def recover_turn(
     agent: Any, record: Any, key: str, input: Any, emit: Any
 ) -> None:
@@ -88,6 +125,25 @@ async def recover_turn(
     try:
         stream = await api.stream(identity, **kwargs)
         history = await history_list(api, identity, **kwargs)
+        for event in history:
+            if (
+                not record.session_thread_id
+                and get(event, "type") in ("agent.tool_use", "agent.mcp_tool_use")
+                and get(event, "session_thread_id")
+            ):
+                record.child_tool_calls[get(event, "id")] = get(
+                    event, "session_thread_id"
+                )
+        emit = await track_child_results(
+            record, input.messages, emit, lambda: agent.store.set(key, record)
+        )
+
+        async def reconcile_children():
+            await recover_child_results(
+                agent.client, record, emit, lambda: agent.store.set(key, record)
+            )
+            await maybe_await(agent.store.set(key, record))
+
         seen = {get(event, "id") for event in history if get(event, "id")}
         pending = {}
         latest_status = None
@@ -325,7 +381,9 @@ async def recover_turn(
                 tool_confirmation=None,
                 # Original RAW envelopes were emitted above. Replay can synthesize
                 # text suffixes, so do not record those as additional native evidence.
-                emit=lambda event: emit(event) if not isinstance(event, RawEvent) else None,
+                emit=lambda event: (
+                    emit(event) if not isinstance(event, RawEvent) else None
+                ),
             )
         if history:
             await persist_event(history[-1])
@@ -402,6 +460,7 @@ async def recover_turn(
                     )
                 )
                 emit(ToolCallEndEvent(tool_call_id=id))
+            await reconcile_children()
             finish(input, emit, record.pending_confirmations)
             return
         if followups:
@@ -414,6 +473,7 @@ async def recover_turn(
             "session.status_idle",
             "session.thread_status_idle",
         ):
+            await reconcile_children()
             finish(input, emit, [])
             return
 
@@ -469,6 +529,7 @@ async def recover_turn(
         await agent._record_outcome(key, record, outcome)
         await maybe_await(agent.store.set(key, record))
         if outcome.status != "errored":
+            await reconcile_children()
             finish(input, emit, outcome.confirmations)
     except Exception as exc:
         if getattr(exc, "status_code", None) in (403, 404, 410):
@@ -483,3 +544,48 @@ async def recover_turn(
     finally:
         if stream is not None:
             await _close_stream(stream)
+
+
+async def recover_child_results(
+    client: Any, record: Any, emit: Any, persist: Any = None
+) -> None:
+    """Recover canonical results only from a child proven by native root history."""
+    if record.session_thread_id:
+        return
+    delivered = set(record.delivered_child_result_ids)
+    threads = {
+        thread for id, thread in record.child_tool_calls.items() if id not in delivered
+    }
+    for thread in sorted(threads):
+        history = await history_list(
+            client.beta.sessions.threads.events, thread, session_id=record.session_id
+        )
+        for event in history:
+            kind = get(event, "type")
+            call_id = (
+                get(event, "tool_use_id")
+                if kind == "agent.tool_result"
+                else get(event, "mcp_tool_use_id")
+                if kind == "agent.mcp_tool_result"
+                else None
+            )
+            if (
+                not call_id
+                or record.child_tool_calls.get(call_id) != thread
+                or call_id in delivered
+                or get(event, "session_thread_id") not in (None, thread)
+            ):
+                continue
+            native = {**plain(event), "session_thread_id": thread}
+            emit(RawEvent(event=native, source="claude-managed-agents"))
+            emit(
+                ToolCallResultEvent(
+                    message_id=get(event, "id"),
+                    tool_call_id=call_id,
+                    content=tool_content(get(event, "content")),
+                    role="tool",
+                )
+            )
+            delivered.add(call_id)
+            if persist is not None:
+                await maybe_await(persist())

@@ -1,4 +1,5 @@
 """Host-owned session bindings; SDK transcripts remain in native storage."""
+import asyncio
 from copy import deepcopy
 from dataclasses import dataclass, asdict, is_dataclass
 from typing import Any, Protocol
@@ -45,6 +46,7 @@ class RecoveryRun:
             return cls(binding, input_data, defer_tools, await load_history())
 
     def __init__(self, binding: SessionBinding | None, input_data: Any, defer_tools=(), historical_results=()):
+        self.save_lock = asyncio.Lock()
         self.binding = binding
         self.assert_supported()
         self.deferred_tools = {}
@@ -105,6 +107,15 @@ class RecoveryRun:
                     or getattr(saved[0], 'error', None) != error):
                 raise UnmatchedToolResult()
 
+    def checkpoint_deferred(self, session_id, profile):
+        if len(self.deferred_tools) < 2:
+            return False
+        if not session_id:
+            raise ValueError('Deferred batch is missing its original session UUID.')
+        self.observe(session_id, profile)
+        self.binding.unsupported_pending_tools = deepcopy(list(self.deferred_tools.values()))
+        return True
+
     def assert_supported(self):
         if self.binding and len(self.binding.unsupported_pending_tools or []) > 1:
             raise ValueError("Claude SDK cannot resume multiple pending tool calls. The original pending batch is retained; SDK batch recovery is unsupported.")
@@ -157,7 +168,14 @@ class RecoveryRun:
         return {'hookSpecificOutput': output}
 
     def observe_tool_result(self, tool_use_id):
-        self.deferred_tools.pop(tool_use_id, None)
+        observed = self.deferred_tools.pop(tool_use_id, None) is not None
+        changed = self._observe_pending_tool_result(tool_use_id)
+        if observed and not self.deferred_tools and self.binding and self.binding.unsupported_pending_tools:
+            self.binding.unsupported_pending_tools = None
+            return True
+        return changed
+
+    def _observe_pending_tool_result(self, tool_use_id):
         if not self.binding or not self.binding.pending or self.binding.pending['id'] != tool_use_id:
             return False
         if not self.consumed:
@@ -196,6 +214,8 @@ class RecoveryRun:
             self.binding.pending = None
         if len(self.deferred_tools) > 1:
             self.binding.unsupported_pending_tools = list(self.deferred_tools.values())
+        elif not getattr(result, 'is_error', False):
+            self.binding.unsupported_pending_tools = None
 
 
 def unresolved_tool_uses(messages):

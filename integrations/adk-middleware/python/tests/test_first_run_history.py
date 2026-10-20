@@ -331,3 +331,35 @@ async def test_seeded_events_have_their_own_invocation():
     assert len({e.invocation_id for e in seeded}) == 1
     assert seeded[0].invocation_id not in {e.invocation_id for e in run_events}
     await agent.close()
+
+
+@pytest.mark.asyncio
+async def test_seeded_events_keep_their_order_in_database_storage(tmp_path):
+    """DatabaseSessionService orders events by a timestamp stored to the
+    microsecond, and returns ties in any order. Seeded events must stay apart
+    whatever the clock reads: a microsecond step rounds neighbours to the same
+    value for about one clock reading in ten at current epoch values."""
+    import math
+
+    session_service = DatabaseSessionService(db_url=f"sqlite+aiosqlite:///{tmp_path / 'adk.db'}")
+    agent = _agent(RecordingLlm(requests=[]), session_service)
+    history = [
+        UserMessage(id="u1", role="user", content="Search for Ada"),
+        AssistantMessage(id="a1", role="assistant", tool_calls=[_call("c1")]),
+        ToolMessage(id="t1", role="tool", tool_call_id="c1", content="{}"),
+    ]
+    base = 1792454756.077
+    for step in range(40):
+        thread_id = f"thread-{step}"
+        session = await session_service.create_session(app_name="app", user_id="user", session_id=thread_id)
+        now = base + step * math.ulp(base)
+        for event in agent._history_seed_events(thread_id, AGENT_NAME, history, now=now):
+            await session_service.append_event(session, event)
+
+        stored = await _session_events(session_service, thread_id)
+
+        assert [_describe(e.content.parts[0]) for e in stored] == [
+            "Search for Ada", "call:search:c1", "result:search:c1",
+        ], f"now={now!r}"
+        assert stored[-1].timestamp < now
+    await agent.close()

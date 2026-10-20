@@ -94,6 +94,11 @@ _HISTORY_SEED_EXCLUDED_FUNCTION_NAMES = frozenset({
     CONFIRM_CHANGES_TOOL_NAME,
 })
 _HISTORY_SEED_NAMESPACE = uuid.UUID("5d0a7f0e-6c2b-4f4e-9a55-3b1f0c8e2a91")
+# Spacing between seeded events. Session services order events by timestamp:
+# DatabaseSessionService stores them rounded to the microsecond, and at current
+# epoch values a float only resolves ~0.24 µs, so a microsecond step can round
+# two events to the same value and storage returns ties in any order.
+_HISTORY_SEED_TIMESTAMP_STEP = 0.001
 from .execution_state import ExecutionState
 from .client_proxy_toolset import ClientProxyToolset
 from .a2ui_tool import A2UISubAgentTool, plan_a2ui_injection
@@ -2161,7 +2166,12 @@ class ADKAgent:
         return None
 
     def _history_seed_events(
-        self, thread_id: str, author: str, messages: List[Any]
+        self,
+        thread_id: str,
+        author: str,
+        messages: List[Any],
+        *,
+        now: Optional[float] = None,
     ) -> List[Event]:
         """Convert client history into ADK session events for a new session.
 
@@ -2171,7 +2181,8 @@ class ADKAgent:
         Gemini rejects a call or a result without its counterpart. Event ids
         derive from the thread and message ids, so a retried first run does not
         write the history twice; the events share an invocation id of their own,
-        apart from the run's.
+        apart from the run's. Timestamps are ``_HISTORY_SEED_TIMESTAMP_STEP``
+        apart and end before ``now``, so the run's own message sorts after them.
         """
         call_names: Dict[str, str] = {}
         call_args: Dict[str, Dict[str, Any]] = {}
@@ -2200,7 +2211,6 @@ class ADKAgent:
         paired = {call_id for call_id in call_names if call_id in answered}
 
         invocation_id = f"agui-history-{uuid.uuid5(_HISTORY_SEED_NAMESPACE, thread_id)}"
-        timestamp = time.time()
         events: List[Event] = []
         for message in messages:
             role = getattr(message, "role", None)
@@ -2234,8 +2244,10 @@ class ADKAgent:
                 invocation_id=invocation_id,
                 author=event_author,
                 content=types.Content(role=content_role, parts=parts),
-                timestamp=timestamp + len(events) * 1e-6,
             ))
+        end = time.time() if now is None else now
+        for i, event in enumerate(events):
+            event.timestamp = end - (len(events) - i) * _HISTORY_SEED_TIMESTAMP_STEP
         return events
 
     async def _seed_session_history(

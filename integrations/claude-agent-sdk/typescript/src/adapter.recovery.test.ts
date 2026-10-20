@@ -828,3 +828,96 @@ it.each([false, true])(
     expect(sdk.query).toHaveBeenCalledOnce();
   },
 );
+
+it.each([false, true])(
+  "persists child diagnostics before rejecting parent completion (resolved=%s)",
+  async (resolved) => {
+    let saved: SessionBinding | undefined;
+    const child = {
+      id: "child-read",
+      name: "Read",
+      input: { file_path: "/fixture" },
+    };
+    sdk.query.mockImplementation(() =>
+      (async function* () {
+        yield {
+          type: "system",
+          subtype: "init",
+          session_id: "original-session",
+        };
+        yield {
+          type: "assistant",
+          uuid: "child-message",
+          parent_tool_use_id: "parent-agent",
+          message: {
+            id: "child-message",
+            content: [{ type: "tool_use", ...child }],
+          },
+        };
+        yield {
+          type: "user",
+          parent_tool_use_id: null,
+          message: {
+            content: [
+              {
+                type: "tool_result",
+                tool_use_id: "parent-agent",
+                content: "Agent launched",
+              },
+            ],
+          },
+        };
+        yield {
+          type: "system",
+          subtype: "task_notification",
+          status: "completed",
+          tool_use_id: "parent-agent",
+        };
+        if (resolved)
+          yield {
+            type: "user",
+            parent_tool_use_id: "parent-agent",
+            message: {
+              content: [
+                {
+                  type: "tool_result",
+                  tool_use_id: child.id,
+                  content: "actual result",
+                },
+              ],
+            },
+          };
+        yield {
+          type: "result",
+          session_id: "original-session",
+          is_error: false,
+        };
+      })(),
+    );
+    const config = {
+      sessionRecovery: {
+        store: {
+          load: async () => structuredClone(saved),
+          save: async (_id: string, binding: SessionBinding) => {
+            saved = structuredClone(binding);
+          },
+        },
+        profile: "test",
+        resolveProfile: async () => ({ cwd: "/original" }),
+      },
+    };
+    const events = await collect(new ClaudeAgentAdapter(config), request());
+    expect(events.at(-1)?.type).toBe(resolved ? "RUN_FINISHED" : "RUN_ERROR");
+    if (!resolved) {
+      expect(saved?.unsupportedPendingTools).toEqual([
+        { ...child, parentToolUseId: "parent-agent" },
+      ]);
+      const restarted = await collect(
+        new ClaudeAgentAdapter(config),
+        request(),
+      );
+      expect(restarted.at(-1)?.type).toBe("RUN_ERROR");
+      expect(sdk.query).toHaveBeenCalledTimes(1);
+    }
+  },
+);

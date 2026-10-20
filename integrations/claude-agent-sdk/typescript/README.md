@@ -195,3 +195,20 @@ configure sequential generation for future turns, but must verify the actual
 provider request and respect organization policy. Such prevention does not
 repair existing batches. Single-call continuation still requires the original
 session, tool configuration, result ownership and approval checks.
+
+#### Unresolved child calls
+
+Parent completion, an Agent launch result, and task completion notifications do
+not resolve a child's tool call. The adapter tracks observed child tool uses
+until a native result matches both the tool ID and `parent_tool_use_id`. At
+parent completion, unresolved calls are retained in `unsupportedPendingTools`
+with their original ID, name, input and `parentToolUseId`; the run emits
+`RUN_ERROR`. Persist this field unchanged. Cold continuation is rejected before
+starting the SDK, even when only one child call is unresolved. Child identities
+are never exposed as actionable parent-session approvals.
+
+The SDK documents [subagent continuation](https://code.claude.com/docs/en/agent-sdk/subagents#resume-subagents)
+through a new prompt naming the agent, but this is not a verified exact-call
+deferral replay contract. This adapter therefore does not attempt child
+recovery, synthesize results, or modify transcripts. Already-lost diagnostics
+in older bindings cannot be reconstructed from parent completion alone.

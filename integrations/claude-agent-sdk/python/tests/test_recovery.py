@@ -692,3 +692,66 @@ async def test_completed_batch_does_not_block_next_turn(monkeypatch, ending):
     await second.shutdown()
     assert events[-1].type == 'RUN_FINISHED'
     assert len(queries) == 2
+
+
+
+@pytest.mark.parametrize('parent_deferred', [False, True])
+def test_unresolved_child_survives_parent_completion_and_restart(parent_deferred):
+    import json
+    from dataclasses import asdict
+    run = RecoveryRun(None, request())
+    run.observe_child_tool(PENDING, 'parent-agent')
+    run.observe_tool_result('parent-agent')
+    run.observe_tool_result(PENDING['id'], 'wrong-parent')
+    run.observe('native', 'profile', event('tool_deferred', {**PENDING, 'id': 'parent-read'}) if parent_deferred else event())
+    assert {**PENDING, 'parentToolUseId': 'parent-agent'} in run.binding.unsupported_pending_tools
+    with pytest.raises(ValueError, match='child deferral recovery is unsupported'):
+        run.assert_supported()
+    with pytest.raises(ValueError, match='child deferral recovery is unsupported'):
+        RecoveryRun(SessionBinding(**json.loads(json.dumps(asdict(run.binding)))), request('allow'))
+
+
+def test_correlated_child_result_allows_parent_completion():
+    run = RecoveryRun(None, request())
+    run.observe_child_tool(PENDING, 'parent-agent')
+    run.observe_tool_result(PENDING['id'], 'parent-agent')
+    run.observe('native', 'profile', event())
+    run.assert_supported()
+    assert run.binding.unsupported_pending_tools is None
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('resolved', [False, True])
+async def test_adapter_persists_child_diagnostics_before_parent_completion(resolved):
+    from ag_ui_claude_sdk.adapter import ClaudeAgentAdapter
+    from claude_agent_sdk import AssistantMessage, UserMessage, ToolUseBlock, ToolResultBlock, SystemMessage, ResultMessage
+    saved = []
+    class Store:
+        async def save(self, thread_id, binding):
+            saved.append(deepcopy(binding))
+    adapter = ClaudeAgentAdapter(name="test", session_binding_store=Store(), resolve_profile=lambda _: {})
+    run = RecoveryRun(None, request())
+    async def stream():
+        yield SystemMessage(subtype='init', data={'session_id': 'native'})
+        yield AssistantMessage(content=[ToolUseBlock(**PENDING)], model='synthetic', parent_tool_use_id='parent-agent')
+        yield UserMessage(content=[ToolResultBlock(tool_use_id='parent-agent', content='Agent launched')])
+        yield SystemMessage(subtype='task_notification', data={'status': 'completed', 'tool_use_id': 'parent-agent'})
+        if resolved:
+            yield UserMessage(content=[ToolResultBlock(tool_use_id=PENDING['id'], content='actual result')], parent_tool_use_id='parent-agent')
+        yield ResultMessage(subtype='success', duration_ms=1, duration_api_ms=1, is_error=False, num_turns=1, session_id='native')
+    if resolved:
+        assert len([m async for m in adapter._observe_recovery(stream(), run, 'public', 'profile')]) == 6
+        assert saved[-1].unsupported_pending_tools is None
+    else:
+        with pytest.raises(ValueError, match='child deferral recovery is unsupported'):
+            [m async for m in adapter._observe_recovery(stream(), run, 'public', 'profile')]
+        assert saved[-1].unsupported_pending_tools == [{**PENDING, 'parentToolUseId': 'parent-agent'}]
+
+
+def test_child_deferral_is_not_promoted_to_parent_approval():
+    run = RecoveryRun(None, request())
+    run.observe_child_tool(PENDING, 'parent-agent')
+    run.observe('native', 'profile', event('tool_deferred', deepcopy(PENDING)))
+    assert run.binding.pending is None
+    assert run.binding.unsupported_pending_tools == [{**PENDING, 'parentToolUseId': 'parent-agent'}]
+    with pytest.raises(ValueError, match='child deferral recovery is unsupported'):
+        run.assert_supported()

@@ -515,11 +515,27 @@ export class ClaudeAgentAdapter extends AbstractAgent {
     saveBinding: () => Promise<void>,
   ): AsyncIterable<SDKMessage> {
     for await (const message of stream) {
+      if (message.type === "assistant" && message.parent_tool_use_id) {
+        for (const block of message.message.content) {
+          if (block.type === "tool_use")
+            recovery.observeChildTool(
+              {
+                id: block.id,
+                name: block.name,
+                input: block.input as Record<string, unknown>,
+              },
+              message.parent_tool_use_id,
+            );
+        }
+      }
       if (message.type === "user" && Array.isArray(message.message.content)) {
         for (const block of message.message.content) {
           if (
             block.type === "tool_result" &&
-            recovery.observeToolResult(block.tool_use_id) &&
+            recovery.observeToolResult(
+              block.tool_use_id,
+              message.parent_tool_use_id,
+            ) &&
             recovery.binding
           ) {
             await saveBinding();

@@ -25,6 +25,13 @@ from claude_agent_sdk import AssistantMessage, ToolUseBlock, ToolResultBlock, Us
 from .conftest import stream_event, aiter
 
 
+def _patch_of(event):
+    """An ACTIVITY_DELTA's patch as plain dicts. ag-ui-protocol 1.0 validates
+    each operation into a typed model; this is the shape it goes out on the
+    wire as."""
+    return [op.model_dump(by_alias=True) for op in event.patch]
+
+
 def _types(events):
     return [e.type for e in events]
 
@@ -1343,10 +1350,12 @@ class TestStreamTaskSubagentActivity:
         assert snap.content["subagentType"] == "explorer"
         delta = next(e for e in events if e.type == EventType.ACTIVITY_DELTA)
         assert delta.message_id == "agent-s1"
-        assert delta.patch[0] == {"op": "add", "path": "/status", "value": "completed"}
+        assert _patch_of(delta)[0] == {"op": "add", "path": "/status", "value": "completed"}
 
     @pytest.mark.asyncio
-    @pytest.mark.parametrize("name", ["mcp__x__Agent", "mcp__x__Task"])
+    # "mcp__ag_ui__Task" is a frontend tool named "Task": it renders as
+    # "Task" on TOOL_CALL_START, which is why the match is on the raw name.
+    @pytest.mark.parametrize("name", ["mcp__x__Agent", "mcp__x__Task", "mcp__ag_ui__Task"])
     async def test_streamed_mcp_tool_named_like_subagent_tool_emits_no_activity(
         self, make_input, name
     ):
@@ -1416,7 +1425,7 @@ class TestStreamTaskSubagentActivity:
         delta = next(e for e in events if e.type == EventType.ACTIVITY_DELTA)
         assert delta.message_id == "task-s1"
         assert delta.activity_type == SUBAGENT_TASK_ACTIVITY_TYPE
-        assert delta.patch == [
+        assert _patch_of(delta) == [
             {"op": "add", "path": "/status", "value": "completed"},
             {"op": "add", "path": "/result", "value": {"found": True}},
         ]
@@ -1567,8 +1576,8 @@ class TestTaskActivityTeardown:
         assert len(deltas) == 1
         assert deltas[0].message_id == "task-s1"
         assert deltas[0].activity_type == SUBAGENT_TASK_ACTIVITY_TYPE
-        assert deltas[0].patch[0] == {"op": "add", "path": "/status", "value": "failed"}
-        assert deltas[0].patch[1]["path"] == "/error"
+        assert _patch_of(deltas[0])[0] == {"op": "add", "path": "/status", "value": "failed"}
+        assert _patch_of(deltas[0])[1]["path"] == "/error"
 
     @pytest.mark.asyncio
     async def test_a_task_that_did_get_its_result_is_not_closed_twice(self, make_input):
@@ -1587,7 +1596,7 @@ class TestTaskActivityTeardown:
         events = await _drive(adapter, stream, make_input)
         deltas = self._activity_deltas(events)
         assert len(deltas) == 1
-        assert deltas[0].patch[0]["value"] == "completed"
+        assert _patch_of(deltas[0])[0]["value"] == "completed"
 
     @pytest.mark.asyncio
     async def test_run_that_errors_mid_stream_closes_the_activity_before_run_error(
@@ -1628,7 +1637,7 @@ class TestTaskActivityTeardown:
         deltas = self._activity_deltas(events)
         assert len(deltas) == 1
         assert deltas[0].message_id == "task-s1"
-        assert deltas[0].patch[0] == {"op": "add", "path": "/status", "value": "failed"}
+        assert _patch_of(deltas[0])[0] == {"op": "add", "path": "/status", "value": "failed"}
         # Nothing may follow RUN_ERROR, so the delta has to land in front of it.
         assert types[-1] == EventType.RUN_ERROR
         assert types.index(EventType.ACTIVITY_DELTA) < types.index(EventType.RUN_ERROR)
@@ -1678,7 +1687,7 @@ class TestTaskActivityTeardown:
 
         deltas = self._activity_deltas(events)
         assert len(deltas) == 1
-        assert deltas[0].patch[0] == {"op": "add", "path": "/status", "value": "failed"}
+        assert _patch_of(deltas[0])[0] == {"op": "add", "path": "/status", "value": "failed"}
         assert types[-1] == EventType.RUN_ERROR
         assert types.index(EventType.ACTIVITY_DELTA) < types.index(EventType.RUN_ERROR)
 
@@ -1721,6 +1730,6 @@ class TestTaskActivityTeardown:
 
         deltas = self._activity_deltas(events)
         assert len(deltas) == 1
-        assert deltas[0].patch[0] == {"op": "add", "path": "/status", "value": "failed"}
+        assert _patch_of(deltas[0])[0] == {"op": "add", "path": "/status", "value": "failed"}
         assert types[-1] == EventType.RUN_ERROR
         assert types.index(EventType.ACTIVITY_DELTA) < types.index(EventType.RUN_ERROR)

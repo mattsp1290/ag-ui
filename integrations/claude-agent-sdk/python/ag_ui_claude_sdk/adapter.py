@@ -373,7 +373,7 @@ class ClaudeAgentAdapter:
                 yield RunStartedEvent(type=EventType.RUN_STARTED, thread_id=thread_id, run_id=run_id)
                 try:
                     async with asyncio.timeout(self._query_timeout_seconds):
-                        async for event in self._stream_claude_sdk(native.run(input_data, options, prompt), thread_id, run_id, input_data, set()):
+                        async for event in self._stream_claude_sdk(native.run(input_data, options, prompt), thread_id, run_id, input_data, set(), open_task_activities):
                             yield event
                 finally:
                     native.stop()

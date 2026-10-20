@@ -561,3 +561,58 @@ async def test_interrupted_batch_survives_fresh_adapter(monkeypatch, cancelled):
     assert len(queries) == 1
     await first.shutdown()
     await second.shutdown()
+
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('ending', ['success', 'sdk-error', 'exception'])
+async def test_completed_batch_does_not_block_next_turn(monkeypatch, ending):
+    from ag_ui.core import RunAgentInput
+    from claude_agent_sdk import ResultMessage, SystemMessage, UserMessage, ToolResultBlock
+    from ag_ui_claude_sdk import ClaudeAgentAdapter
+    import ag_ui_claude_sdk.adapter as module
+    import claude_agent_sdk
+    calls = [{**PENDING, 'id': f'completed-{i}'} for i in range(2)]
+    queries = []
+    class Store:
+        value = None
+        async def load(self, thread): return deepcopy(self.value)
+        async def save(self, thread, value): self.value = deepcopy(value)
+    store = Store()
+    class Worker:
+        def __init__(self, thread, options): self.options = options
+        async def start(self): pass
+        async def stop(self): pass
+        def is_alive(self): return True
+        async def query(self, prompt, session_id):
+            queries.append(prompt)
+            yield SystemMessage(subtype='init', data={'session_id': 'original'})
+            if len(queries) == 1:
+                for call in calls:
+                    await self.options.hooks['PreToolUse'][-1].hooks[0](
+                        hook_input(session_id='original', tool_use_id=call['id']), call['id'], {})
+                yield UserMessage(content=[ToolResultBlock(tool_use_id=call['id'],
+                    content='Actually completed', is_error=False) for call in calls])
+                if ending == 'exception': raise RuntimeError('transport disconnected after completion')
+            yield ResultMessage(subtype='success', duration_ms=1, duration_api_ms=1,
+                is_error=len(queries) == 1 and ending == 'sdk-error',
+                num_turns=1, session_id='original')
+    monkeypatch.setattr(module, 'SessionWorker', Worker)
+    monkeypatch.setattr(claude_agent_sdk, 'get_session_info', lambda *a, **k: SimpleNamespace(session_id='original'))
+    async def profile(name): return {}
+    def agent(): return ClaudeAgentAdapter('test', session_binding_store=store,
+        resolve_profile=profile, defer_tools=['Bash'])
+    initial = RunAgentInput(thread_id='thread', run_id='run', state=None, tools=[],
+        context=[], forwarded_props={}, messages=[{'id':'start','role':'user','content':'start'}])
+    first = agent()
+    _ = [e async for e in first.run(initial)]
+    await first.shutdown()
+    assert store.value.pending is None
+    assert store.value.unsupported_pending_tools is None
+    second = agent()
+    followup = initial.model_copy(update={'run_id':'fresh', 'messages':[
+        type(initial.messages[0]).model_validate({'id':'next','role':'user','content':'new user turn'})]})
+    events = [e async for e in second.run(followup)]
+    await second.shutdown()
+    assert events[-1].type == 'RUN_FINISHED'
+    assert len(queries) == 2

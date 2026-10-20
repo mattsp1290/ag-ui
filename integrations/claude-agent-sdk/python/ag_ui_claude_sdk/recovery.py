@@ -168,7 +168,14 @@ class RecoveryRun:
         return {'hookSpecificOutput': output}
 
     def observe_tool_result(self, tool_use_id):
-        self.deferred_tools.pop(tool_use_id, None)
+        observed = self.deferred_tools.pop(tool_use_id, None) is not None
+        changed = self._observe_pending_tool_result(tool_use_id)
+        if observed and not self.deferred_tools and self.binding and self.binding.unsupported_pending_tools:
+            self.binding.unsupported_pending_tools = None
+            return True
+        return changed
+
+    def _observe_pending_tool_result(self, tool_use_id):
         if not self.binding or not self.binding.pending or self.binding.pending['id'] != tool_use_id:
             return False
         if not self.consumed:

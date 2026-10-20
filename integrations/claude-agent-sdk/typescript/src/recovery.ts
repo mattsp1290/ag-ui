@@ -348,7 +348,19 @@ export class RecoveryRun {
     };
   };
   observeToolResult(toolUseId: string): boolean {
-    this.deferredTools.delete(toolUseId);
+    const observed = this.deferredTools.delete(toolUseId);
+    const changed = this.observePendingToolResult(toolUseId);
+    if (
+      observed &&
+      this.deferredTools.size === 0 &&
+      this.binding?.unsupportedPendingTools
+    ) {
+      delete this.binding.unsupportedPendingTools;
+      return true;
+    }
+    return changed;
+  }
+  private observePendingToolResult(toolUseId: string): boolean {
     if (this.binding?.pending?.id !== toolUseId) return false;
     if (!this.consumed)
       throw new Error(

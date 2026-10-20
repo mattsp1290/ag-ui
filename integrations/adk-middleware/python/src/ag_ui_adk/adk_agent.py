@@ -1561,10 +1561,41 @@ class ADKAgent:
         history_seed: Optional[List[Any]] = None
         if self._seed_first_run_history:
             first_run_split = self._split_first_run_history(unseen_messages)
-            if first_run_split is not None and await self._known_backend_session_id(
-                app_name, input.thread_id, user_id
-            ) is None:
-                history_seed, unseen_messages = first_run_split
+            if first_run_split is not None:
+                backend_session_id = await self._known_backend_session_id(
+                    app_name, input.thread_id, user_id
+                )
+                needs_history = backend_session_id is None
+                if backend_session_id is not None:
+                    try:
+                        session = await self._session_manager.get_session(
+                            backend_session_id, app_name, user_id, raise_on_error=True
+                        )
+                    except Exception:
+                        _log_session_lookup_failure(input.thread_id, app_name, user_id)
+                        yield _session_lookup_error_event()
+                        return
+                    seed_invocation_id = (
+                        f"agui-history-{uuid.uuid5(_HISTORY_SEED_NAMESPACE, input.thread_id)}"
+                    )
+                    # A failed seed may already have created the session. Resume
+                    # only our uninitialized session, never an established turn.
+                    needs_history = session is None or (
+                        session.state.get(THREAD_ID_STATE_KEY) == input.thread_id
+                        and session.state.get(APP_NAME_STATE_KEY) == app_name
+                        and session.state.get(USER_ID_STATE_KEY) == user_id
+                        and all(
+                            event.invocation_id == seed_invocation_id
+                            or (
+                                not event.content
+                                and event.author == "user"
+                                and event.invocation_id.startswith("state_update_")
+                            )
+                            for event in session.events
+                        )
+                    )
+                if needs_history:
+                    history_seed, unseen_messages = first_run_split
 
         index = 0
         total_unseen = len(unseen_messages)

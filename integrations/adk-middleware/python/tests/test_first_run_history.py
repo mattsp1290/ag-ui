@@ -363,3 +363,80 @@ async def test_seeded_events_keep_their_order_in_database_storage(tmp_path):
         ], f"now={now!r}"
         assert stored[-1].timestamp < now
     await agent.close()
+
+
+TOOL_HISTORY = [
+    UserMessage(id="u1", role="user", content="Search for Ada"),
+    AssistantMessage(id="a1", role="assistant", tool_calls=[_call("c1")]),
+    ToolMessage(id="t1", role="tool", tool_call_id="c1", content='{"hit": "Ada Lovelace"}'),
+    UserMessage(id="u2", role="user", content="What is her real name?"),
+]
+
+
+def _fail_seed_append(session_service, position: int):
+    """Make the ``position``-th (1-based) seeded event's append raise, once."""
+    original = session_service.append_event
+    seen = {"count": 0, "failed": False}
+
+    async def append_event(session, event):
+        if not seen["failed"] and (event.invocation_id or "").startswith("agui-history-"):
+            seen["count"] += 1
+            if seen["count"] == position:
+                seen["failed"] = True
+                raise RuntimeError("synthetic storage failure")
+        return await original(session, event)
+
+    session_service.append_event = append_event
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("position", [1, 2, 3])
+@pytest.mark.parametrize("cold_adapter", [False, True], ids=["same-adapter", "fresh-adapter"])
+@pytest.mark.parametrize("initial_state", [{}, {"topic": "Ada"}], ids=["no-state", "state"])
+async def test_retry_resumes_an_interrupted_history_import(
+    session_service, position, cold_adapter, initial_state
+):
+    """A session exists once seeding starts, so a retry must finish the import
+    rather than take the half-written session as established."""
+    llm = RecordingLlm(requests=[])
+    agent = _agent(llm, session_service)
+    _fail_seed_append(session_service, position)
+
+    def run_input(run_id):
+        return RunAgentInput(
+            thread_id="thread", run_id=run_id, state=initial_state, messages=TOOL_HISTORY,
+            tools=[], context=[], forwarded_props={},
+        )
+
+    failed = [event async for event in agent.run(run_input("run_1"))]
+    assert _event_types(failed)[-1] == "RunErrorEvent"
+    assert llm.requests == []
+
+    if cold_adapter:
+        await agent.close()
+        SessionManager.reset_instance()
+        agent = _agent(llm, session_service)
+    retried = [event async for event in agent.run(run_input("run_2"))]
+
+    assert "RunErrorEvent" not in _event_types(retried)
+    assert llm.requests == [[
+        ("user", ["Search for Ada"]),
+        ("model", ["call:search:c1"]),
+        ("user", ["result:search:c1"]),
+        ("user", ["What is her real name?"]),
+    ]]
+    await agent.close()
+
+
+@pytest.mark.asyncio
+async def test_native_session_is_not_seeded(session_service):
+    """A session the middleware did not create stays authoritative, even when it
+    holds no turns yet."""
+    await session_service.create_session(app_name="app", user_id="user", session_id="thread")
+    llm = RecordingLlm(requests=[])
+    agent = _agent(llm, session_service)
+
+    await _run(agent, TEXT_HISTORY)
+
+    assert llm.requests == [[("user", ["What is her real name?"])]]
+    await agent.close()

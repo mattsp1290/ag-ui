@@ -52,7 +52,9 @@ without a new user message or tool answer do not manufacture a model turn.
 
 This uses the native system-injection API and requires a
 [supported primary model](https://platform.claude.com/docs/en/managed-agents/events-and-streaming#supported-models)
-(the examples default to Sonnet 5). System injection applies to the primary thread.
+(the examples default to Sonnet 5.5, `claude-sonnet-5-5`). Setup reuses existing agents
+without updating their model; existing Sonnet 5 examples must be reprovisioned as
+described in each example README, then used with new sessions. System injection applies to the primary thread.
 Changed context cannot accompany an approval-only reply or target a native child thread;
 those attempts return `RUN_ERROR` with `context_delivery_unsupported` before sending the
 reply. They must be retried through a supported primary user-message/tool-result turn,

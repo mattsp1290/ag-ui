@@ -67,7 +67,7 @@ from .handlers import (
 from .session import SessionWorker
 from .loopback_mcp import LoopbackMcpServer
 from .utils import recovery_user_messages
-from .recovery import historical_tool_results, SessionBinding, RecoveryRun
+from .recovery import unresolved_tool_uses, historical_tool_results, SessionBinding, RecoveryRun
 
 logger = logging.getLogger(__name__)
 
@@ -369,14 +369,23 @@ class ClaudeAgentAdapter:
                 restored_input = input_data.model_copy(update={'tools': [Tool.model_validate(tool) for tool in tools]})
                 options = self.build_options(restored_input, thread_id=thread_id, profile_options=profile_options,
                                              resolve_frontend_result=lambda name, args: recovery.resolve_frontend_result(name, args))
-                async def load_history():
+                native_history = None
+                async def load_native_history():
                     from claude_agent_sdk import get_session_messages, get_session_messages_from_store
                     directory = str(options.cwd) if options.cwd else None
                     if options.session_store:
                         messages = await get_session_messages_from_store(options.session_store, binding.session_id, directory)
                     else:
                         messages = get_session_messages(binding.session_id, directory=directory)
-                    return historical_tool_results(messages)
+                    return messages
+                if binding and binding.pending and not binding.unsupported_pending_tools:
+                    native_history = await load_native_history()
+                    unresolved = unresolved_tool_uses(native_history)
+                    if len(unresolved) > 1 and any(call['id'] == binding.pending['id'] for call in unresolved):
+                        binding.unsupported_pending_tools = unresolved
+                        await self._save_binding(thread_id, binding)
+                async def load_history():
+                    return historical_tool_results(native_history if native_history is not None else await load_native_history())
                 recovery = await RecoveryRun.restore(binding, input_data, self._defer_tools, load_history)
                 proxy = options.mcp_servers.get(AG_UI_MCP_SERVER_NAME) if isinstance(options.mcp_servers, dict) else None
                 if isinstance(proxy, dict) and proxy.get('type') == 'sdk':
@@ -403,7 +412,15 @@ class ClaudeAgentAdapter:
                     yield RunStartedEvent(type=EventType.RUN_STARTED, thread_id=thread_id, run_id=run_id)
                     yield RunFinishedEvent(type=EventType.RUN_FINISHED, thread_id=thread_id, run_id=run_id, outcome=recovery.outcome)
                     return
-                options.hooks = {**(options.hooks or {}), "PreToolUse": [*(options.hooks or {}).get("PreToolUse", []), HookMatcher(hooks=[recovery.hook])]}
+                # Save before acknowledging deferral; cancellation may never
+                # deliver a terminal result. Serialize concurrent hook saves.
+                async def durable_hook(hook_input, tool_use_id, context):
+                    async with recovery.save_lock:
+                        output = await recovery.hook(hook_input, tool_use_id, context)
+                        if recovery.checkpoint_deferred(hook_input.get('session_id'), profile):
+                            await self._save_binding(thread_id, recovery.binding)
+                        return output
+                options.hooks = {**(options.hooks or {}), "PreToolUse": [*(options.hooks or {}).get("PreToolUse", []), HookMatcher(hooks=[durable_hook])]}
                 if recovery.decision:
                     # Resume replays the deferred call automatically. Sending an
                     # empty user message would enqueue an extra model turn.
@@ -680,7 +697,8 @@ class ClaudeAgentAdapter:
             if isinstance(message, UserMessage) and isinstance(message.content, list):
                 for block in message.content:
                     if isinstance(block, ToolResultBlock) and recovery.observe_tool_result(block.tool_use_id):
-                        await self._save_binding(thread_id, recovery.binding)
+                        async with recovery.save_lock:
+                            await self._save_binding(thread_id, recovery.binding)
             session_id = None
             if isinstance(message, SystemMessage) and message.subtype == "init":
                 session_id = message.data.get("session_id")
@@ -688,7 +706,9 @@ class ClaudeAgentAdapter:
                 session_id = message.session_id
             if session_id:
                 recovery.observe(session_id, profile, message if isinstance(message, ResultMessage) else None)
-                await self._save_binding(thread_id, recovery.binding)
+                async with recovery.save_lock:
+                    await self._save_binding(thread_id, recovery.binding)
+                recovery.assert_supported()
             yield message
 
     def build_options(self, input_data: Optional[RunAgentInput] = None, thread_id: Optional[str] = None, profile_options=None, resolve_frontend_result=None) -> "ClaudeAgentOptions":

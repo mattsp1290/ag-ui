@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Migrate A2UI catalog prompts to the published SDK 0.9 `Catalog`, request
+  processor and Direct JSON prompt APIs (#3121). Dependencies now require
+  `a2ui-agent-sdk>=0.9.0,<0.10.0` and `a2ui-core>=0.4.0,<0.5.0`; legacy SDK
+  0.2.x support is dropped. Client catalogs, versioned protocol/common type
+  prompts, JSON repair, toolkit validation and logged raw-prompt fallback are
+  preserved. No separate `a2ui-adk` or A2A integration is required.
+
 ### Added
 
 - `emit_interrupt_outcome` option on `ADKAgent` and `ADKAgent.from_app()`

@@ -167,6 +167,11 @@ partial messages enabled and disabled, against the final message snapshot.
 
 #### Unsupported pending batches
 
+Once multiple deferrals are observed, the adapter persists their diagnostic
+metadata before acknowledging the hook. Concurrent hook writes are serialized.
+A stream exception or cancellation before the terminal SDK result therefore
+leaves the acknowledged batch blocked when a fresh adapter loads the binding.
+
 If several calls are deferred before a result is available, the adapter saves
 all observed original IDs, names and arguments in
 `SessionBinding.unsupportedPendingTools`, retains the SDK's `pending` call, and

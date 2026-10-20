@@ -101,6 +101,16 @@ export class RecoveryRun {
   observeChildTool(tool: SDKDeferredToolUse, parentToolUseId: string) {
     this.childTools.set(tool.id, structuredClone({ ...tool, parentToolUseId }));
   }
+  checkpointDeferred(sessionId: string, profile: string): boolean {
+    if (this.deferredTools.size < 2) return false;
+    if (!sessionId)
+      throw new Error("Deferred batch is missing its original session UUID.");
+    this.observe(sessionId, profile);
+    this.binding!.unsupportedPendingTools = structuredClone([
+      ...this.deferredTools.values(),
+    ]);
+    return true;
+  }
   assertSupported() {
     if (
       this.binding?.unsupportedPendingTools?.some(
@@ -361,7 +371,20 @@ export class RecoveryRun {
     const child = this.childTools.get(toolUseId);
     if (child && child.parentToolUseId !== parentToolUseId) return false;
     this.childTools.delete(toolUseId);
-    this.deferredTools.delete(toolUseId);
+    const observed = this.deferredTools.delete(toolUseId);
+    const changed = this.observePendingToolResult(toolUseId);
+    if (
+      observed &&
+      this.deferredTools.size === 0 &&
+      this.childTools.size === 0 &&
+      this.binding?.unsupportedPendingTools
+    ) {
+      delete this.binding.unsupportedPendingTools;
+      return true;
+    }
+    return changed;
+  }
+  private observePendingToolResult(toolUseId: string): boolean {
     if (this.binding?.pending?.id !== toolUseId) return false;
     if (!this.consumed)
       throw new Error(
@@ -421,7 +444,7 @@ export class RecoveryRun {
       // Child identities are diagnostic, never parent-session resume targets.
       if (this.binding.pending && this.childTools.has(this.binding.pending.id))
         delete this.binding.pending;
-    }
+    } else if (!result.is_error) delete this.binding.unsupportedPendingTools;
   }
 }
 function sameJson(a: unknown, b: unknown): boolean {

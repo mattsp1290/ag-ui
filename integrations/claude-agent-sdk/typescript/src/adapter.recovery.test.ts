@@ -606,6 +606,154 @@ for (const native of [false, true])
     expect(sdk.query).not.toHaveBeenCalled();
   });
 
+for (const cancelled of [false, true])
+  it(`retains a batch before a result on ${cancelled ? "cancellation" : "exception"} across fresh adapters`, async () => {
+    let saved: SessionBinding | undefined;
+    let ready!: () => void, release!: () => void;
+    const deferred = new Promise<void>((resolve) => {
+      ready = resolve;
+    });
+    const closed = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const calls = [0, 1].map((n) => ({ ...pending, id: `interrupted-${n}` }));
+    sdk.query.mockImplementation(({ options }) =>
+      Object.assign(
+        (async function* () {
+          yield {
+            type: "system",
+            subtype: "init",
+            session_id: "original-session",
+          };
+          for (const call of calls)
+            await options.hooks.PreToolUse.at(-1).hooks[0]({
+              hook_event_name: "PreToolUse",
+              session_id: "original-session",
+              tool_use_id: call.id,
+              tool_name: call.name,
+              tool_input: call.input,
+            });
+          ready();
+          if (cancelled) await closed;
+          else throw new Error("transport disconnected before result");
+        })(),
+        { close: release },
+      ),
+    );
+    const config = {
+      sessionRecovery: {
+        profile: "original",
+        deferTools: ["Bash"],
+        resolveProfile: async () => ({}),
+        store: {
+          load: async () => saved && JSON.parse(JSON.stringify(saved)),
+          save: async (_id: string, value: SessionBinding) => {
+            saved = JSON.parse(JSON.stringify(value));
+          },
+        },
+      },
+    };
+    const initial = {
+      ...request(),
+      state: null,
+      messages: [{ id: "user", role: "user" as const, content: "start" }],
+    };
+    if (cancelled) {
+      const subscription = new ClaudeAgentAdapter(config)
+        .run(initial)
+        .subscribe();
+      await deferred;
+      subscription.unsubscribe();
+    } else await collect(new ClaudeAgentAdapter(config), initial);
+    expect(saved?.unsupportedPendingTools).toEqual(calls);
+    const before = structuredClone(saved);
+    const events = await collect(new ClaudeAgentAdapter(config), {
+      ...initial,
+      runId: "fresh",
+      messages: [{ id: "next", role: "user", content: "do not consume" }],
+    });
+    expect(events.at(-1)).toMatchObject({
+      type: "RUN_ERROR",
+      message: expect.stringContaining("multiple pending tool calls"),
+    });
+    expect(saved).toEqual(before);
+    expect(sdk.query).toHaveBeenCalledOnce();
+  });
+
+for (const ending of ["success", "sdk-error", "exception"] as const)
+  it(`does not retain completed batch calls after ${ending}`, async () => {
+    let saved: SessionBinding | undefined;
+    const calls = [0, 1].map((n) => ({ ...pending, id: `completed-${n}` }));
+    sdk.query.mockImplementation(({ options }) =>
+      (async function* () {
+        yield {
+          type: "system",
+          subtype: "init",
+          session_id: "original-session",
+        };
+        if (sdk.query.mock.calls.length === 1) {
+          for (const call of calls)
+            await options.hooks.PreToolUse.at(-1).hooks[0]({
+              hook_event_name: "PreToolUse",
+              session_id: "original-session",
+              tool_use_id: call.id,
+              tool_name: call.name,
+              tool_input: call.input,
+            });
+          yield {
+            type: "user",
+            session_id: "original-session",
+            message: {
+              role: "user",
+              content: calls.map((call) => ({
+                type: "tool_result",
+                tool_use_id: call.id,
+                content: "Actually completed",
+                is_error: false,
+              })),
+            },
+          };
+          if (ending === "exception")
+            throw new Error("transport disconnected after completion");
+        }
+        yield {
+          type: "result",
+          subtype: "success",
+          session_id: "original-session",
+          is_error: sdk.query.mock.calls.length === 1 && ending === "sdk-error",
+        };
+      })(),
+    );
+    const config = {
+      sessionRecovery: {
+        profile: "original",
+        deferTools: ["Bash"],
+        resolveProfile: async () => ({}),
+        store: {
+          load: async () => structuredClone(saved),
+          save: async (_id: string, value: SessionBinding) => {
+            saved = structuredClone(value);
+          },
+        },
+      },
+    };
+    const input = {
+      ...request(),
+      state: null,
+      messages: [{ id: "start", role: "user" as const, content: "start" }],
+    };
+    await collect(new ClaudeAgentAdapter(config), input);
+    expect(saved?.pending).toBeUndefined();
+    expect(saved?.unsupportedPendingTools).toBeUndefined();
+    const events = await collect(new ClaudeAgentAdapter(config), {
+      ...input,
+      runId: "fresh",
+      messages: [{ id: "next", role: "user", content: "new user turn" }],
+    });
+    expect(events.at(-1)?.type).toBe("RUN_FINISHED");
+    expect(sdk.query).toHaveBeenCalledTimes(2);
+  });
+
 it.each([false, true])(
   "persists child diagnostics before rejecting parent completion (resolved=%s)",
   async (resolved) => {

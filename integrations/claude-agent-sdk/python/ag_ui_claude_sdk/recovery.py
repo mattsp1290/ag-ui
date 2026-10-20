@@ -1,4 +1,5 @@
 """Host-owned session bindings; SDK transcripts remain in native storage."""
+import asyncio
 from copy import deepcopy
 from dataclasses import dataclass, asdict, is_dataclass
 from typing import Any, Protocol
@@ -45,6 +46,7 @@ class RecoveryRun:
             return cls(binding, input_data, defer_tools, await load_history())
 
     def __init__(self, binding: SessionBinding | None, input_data: Any, defer_tools=(), historical_results=()):
+        self.save_lock = asyncio.Lock()
         self.binding = binding
         self.assert_supported()
         self.deferred_tools = {}
@@ -109,6 +111,15 @@ class RecoveryRun:
     def observe_child_tool(self, tool, parent_tool_use_id):
         self.child_tools[tool['id']] = deepcopy({**tool, 'parentToolUseId': parent_tool_use_id})
 
+    def checkpoint_deferred(self, session_id, profile):
+        if len(self.deferred_tools) < 2:
+            return False
+        if not session_id:
+            raise ValueError('Deferred batch is missing its original session UUID.')
+        self.observe(session_id, profile)
+        self.binding.unsupported_pending_tools = deepcopy(list(self.deferred_tools.values()))
+        return True
+
     def assert_supported(self):
         if self.binding and any(tool.get('parentToolUseId') for tool in self.binding.unsupported_pending_tools or []):
             raise ValueError("Claude SDK child tool calls remain unresolved. Original child identities are retained for diagnosis; child deferral recovery is unsupported.")
@@ -167,7 +178,14 @@ class RecoveryRun:
         if child and child['parentToolUseId'] != parent_tool_use_id:
             return False
         self.child_tools.pop(tool_use_id, None)
-        self.deferred_tools.pop(tool_use_id, None)
+        observed = self.deferred_tools.pop(tool_use_id, None) is not None
+        changed = self._observe_pending_tool_result(tool_use_id)
+        if observed and not self.deferred_tools and not self.child_tools and self.binding and self.binding.unsupported_pending_tools:
+            self.binding.unsupported_pending_tools = None
+            return True
+        return changed
+
+    def _observe_pending_tool_result(self, tool_use_id):
         if not self.binding or not self.binding.pending or self.binding.pending['id'] != tool_use_id:
             return False
         if not self.consumed:
@@ -209,6 +227,8 @@ class RecoveryRun:
             # Child identities are diagnostic, never parent-session resume targets.
             if self.binding.pending and self.binding.pending['id'] in self.child_tools:
                 self.binding.pending = None
+        elif not getattr(result, 'is_error', False):
+            self.binding.unsupported_pending_tools = None
 
 
 def unresolved_tool_uses(messages):

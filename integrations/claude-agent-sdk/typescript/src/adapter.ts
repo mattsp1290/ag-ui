@@ -26,6 +26,7 @@ import {
 import { createSdkMcpServer, query } from "@anthropic-ai/claude-agent-sdk";
 import type {
   Query,
+  HookCallback,
   Options,
   SDKResultMessage,
   SDKMessage,
@@ -334,11 +335,38 @@ export class ClaudeAgentAdapter extends AbstractAgent {
         subscriber.complete();
         return;
       }
+      // Persist before acknowledging deferral, not in stream cleanup: cancellation
+      // can skip cleanup or arrive without a terminal SDK result. Serialize saves
+      // so concurrent hooks cannot overwrite a larger batch with an older one.
+      let checkpointQueue = Promise.resolve();
+      const saveRecoveryBinding = async () => {
+        const previous = checkpointQueue;
+        let release!: () => void;
+        checkpointQueue = new Promise<void>((resolve) => {
+          release = resolve;
+        });
+        await previous;
+        try {
+          if (!recovery.binding) return;
+          const snapshot = structuredClone(recovery.binding);
+          if (recoveryConfig)
+            await recoveryConfig.store.save(threadId, snapshot);
+          this.bindings.set(threadId, snapshot);
+        } finally {
+          release();
+        }
+      };
+      const durableHook: HookCallback = async (...args) => {
+        const output = await recovery.hook(...args);
+        if (recovery.checkpointDeferred(args[0].session_id, profile))
+          await saveRecoveryBinding();
+        return output;
+      };
       options.hooks = {
         ...options.hooks,
         PreToolUse: [
           ...(options.hooks?.PreToolUse ?? []),
-          { hooks: [recovery.hook] },
+          { hooks: [durableHook] },
         ],
       };
       // Keep the SDK control channel alive for hook answers without enqueueing
@@ -417,8 +445,12 @@ export class ClaudeAgentAdapter extends AbstractAgent {
       }
 
       await this.streamMessages(
-        this.observeRecovery(messageStream, recovery, threadId, profile, () =>
-          releaseResumeInput?.(),
+        this.observeRecovery(
+          messageStream,
+          recovery,
+          profile,
+          () => releaseResumeInput?.(),
+          saveRecoveryBinding,
         ),
         threadId,
         runId,
@@ -472,9 +504,9 @@ export class ClaudeAgentAdapter extends AbstractAgent {
   private async *observeRecovery(
     stream: AsyncIterable<SDKMessage>,
     recovery: RecoveryRun,
-    threadId: string,
     profile: string,
     releaseInput: () => void,
+    saveBinding: () => Promise<void>,
   ): AsyncIterable<SDKMessage> {
     for await (const message of stream) {
       if (message.type === "assistant" && message.parent_tool_use_id) {
@@ -500,12 +532,7 @@ export class ClaudeAgentAdapter extends AbstractAgent {
             ) &&
             recovery.binding
           ) {
-            if (this.config.sessionRecovery)
-              await this.config.sessionRecovery.store.save(
-                threadId,
-                structuredClone(recovery.binding),
-              );
-            this.bindings.set(threadId, structuredClone(recovery.binding));
+            await saveBinding();
           }
         }
       }
@@ -519,12 +546,7 @@ export class ClaudeAgentAdapter extends AbstractAgent {
           message.type === "result" ? message : undefined,
         );
         if (recovery.binding) {
-          if (this.config.sessionRecovery)
-            await this.config.sessionRecovery.store.save(
-              threadId,
-              structuredClone(recovery.binding),
-            );
-          this.bindings.set(threadId, structuredClone(recovery.binding));
+          await saveBinding();
         }
         recovery.assertSupported();
         if (message.type === "result" && message.is_error)

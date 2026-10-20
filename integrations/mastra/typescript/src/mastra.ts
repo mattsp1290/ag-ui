@@ -1264,9 +1264,9 @@ export class MastraAgent extends AbstractAgent {
       // The single non-failure exit once the run has produced its stream:
       // the stream's traceId, usage and finish reason, a best-effort
       // working-memory snapshot (no-op for remote agents, which have no local
-      // memory), then RUN_FINISHED. Shared by the stream, resume and decline paths, so every
-      // run ends the same way. The outcome is settled before either read, so
-      // a stop during them keeps it.
+      // memory), then RUN_FINISHED. Shared by the stream, resume and decline
+      // paths, so every run ends the same way. The outcome is settled before
+      // either read, so a stop during them keeps it.
       const finishRun = async (
         readResult?: () => Promise<DrainedRunResult>,
       ) => {

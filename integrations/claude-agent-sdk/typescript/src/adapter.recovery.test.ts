@@ -753,3 +753,171 @@ for (const ending of ["success", "sdk-error", "exception"] as const)
     expect(events.at(-1)?.type).toBe("RUN_FINISHED");
     expect(sdk.query).toHaveBeenCalledTimes(2);
   });
+
+it.each([false, true])(
+  "waits for each queued recovery turn before sending the next (error=%s)",
+  async (isError) => {
+    const received: unknown[] = [];
+    let beforeFirstResult: unknown[] = [];
+    let incoming: Promise<void> | undefined;
+    let firstReceived!: () => void;
+    const first = new Promise<void>((resolve) => {
+      firstReceived = resolve;
+    });
+    sdk.query.mockImplementation(({ options, prompt }) =>
+      (async function* () {
+        incoming = (async () => {
+          for await (const message of prompt) {
+            received.push(message.message.content);
+            firstReceived();
+          }
+        })();
+        await options.hooks.PreToolUse.at(-1).hooks[0]({
+          hook_event_name: "PreToolUse",
+          tool_use_id: pending.id,
+          tool_name: pending.name,
+          tool_input: pending.input,
+        });
+        const result = {
+          type: "result",
+          subtype: "success",
+          session_id: "original-session",
+          is_error: false,
+        };
+        yield result;
+        await first;
+        // Let the SDK prompt consumer request its next item before completing turn one.
+        await new Promise<void>((resolve) => setImmediate(resolve));
+        beforeFirstResult = [...received];
+        yield { ...result, is_error: isError };
+        if (!isError) {
+          await incoming;
+          yield result;
+        }
+      })(),
+    );
+    const adapter = new ClaudeAgentAdapter({
+      sessionRecovery: {
+        profile: "profile",
+        resolveProfile: async () => ({}),
+        store: {
+          load: async () => ({
+            sessionId: "original-session",
+            profile: "profile",
+            pending: structuredClone(pending),
+          }),
+          save: async () => {},
+        },
+      },
+    });
+    const events = await collect(adapter, {
+      ...request("allow"),
+      messages: [
+        { id: "first", role: "user", content: "First queued message" },
+        { id: "second", role: "user", content: "Second queued message" },
+      ],
+    });
+    await incoming;
+    expect(beforeFirstResult).toEqual(["First queued message"]);
+    expect(received).toEqual(
+      isError
+        ? ["First queued message"]
+        : ["First queued message", "Second queued message"],
+    );
+    expect(events.at(-1)?.type).toBe(isError ? "RUN_ERROR" : "RUN_FINISHED");
+    expect(sdk.query).toHaveBeenCalledOnce();
+  },
+);
+
+it.each([false, true])(
+  "persists child diagnostics before rejecting parent completion (resolved=%s)",
+  async (resolved) => {
+    let saved: SessionBinding | undefined;
+    const child = {
+      id: "child-read",
+      name: "Read",
+      input: { file_path: "/fixture" },
+    };
+    sdk.query.mockImplementation(() =>
+      (async function* () {
+        yield {
+          type: "system",
+          subtype: "init",
+          session_id: "original-session",
+        };
+        yield {
+          type: "assistant",
+          uuid: "child-message",
+          parent_tool_use_id: "parent-agent",
+          message: {
+            id: "child-message",
+            content: [{ type: "tool_use", ...child }],
+          },
+        };
+        yield {
+          type: "user",
+          parent_tool_use_id: null,
+          message: {
+            content: [
+              {
+                type: "tool_result",
+                tool_use_id: "parent-agent",
+                content: "Agent launched",
+              },
+            ],
+          },
+        };
+        yield {
+          type: "system",
+          subtype: "task_notification",
+          status: "completed",
+          tool_use_id: "parent-agent",
+        };
+        if (resolved)
+          yield {
+            type: "user",
+            parent_tool_use_id: "parent-agent",
+            message: {
+              content: [
+                {
+                  type: "tool_result",
+                  tool_use_id: child.id,
+                  content: "actual result",
+                },
+              ],
+            },
+          };
+        yield {
+          type: "result",
+          session_id: "original-session",
+          is_error: false,
+        };
+      })(),
+    );
+    const config = {
+      sessionRecovery: {
+        store: {
+          load: async () => structuredClone(saved),
+          save: async (_id: string, binding: SessionBinding) => {
+            saved = structuredClone(binding);
+          },
+        },
+        profile: "test",
+        resolveProfile: async () => ({ cwd: "/original" }),
+      },
+    };
+    const events = await collect(new ClaudeAgentAdapter(config), request());
+    expect(events.at(-1)?.type).toBe(resolved ? "RUN_FINISHED" : "RUN_ERROR");
+    if (!resolved) {
+      expect(saved?.unsupportedPendingTools).toEqual([
+        { ...child, parentToolUseId: "parent-agent" },
+      ]);
+      const restarted = await collect(
+        new ClaudeAgentAdapter(config),
+        request(),
+      );
+      expect(restarted.at(-1)?.type).toBe("RUN_ERROR");
+      expect(sdk.query).toHaveBeenCalledTimes(1);
+    }
+  },
+);

@@ -1,3 +1,4 @@
+import { restoreContext } from "./context";
 import type Anthropic from "@anthropic-ai/sdk";
 import type {
   BetaManagedAgentsSessionEvent,
@@ -80,6 +81,8 @@ export async function recoverSession(
       if (seen.has(event.id)) continue;
       seen.add(event.id);
       ordered.push(event);
+      if (event.type === "system.message")
+        restoreContext(event.content, record);
       switch (event.type) {
         case "session.status_running":
           if (!record.sessionThreadId) running = true;

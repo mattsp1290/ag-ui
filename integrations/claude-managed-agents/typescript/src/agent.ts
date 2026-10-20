@@ -6,6 +6,7 @@ import {
   RecoveryError,
   type SessionStream,
 } from "./recovery";
+import { attachContext, ContextDeliveryError } from "./context";
 import Anthropic from "@anthropic-ai/sdk";
 import { userContent } from "./content";
 import type {
@@ -225,7 +226,10 @@ export class ManagedAgentsAgent extends AbstractAgent {
             });
             return;
           }
-          if (err instanceof RecoveryError) {
+          if (
+            err instanceof RecoveryError ||
+            err instanceof ContextDeliveryError
+          ) {
             emit(runError(err.message, err.code));
             return;
           }
@@ -450,6 +454,11 @@ export class ManagedAgentsAgent extends AbstractAgent {
         input.messages,
         input.resume,
       );
+      const contextDelivery = attachContext(
+        outbound.events,
+        input.context,
+        session,
+      );
       // Owned sessions may change their catalog on a new user turn. Reconnects,
       // pending-result delivery and adopted native sessions retain their tools.
       if (
@@ -478,6 +487,7 @@ export class ManagedAgentsAgent extends AbstractAgent {
             { events: outbound.events },
             { signal },
           );
+        if (contextDelivery) session.runtimeContext = contextDelivery.snapshot;
         session.pendingClientToolUseIds =
           session.pendingClientToolUseIds.filter((id) =>
             outbound.stillParked.includes(id),
@@ -516,11 +526,15 @@ export class ManagedAgentsAgent extends AbstractAgent {
         // interruption later in the turn does not re-post it next run: the
         // tool results resume the session even if the follow-ups then fail.
         onResultsSent: async () => {
+          if (contextDelivery?.withResults)
+            session.runtimeContext = contextDelivery.snapshot;
           session.pendingClientToolUseIds = [];
           session.pendingConfirmations = [];
           await this.store.set(key, session);
         },
         onFollowUpsSent: async () => {
+          if (contextDelivery && !contextDelivery.withResults)
+            session.runtimeContext = contextDelivery.snapshot;
           if (outbound.lastUserMessageId)
             session.lastUserMessageId = outbound.lastUserMessageId;
           await this.store.set(key, session);

@@ -39,6 +39,7 @@ public sealed partial class ManagedAgentsAgent
             if (cursor is not null && id == cursor) pastCursor = true;
             var type = StringOf(evt, "type");
             RememberChildCall(record, evt);
+            if (type == "system.message") ManagedAgentsContext.Restore(evt, record);
             if (type == "session.status_running" || type == "session.thread_status_running" && StringOf(evt, "session_thread_id") == record.SessionThreadId) { latestBlocking.Clear(); running = true; }
             if ((type == "session.status_idle" || type == "session.thread_status_idle" && StringOf(evt, "session_thread_id") == record.SessionThreadId) && evt.TryGetProperty("stop_reason", out var stop))
             {
@@ -149,12 +150,14 @@ public sealed partial class ManagedAgentsAgent
         if (!record.PreserveTools && calls.Count == 0 && outbound.LastUserMessageId is not null)
             await SyncClientToolsAsync(record, input.Tools, cancellationToken).ConfigureAwait(false);
         var sends = replies.Concat(outbound.Events.Where(evt => !stillPending || StringOf(evt, "type") != "user.message")).ToList();
+        var contextDelivery = ManagedAgentsContext.Attach(sends, input.Context, record);
         yield return new CustomEvent { Name = SessionCustomEventName, Value = JsonSerializer.SerializeToElement(new
         { sessionId = record.SessionId, threadId = input.ThreadId, sessionThreadId = record.SessionThreadId, resumed = true }) };
 
         if (stillPending || sends.Count == 0 && !running)
         {
             if (sends.Count > 0) await _client.SendEventsAsync(record.SessionId, sends, cancellationToken).ConfigureAwait(false);
+            if (contextDelivery is not null) record.RuntimeContext = contextDelivery.Snapshot;
             record.PendingClientToolUseIds = outbound.StillParked;
             record.PendingConfirmationIds = remainingConfirmations;
             await PersistDeliveredAsync(key, record).ConfigureAwait(false);
@@ -172,8 +175,8 @@ public sealed partial class ManagedAgentsAgent
             yield break;
         }
         var turn = new ManagedAgentsTurn(_client, record.SessionId, sends, clientTools, _backendTools, null, _options.StreamDeltas,
-            onResultsSent: () => { record.PendingClientToolUseIds = []; record.PendingConfirmationIds = []; return PersistDeliveredAsync(key, record); },
-            onFollowUpsSent: () => { record.LastUserMessageId = outbound.LastUserMessageId ?? record.LastUserMessageId; return PersistDeliveredAsync(key, record); },
+            onResultsSent: () => { contextDelivery?.Acknowledge(record, results: true); record.PendingClientToolUseIds = []; record.PendingConfirmationIds = []; return PersistDeliveredAsync(key, record); },
+            onFollowUpsSent: () => { contextDelivery?.Acknowledge(record, results: false); record.LastUserMessageId = outbound.LastUserMessageId ?? record.LastUserMessageId; return PersistDeliveredAsync(key, record); },
             onClientPark: id => { if (!record.PendingClientToolUseIds.Contains(id)) record.PendingClientToolUseIds.Add(id); return PersistDeliveredAsync(key, record); },
             onError: _options.OnError) { ConnectedStream = stream, Recovering = true };
         turn.SeenEventIds.UnionWith(seen);

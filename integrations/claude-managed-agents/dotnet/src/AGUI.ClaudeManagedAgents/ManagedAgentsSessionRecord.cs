@@ -18,6 +18,9 @@ public sealed class ManagedAgentsSessionRecord
     /// </summary>
     public string SessionId { get; set; } = string.Empty;
 
+    /// <summary>Gets or sets the last delivered runtime context snapshot. Persist across restarts.</summary>
+    public string? RuntimeContext { get; set; }
+
     /// <summary>
     /// Gets or sets the custom tool names currently registered on the session's agent.
     /// </summary>

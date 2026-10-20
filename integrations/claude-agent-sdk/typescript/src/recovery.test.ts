@@ -132,6 +132,41 @@ it("does not reopen an answered approval if the model subsequently fails", async
   expect(run.binding?.pending).toBeUndefined();
 });
 
+it("restores middleware error metadata with the original payload after client reduction", async () => {
+  const deferred = { id: "mcp-call", name: "mcp__ag_ui__draw", input: {} };
+  const run = new RecoveryRun(
+    { sessionId: "native", profile: "profile", pending: deferred },
+    {
+      ...input(),
+      messages: [
+        {
+          id: "result",
+          role: "tool",
+          toolCallId: deferred.id,
+          content: "original MCP error",
+          metadata: { "ag-ui:tool-result": { error: "" } },
+        },
+      ],
+    },
+  );
+  await run.hook(
+    {
+      ...hookInput,
+      tool_use_id: deferred.id,
+      tool_name: deferred.name,
+      tool_input: {},
+    },
+    deferred.id,
+    { signal: new AbortController().signal },
+  );
+  expect(run.resolveFrontendResult("draw", {})).toEqual({
+    content: "original MCP error",
+    error: "",
+  });
+  expect(() => run.resolveFrontendResult("draw", {})).toThrow(
+    "no matching resumed result",
+  );
+});
 const stateResult = {
   id: "state-call-result",
   role: "tool" as const,
@@ -590,4 +625,62 @@ it("retains an unresolved batch even when the SDK returns an error", async () =>
     "second",
   ]);
   expect(() => run.assertSupported()).toThrow("multiple pending tool calls");
+});
+
+it.each([false, true])(
+  "retains unresolved child identity after parent completion (parent deferral=%s)",
+  (parentDeferred) => {
+    const run = new RecoveryRun(undefined, input());
+    run.observeChildTool(pending, "parent-agent");
+    run.observeToolResult("parent-agent"); // Async launch/completion is not the child result.
+    run.observeToolResult(pending.id, "wrong-parent");
+    run.observe(
+      "native",
+      "profile",
+      parentDeferred
+        ? {
+            stop_reason: "tool_deferred",
+            deferred_tool_use: { ...pending, id: "parent-read" },
+          }
+        : {},
+    );
+    expect(run.binding?.unsupportedPendingTools).toEqual(
+      expect.arrayContaining([{ ...pending, parentToolUseId: "parent-agent" }]),
+    );
+    expect(() => run.assertSupported()).toThrow(
+      "child deferral recovery is unsupported",
+    );
+    expect(
+      () =>
+        new RecoveryRun(
+          JSON.parse(JSON.stringify(run.binding)),
+          input("allow"),
+        ),
+    ).toThrow("child deferral recovery is unsupported");
+  },
+);
+
+it("allows parent completion only after a correlated child result", () => {
+  const run = new RecoveryRun(undefined, input());
+  run.observeChildTool(pending, "parent-agent");
+  run.observeToolResult(pending.id, "parent-agent");
+  run.observe("native", "profile", {});
+  expect(() => run.assertSupported()).not.toThrow();
+  expect(run.binding?.unsupportedPendingTools).toBeUndefined();
+});
+
+it("never promotes an unresolved child deferral into a parent approval", async () => {
+  const run = new RecoveryRun(undefined, input(), ["Bash"]);
+  run.observeChildTool(pending, "parent-agent");
+  run.observe("native", "profile", {
+    stop_reason: "tool_deferred",
+    deferred_tool_use: pending,
+  });
+  expect(run.binding?.pending).toBeUndefined();
+  expect(run.binding?.unsupportedPendingTools).toEqual([
+    { ...pending, parentToolUseId: "parent-agent" },
+  ]);
+  expect(() => run.assertSupported()).toThrow(
+    "child deferral recovery is unsupported",
+  );
 });

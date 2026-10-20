@@ -50,6 +50,7 @@ class RecoveryRun:
         self.binding = binding
         self.assert_supported()
         self.deferred_tools = {}
+        self.child_tools = {}
         self.decision = None
         self.consumed = False
         self.delivered = False
@@ -107,6 +108,9 @@ class RecoveryRun:
                     or getattr(saved[0], 'error', None) != error):
                 raise UnmatchedToolResult()
 
+    def observe_child_tool(self, tool, parent_tool_use_id):
+        self.child_tools[tool['id']] = deepcopy({**tool, 'parentToolUseId': parent_tool_use_id})
+
     def checkpoint_deferred(self, session_id, profile):
         if len(self.deferred_tools) < 2:
             return False
@@ -117,6 +121,8 @@ class RecoveryRun:
         return True
 
     def assert_supported(self):
+        if self.binding and any(tool.get('parentToolUseId') for tool in self.binding.unsupported_pending_tools or []):
+            raise ValueError("Claude SDK child tool calls remain unresolved. Original child identities are retained for diagnosis; child deferral recovery is unsupported.")
         if self.binding and len(self.binding.unsupported_pending_tools or []) > 1:
             raise ValueError("Claude SDK cannot resume multiple pending tool calls. The original pending batch is retained; SDK batch recovery is unsupported.")
 
@@ -167,10 +173,14 @@ class RecoveryRun:
                 output['updatedInput'] = self.decision['updatedInput']
         return {'hookSpecificOutput': output}
 
-    def observe_tool_result(self, tool_use_id):
+    def observe_tool_result(self, tool_use_id, parent_tool_use_id=None):
+        child = self.child_tools.get(tool_use_id)
+        if child and child['parentToolUseId'] != parent_tool_use_id:
+            return False
+        self.child_tools.pop(tool_use_id, None)
         observed = self.deferred_tools.pop(tool_use_id, None) is not None
         changed = self._observe_pending_tool_result(tool_use_id)
-        if observed and not self.deferred_tools and self.binding and self.binding.unsupported_pending_tools:
+        if observed and not self.deferred_tools and not self.child_tools and self.binding and self.binding.unsupported_pending_tools:
             self.binding.unsupported_pending_tools = None
             return True
         return changed
@@ -212,8 +222,11 @@ class RecoveryRun:
             if not self.consumed:
                 raise ValueError('SDK did not replay the saved deferred tool call.')
             self.binding.pending = None
-        if len(self.deferred_tools) > 1:
-            self.binding.unsupported_pending_tools = list(self.deferred_tools.values())
+        if len(self.deferred_tools) > 1 or self.child_tools:
+            self.binding.unsupported_pending_tools = list({**self.deferred_tools, **self.child_tools}.values())
+            # Child identities are diagnostic, never parent-session resume targets.
+            if self.binding.pending and self.binding.pending['id'] in self.child_tools:
+                self.binding.pending = None
         elif not getattr(result, 'is_error', False):
             self.binding.unsupported_pending_tools = None
 

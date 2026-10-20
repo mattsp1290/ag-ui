@@ -371,7 +371,7 @@ export class ClaudeAgentAdapter extends AbstractAgent {
       };
       // Keep the SDK control channel alive for hook answers without enqueueing
       // an empty user turn after the CLI automatically replays the deferral.
-      const resumeGate = new Promise<void>((resolve) => {
+      let resumeGate = new Promise<void>((resolve) => {
         releaseResumeInput = resolve;
       });
       const newMessages = recovery.resuming
@@ -380,8 +380,14 @@ export class ClaudeAgentAdapter extends AbstractAgent {
       const prompt = recovery.resuming
         ? (async function* (): AsyncIterable<SDKUserMessage> {
             await resumeGate;
-            if (subscriber.closed) return;
             for (const message of newMessages) {
+              await resumeGate;
+              if (subscriber.closed) return;
+              // Arm before yielding: the SDK can consume the prompt immediately.
+              // Only a validated successful result unlocks the following turn.
+              resumeGate = new Promise<void>((resolve) => {
+                releaseResumeInput = resolve;
+              });
               const converted = processMessages({
                 ...input,
                 messages: [message],
@@ -509,11 +515,27 @@ export class ClaudeAgentAdapter extends AbstractAgent {
     saveBinding: () => Promise<void>,
   ): AsyncIterable<SDKMessage> {
     for await (const message of stream) {
+      if (message.type === "assistant" && message.parent_tool_use_id) {
+        for (const block of message.message.content) {
+          if (block.type === "tool_use")
+            recovery.observeChildTool(
+              {
+                id: block.id,
+                name: block.name,
+                input: block.input as Record<string, unknown>,
+              },
+              message.parent_tool_use_id,
+            );
+        }
+      }
       if (message.type === "user" && Array.isArray(message.message.content)) {
         for (const block of message.message.content) {
           if (
             block.type === "tool_result" &&
-            recovery.observeToolResult(block.tool_use_id) &&
+            recovery.observeToolResult(
+              block.tool_use_id,
+              message.parent_tool_use_id,
+            ) &&
             recovery.binding
           ) {
             await saveBinding();

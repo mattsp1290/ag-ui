@@ -53,6 +53,7 @@ public sealed class InMemorySessionStore : ISessionStore
         ToolNames = [.. record.ToolNames],
         ToolDefinitionsFingerprint = record.ToolDefinitionsFingerprint,
         LastUserMessageId = record.LastUserMessageId,
+        RuntimeContext = record.RuntimeContext,
         PendingClientToolUseIds = [.. record.PendingClientToolUseIds],
     };
 

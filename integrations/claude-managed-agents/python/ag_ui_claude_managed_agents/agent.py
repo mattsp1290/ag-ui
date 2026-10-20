@@ -391,6 +391,11 @@ class ManagedAgentsAgent:
 
             await recover_turn(self, record, store_key, input, emit)
             return
+        from .recovery import recover_child_results, track_child_results
+
+        emit = await track_child_results(
+            record, input.messages, emit, lambda: self.store.set(store_key, record)
+        )
         await self._sync_client_tools(record, input.tools or [])
 
         outbound = self._outbound_events(record, input.messages)
@@ -469,6 +474,10 @@ class ManagedAgentsAgent:
         if outcome.status != "errored":
             from .recovery import finish
 
+            await recover_child_results(
+                self.client, record, emit, lambda: self.store.set(store_key, record)
+            )
+            await maybe_await(self.store.set(store_key, record))
             finish(input, emit, outcome.confirmations)
 
     def _client_tools(self, client_tools: Sequence[Any]) -> dict[str, str]:
@@ -596,9 +605,7 @@ class ManagedAgentsAgent:
             content = user_content(message)
             if not content:
                 continue
-            events.append(
-                {"type": "user.message", "content": content}
-            )
+            events.append({"type": "user.message", "content": content})
             last_user_message_id = message.id
 
         # A follow-up must never implicitly reject unresolved custom calls.

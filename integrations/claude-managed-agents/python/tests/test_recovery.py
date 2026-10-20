@@ -943,3 +943,93 @@ async def test_child_result_missing_at_root_completion_is_recovered_on_reload(tm
     assert [e.content for e in events if e.type == "TOOL_CALL_RESULT"] == [
         "exact result"
     ]
+
+
+async def test_transcript_known_child_result_survives_transcript_omission():
+    from .fake_store import RecordingSessionStore
+
+    native_call = call("known-call", session_thread_id="child")
+    done = {
+        "id": "done",
+        "type": "session.status_idle",
+        "stop_reason": {"type": "end_turn"},
+    }
+    result = {
+        "id": "known-result",
+        "type": "agent.tool_result",
+        "tool_use_id": "known-call",
+        "content": [{"type": "text", "text": "done"}],
+    }
+    store = RecordingSessionStore()
+
+    def make():
+        fake = RecoveryClient([[native_call, done]])
+
+        async def child_history(*args, **kwargs):
+            return [result]
+
+        fake.beta.sessions.threads.events.list = child_history
+        return new_agent(
+            fake,
+            store,
+            resolve_session=lambda _: SessionBinding(
+                "native", last_user_message_id="u1"
+            ),
+        )
+
+    first = await collect(
+        make(),
+        base_input(
+            messages=[
+                {
+                    "role": "tool",
+                    "id": "known-result",
+                    "toolCallId": "known-call",
+                    "content": "done",
+                }
+            ]
+        ),
+    )
+    assert not [e for e in first if e.type == "TOOL_CALL_RESULT"]
+    replay = await collect(make(), base_input(messages=[]))
+    assert replay[-1].type == "RUN_FINISHED"
+    assert not [e for e in replay if e.type == "TOOL_CALL_RESULT"]
+
+
+async def test_initial_child_results_are_recovered_and_deduplicated_after_restart():
+    from .fake_store import RecordingSessionStore
+
+    for cross_posted in (False, True):
+        native_call = call("initial-call", session_thread_id="child")
+        done = {
+            "id": "done",
+            "type": "session.status_idle",
+            "stop_reason": {"type": "end_turn"},
+        }
+        result = {
+            "id": "initial-result",
+            "type": "agent.tool_result",
+            "tool_use_id": "initial-call",
+            "content": [{"type": "text", "text": "done"}],
+        }
+        store = RecordingSessionStore()
+        fake = RecoveryClient(
+            [[]], streams=[[native_call, *([result] if cross_posted else []), done]]
+        )
+
+        async def child_history(*args, **kwargs):
+            return [result]
+
+        fake.beta.sessions.threads.events.list = child_history
+        events = await collect(
+            new_agent(fake, store, tool_confirmation="allow"), base_input()
+        )
+        assert len([e for e in events if e.type == "TOOL_CALL_RESULT"]) == 1, (
+            cross_posted
+        )
+        assert events[-1].type == "RUN_FINISHED"
+        restarted = RecoveryClient([[native_call, done]])
+        restarted.beta.sessions.threads.events.list = child_history
+        replay = await collect(new_agent(restarted, store), base_input(messages=[]))
+        assert replay[-1].type == "RUN_FINISHED"
+        assert not [e for e in replay if e.type == "TOOL_CALL_RESULT"], cross_posted

@@ -945,3 +945,71 @@ it("recovers a late child result after a serialized-store restart past the root 
   );
   expect(third.filter((e) => e.type === "TOOL_CALL_RESULT")).toEqual([]);
 });
+
+it("persists transcript-known child results when the next reload omits the transcript", async () => {
+  const call = { ...approval("known-child-call"), session_thread_id: "child" };
+  const result = {
+    id: "known-result",
+    type: "agent.tool_result",
+    tool_use_id: call.id,
+    content: [{ type: "text", text: "done" }],
+  };
+  const store = new InMemorySessionStore();
+  const make = () =>
+    agent(
+      createFakeClient({
+        histories: [[call, idle]],
+        childHistories: { child: [result] },
+      }),
+      store,
+    );
+  const first = await collect(
+    make(),
+    input({
+      messages: [
+        { role: "tool", id: result.id, toolCallId: call.id, content: "done" },
+      ],
+    }),
+  );
+  expect(first.filter((e) => e.type === "TOOL_CALL_RESULT")).toEqual([]);
+  const second = await collect(make(), input({ messages: [] }));
+  expect(second.at(-1)?.type).toBe("RUN_FINISHED");
+  expect(second.filter((e) => e.type === "TOOL_CALL_RESULT")).toEqual([]);
+});
+
+it.each([false, true])(
+  "tracks initial child results across restart (root cross-post: %s)",
+  async (crossPosted) => {
+    const call = { ...approval("initial-child"), session_thread_id: "child" };
+    const result = {
+      id: "initial-result",
+      type: "agent.tool_result",
+      tool_use_id: call.id,
+      content: [{ type: "text", text: "done" }],
+    };
+    const store = new InMemorySessionStore();
+    const initial = new ManagedAgentsAgent({
+      managedAgentId: "agent",
+      environmentId: "env",
+      sessionStore: store,
+      toolConfirmation: "allow",
+      client: createFakeClient({
+        streams: [[call, ...(crossPosted ? [result] : []), idle]],
+        childHistories: { child: [result] },
+      }).client,
+    });
+    const events = await collect(initial);
+    expect(events.filter((e) => e.type === "TOOL_CALL_RESULT")).toHaveLength(1);
+    expect(events.at(-1)?.type).toBe("RUN_FINISHED");
+    const restarted = agent(
+      createFakeClient({
+        histories: [[call, idle]],
+        childHistories: { child: [result] },
+      }),
+      store,
+    );
+    const replay = await collect(restarted, input({ messages: [] }));
+    expect(replay.at(-1)?.type).toBe("RUN_FINISHED");
+    expect(replay.filter((e) => e.type === "TOOL_CALL_RESULT")).toEqual([]);
+  },
+);

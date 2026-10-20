@@ -339,6 +339,8 @@ export class ManagedAgentsAgent extends AbstractAgent {
           message.role === "tool" ? [message.toolCallId] : [],
         ),
       ]);
+      session.deliveredChildResultIds = [...delivered];
+      await this.store.set(key, session);
       emit = (event) => {
         if (event.type === EventType.RAW) {
           rememberChildCall(

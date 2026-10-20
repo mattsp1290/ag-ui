@@ -72,6 +72,43 @@ async def history_list(api: Any, identity: str, **kwargs: Any) -> list[Any]:
     return result
 
 
+async def track_child_results(
+    record: Any, messages: Any, emit: Any, persist: Any
+) -> Any:
+    """Share durable transcript and live-result tracking across initial and recovered runs."""
+    delivered = set(record.delivered_child_result_ids)
+    delivered.update(
+        get(message, "tool_call_id") or get(message, "toolCallId")
+        for message in messages
+        if get(message, "role") == "tool"
+    )
+    record.delivered_child_result_ids = list(delivered)
+    await maybe_await(persist())
+
+    def tracked(event):
+        if isinstance(event, RawEvent):
+            native = event.event
+            if (
+                not record.session_thread_id
+                and get(native, "type") in ("agent.tool_use", "agent.mcp_tool_use")
+                and get(native, "session_thread_id")
+            ):
+                record.child_tool_calls[get(native, "id")] = get(
+                    native, "session_thread_id"
+                )
+        if (
+            isinstance(event, ToolCallResultEvent)
+            and event.tool_call_id in record.child_tool_calls
+        ):
+            if event.tool_call_id in delivered:
+                return
+            delivered.add(event.tool_call_id)
+            record.delivered_child_result_ids = list(delivered)
+        emit(event)
+
+    return tracked
+
+
 async def recover_turn(
     agent: Any, record: Any, key: str, input: Any, emit: Any
 ) -> None:
@@ -96,34 +133,9 @@ async def recover_turn(
                 record.child_tool_calls[get(event, "id")] = get(
                     event, "session_thread_id"
                 )
-        output = emit
-        delivered = set(record.delivered_child_result_ids)
-        delivered.update(
-            get(message, "tool_call_id") or get(message, "toolCallId")
-            for message in input.messages
-            if get(message, "role") == "tool"
+        emit = await track_child_results(
+            record, input.messages, emit, lambda: agent.store.set(key, record)
         )
-
-        def emit(event):
-            if (
-                isinstance(event, ToolCallResultEvent)
-                and event.tool_call_id in record.child_tool_calls
-            ):
-                if event.tool_call_id in delivered:
-                    return
-                delivered.add(event.tool_call_id)
-                record.delivered_child_result_ids = list(delivered)
-            if isinstance(event, RawEvent):
-                native = event.event
-                if (
-                    not record.session_thread_id
-                    and get(native, "type") in ("agent.tool_use", "agent.mcp_tool_use")
-                    and get(native, "session_thread_id")
-                ):
-                    record.child_tool_calls[get(native, "id")] = get(
-                        native, "session_thread_id"
-                    )
-            output(event)
 
         async def reconcile_children():
             await recover_child_results(

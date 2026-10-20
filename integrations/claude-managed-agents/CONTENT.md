@@ -74,7 +74,7 @@ Intelligence baseline [`7ec248a8f`](https://github.com/CopilotKit/Intelligence/b
 
 The root stream may cross-post a child's tool call and approval confirmation without
 cross-posting its result. All three adapters reconcile the owning child history before
-finishing a recovered run, using only call-to-child mappings from native root events.
+finishing initial or recovered runs, using only call-to-child mappings from native root events.
 They emit the actual native result under its original call and result IDs. Recovered
 RAW envelopes include the child thread scope and preserve `is_error` and native content.
 Confirmation decisions and parent prose never become tool results.
@@ -82,7 +82,8 @@ Confirmation decisions and parent prose never become tool results.
 Session stores must round-trip the new child ownership and delivered-result fields.
 These fields are independent of the root cursor: an empty child read remains eligible
 for recovery on a later reload, and a delivered result is suppressed on subsequent
-reads or root cross-posts. The importing application remains responsible for persisting
+reads or root cross-posts. Results already present in the client transcript are also
+recorded as delivered, even when no new result is emitted. The importing application remains responsible for persisting
 AG-UI events; this adapter does not write directly to Intelligence.
 
 `fixtures/child-results.json` preserves the captured TypeScript allow, Python deny,

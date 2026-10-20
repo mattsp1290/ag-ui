@@ -182,9 +182,7 @@ public sealed partial class ManagedAgentsAgent
         run.Turn = turn;
         await foreach (var evt in turn.RunAsync(cancellationToken).ConfigureAwait(false))
         {
-            if (evt is RawEvent raw && raw.Event is JsonElement native) RememberChildCall(record, native);
-            if (evt is ToolCallResultEvent result && record.ChildToolCalls.ContainsKey(result.ToolCallId)
-                && !record.DeliveredChildResultIds.Add(result.ToolCallId)) continue;
+            if (!TrackChildResult(record, evt)) continue;
             yield return evt;
         }
         record.PendingConfirmationIds = turn.PendingConfirmations;
@@ -196,6 +194,13 @@ public sealed partial class ManagedAgentsAgent
             await PersistDeliveredAsync(key, record).ConfigureAwait(false);
             yield return RecoveredFinished(input, record, turn.ConfirmationEvents);
         }
+    }
+
+    private static bool TrackChildResult(ManagedAgentsSessionRecord record, BaseEvent evt)
+    {
+        if (evt is RawEvent raw && raw.Event is JsonElement native) RememberChildCall(record, native);
+        return evt is not ToolCallResultEvent result || !record.ChildToolCalls.ContainsKey(result.ToolCallId)
+            || record.DeliveredChildResultIds.Add(result.ToolCallId);
     }
 
     private static void RememberChildCall(ManagedAgentsSessionRecord record, JsonElement evt)

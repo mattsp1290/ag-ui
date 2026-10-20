@@ -62,6 +62,47 @@ public partial class ManagedAgentsRecoveryTest
         finally { File.Delete(path); }
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task InitialChildResultIsRecoveredBeforeFinishAndNotReplayed(bool crossPosted)
+    {
+        var call = FakeManagedAgentsClient.Json("""{"id":"initial-call","type":"agent.tool_use","session_thread_id":"child","name":"write","input":{},"evaluated_permission":"ask"}""");
+        var result = FakeManagedAgentsClient.Json("""{"id":"initial-result","type":"agent.tool_result","tool_use_id":"initial-call","content":[{"type":"text","text":"done"}]}""");
+        var store = new RecordingSessionStore();
+        var stream = new List<string> { call.GetRawText() };
+        if (crossPosted) stream.Add(result.GetRawText());
+        stream.Add(Idle);
+        var fake = new FakeManagedAgentsClient(stream);
+        fake.ChildHistories["child"] = [result];
+        var initial = new ManagedAgentsAgent(new() { ManagedAgentId = "agent", EnvironmentId = "env", Client = fake, SessionStore = store, ToolConfirmation = ToolConfirmationPolicy.Allow });
+        var events = await Collect(initial, Input());
+        Assert.Single(events.OfType<ToolCallResultEvent>());
+        Assert.IsType<RunFinishedEvent>(events[^1]);
+        var restarted = new FakeManagedAgentsClient { History = [call, FakeManagedAgentsClient.Json(Idle)] };
+        restarted.ChildHistories["child"] = [result];
+        var input = Input(); input.Messages = [];
+        var replay = await Collect(Agent(restarted, store), input);
+        Assert.IsType<RunFinishedEvent>(replay[^1]);
+        Assert.Empty(replay.OfType<ToolCallResultEvent>());
+    }
+
+    [Fact]
+    public async Task TranscriptKnownChildResultRemainsDeliveredWithoutTranscript()
+    {
+        var call = FakeManagedAgentsClient.Json("""{"id":"known-call","type":"agent.tool_use","session_thread_id":"child","name":"write","input":{},"evaluated_permission":"ask"}""");
+        var result = FakeManagedAgentsClient.Json("""{"id":"known-result","type":"agent.tool_result","tool_use_id":"known-call","content":[{"type":"text","text":"done"}]}""");
+        var store = new RecordingSessionStore();
+        var fake = new FakeManagedAgentsClient { History = [call, FakeManagedAgentsClient.Json(Idle)] };
+        fake.ChildHistories["child"] = [result];
+        var input = Input(); input.Messages = [new AGUIToolMessage { Id = "known-result", ToolCallId = "known-call", Content = "done" }];
+        Assert.Empty((await Collect(Agent(fake, store), input)).OfType<ToolCallResultEvent>());
+        input.Messages = [];
+        var replay = await Collect(Agent(fake, store), input);
+        Assert.IsType<RunFinishedEvent>(replay[^1]);
+        Assert.Empty(replay.OfType<ToolCallResultEvent>());
+    }
+
     private const string Idle = """{"type":"session.status_idle","id":"done","stop_reason":{"type":"end_turn"}}""";
     private static JsonElement Call(string id, bool confirmation = false) => FakeManagedAgentsClient.Json(
         $$"""{"id":"{{id}}","type":"{{(confirmation ? "agent.tool_use" : "agent.custom_tool_use")}}","name":"lookup","input":{},"evaluated_permission":"ask"}""");

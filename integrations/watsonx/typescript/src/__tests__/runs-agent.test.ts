@@ -7,7 +7,10 @@
 
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { WatsonxRunsAgent, InMemoryWatsonxThreadStore } from "../index";
-import type { WatsonxRunsAgentConfig } from "../index";
+import type {
+  WatsonxRunsAgentConfig,
+  WatsonxToolResultHandler,
+} from "../index";
 import { verifyEvents } from "@ag-ui/client";
 import {
   EventType,
@@ -15,6 +18,7 @@ import {
   type BaseEvent,
   type RunAgentInput,
   type Message,
+  type ToolCallArgsEvent,
 } from "@ag-ui/core";
 import { firstValueFrom, toArray } from "rxjs";
 
@@ -301,6 +305,135 @@ describe("WatsonxRunsAgent", () => {
         toolCallId: CALL,
         content: RESULT,
         role: "tool",
+      });
+    });
+
+    // Ordering from IBM's ADK evaluation sample (data1.messages.json): a
+    // collaborator's tool response comes first, then the call with its args.
+    const callRecord = (id: string, name: string, args: unknown) =>
+      wxo("run.step.delta", {
+        delta: {
+          role: "assistant",
+          step_details: [{ type: "tool_call", args, name, tool_call_id: id }],
+        },
+      });
+    const responseOnly = (id: string, name: string, content: string) =>
+      wxo("run.step.delta", {
+        delta: {
+          role: "assistant",
+          step_details: [
+            { type: "tool_response", content, name, tool_call_id: id },
+          ],
+        },
+      });
+
+    it("keeps the arguments of a call recorded after its response", async () => {
+      const args = { email: "abrennan@workday.net" };
+      mockFetch(
+        streamResponse(
+          ndjson([
+            runStarted(),
+            wxo("run.step.delta", {
+              delta: {
+                role: "assistant",
+                step_details: [
+                  {
+                    type: "tool_response",
+                    content: RESULT,
+                    name: TOOL,
+                    tool_call_id: CALL,
+                  },
+                  { type: "tool_call", args, name: TOOL, tool_call_id: CALL },
+                ],
+              },
+            }),
+            ...done(),
+          ]),
+        ),
+      );
+      const onToolResult = vi.fn<WatsonxToolResultHandler>(() => undefined);
+
+      const events = await collectEvents(makeAgent({ onToolResult }));
+      expect(ofType(events, EventType.TOOL_CALL_ARGS)).toHaveLength(1);
+      expect(ofType(events, EventType.TOOL_CALL_ARGS)[0]).toMatchObject({
+        delta: JSON.stringify(args),
+      });
+      expect(onToolResult).toHaveBeenCalledTimes(1);
+      expect(onToolResult.mock.calls[0][0]).toMatchObject({ args });
+    });
+
+    it("keeps the arguments when the call record comes in a later event", async () => {
+      const first = { email: "abrennan@workday.net" };
+      const second = { user_id: "6dcb8106" };
+      mockFetch(
+        streamResponse(
+          ndjson([
+            runStarted(),
+            responseOnly("call-a", "get_user_workday_ids", "ids"),
+            callRecord("call-a", "get_user_workday_ids", first),
+            responseOnly("call-b", "get_payslips", "payslips"),
+            callRecord("call-b", "get_payslips", second),
+            textDelta("You do not have any payslips."),
+            ...done(),
+          ]),
+        ),
+      );
+      const onToolResult = vi.fn<WatsonxToolResultHandler>(() => undefined);
+
+      const events = await collectEvents(makeAgent({ onToolResult }));
+      expect(
+        ofType<ToolCallArgsEvent>(events, EventType.TOOL_CALL_ARGS).map(
+          (e) => e.delta,
+        ),
+      ).toEqual([JSON.stringify(first), JSON.stringify(second)]);
+      expect(onToolResult.mock.calls.map(([result]) => result.args)).toEqual([
+        first,
+        second,
+      ]);
+      expect(types(events)).toEqual([
+        EventType.RUN_STARTED,
+        EventType.TOOL_CALL_START,
+        EventType.TOOL_CALL_ARGS,
+        EventType.TOOL_CALL_END,
+        EventType.TOOL_CALL_RESULT,
+        EventType.TOOL_CALL_START,
+        EventType.TOOL_CALL_ARGS,
+        EventType.TOOL_CALL_END,
+        EventType.TOOL_CALL_RESULT,
+        EventType.TEXT_MESSAGE_START,
+        EventType.TEXT_MESSAGE_CONTENT,
+        EventType.TEXT_MESSAGE_END,
+        EventType.RUN_FINISHED,
+      ]);
+    });
+
+    it("answers a response whose call never comes before the run moves on", async () => {
+      mockFetch(
+        streamResponse(
+          ndjson([
+            runStarted(),
+            responseOnly(CALL, TOOL, RESULT),
+            textDelta("done"),
+            ...done(),
+          ]),
+        ),
+      );
+
+      const events = await collectEvents(makeAgent());
+      expect(types(events)).toEqual([
+        EventType.RUN_STARTED,
+        EventType.TOOL_CALL_START,
+        EventType.TOOL_CALL_ARGS,
+        EventType.TOOL_CALL_END,
+        EventType.TOOL_CALL_RESULT,
+        EventType.TEXT_MESSAGE_START,
+        EventType.TEXT_MESSAGE_CONTENT,
+        EventType.TEXT_MESSAGE_END,
+        EventType.RUN_FINISHED,
+      ]);
+      expect(ofType(events, EventType.TOOL_CALL_RESULT)[0]).toMatchObject({
+        toolCallId: CALL,
+        content: RESULT,
       });
     });
 
@@ -722,6 +855,19 @@ describe("WatsonxRunsAgent", () => {
       expect(runs[1].body.thread_id).toBe(WXO_THREAD);
     });
 
+    it("keeps environments apart in a shared store", async () => {
+      const threadStore = new InMemoryWatsonxThreadStore();
+      const { runs } = mockFetch(
+        streamResponse(ndjson([runStarted(), ...done()])),
+        streamResponse(ndjson([runStarted("wxo-thread-2"), ...done()])),
+      );
+
+      await collectEvents(makeAgent({ threadStore, environmentId: "draft" }));
+      await collectEvents(makeAgent({ threadStore, environmentId: "live" }));
+
+      expect(runs[1].body.thread_id).toBeUndefined();
+    });
+
     it("keeps AG-UI threads apart", async () => {
       const { runs } = mockFetch(
         streamResponse(ndjson([runStarted(), ...done()])),
@@ -736,9 +882,8 @@ describe("WatsonxRunsAgent", () => {
     });
 
     it("starts a new watsonx thread once when watsonx no longer knows it", async () => {
-      const threadStore = new InMemoryWatsonxThreadStore();
-      threadStore.set("agent-1:t-1", "expired");
       const { runs } = mockFetch(
+        streamResponse(ndjson([runStarted("expired"), ...done()])),
         streamResponse(
           ndjson([
             wxo("error", { message: "Thread id expired does not exist" }),
@@ -747,19 +892,26 @@ describe("WatsonxRunsAgent", () => {
         streamResponse(
           ndjson([runStarted("wxo-new"), textDelta("Hi"), ...done()]),
         ),
+        streamResponse(ndjson([runStarted("wxo-new"), ...done()])),
       );
+      const agent = makeAgent();
 
-      const events = await collectEvents(makeAgent({ threadStore }));
+      await collectEvents(agent);
+      const events = await collectEvents(agent);
+      await collectEvents(agent);
 
-      expect(runs.map((r) => r.body.thread_id)).toEqual(["expired", undefined]);
+      expect(runs.map((r) => r.body.thread_id)).toEqual([
+        undefined,
+        "expired",
+        undefined,
+        "wxo-new",
+      ]);
       expect(types(events).at(-1)).toBe(EventType.RUN_FINISHED);
-      expect(threadStore.get("agent-1:t-1")).toBe("wxo-new");
     });
 
     it("does not retry once events were shown", async () => {
-      const threadStore = new InMemoryWatsonxThreadStore();
-      threadStore.set("agent-1:t-1", "expired");
       const { runs } = mockFetch(
+        streamResponse(ndjson([runStarted("expired"), ...done()])),
         streamResponse(
           ndjson([
             textDelta("Partial"),
@@ -768,9 +920,12 @@ describe("WatsonxRunsAgent", () => {
         ),
       );
 
-      const events = await collectEvents(makeAgent({ threadStore }));
+      const agent = makeAgent();
 
-      expect(runs).toHaveLength(1);
+      await collectEvents(agent);
+      const events = await collectEvents(agent);
+
+      expect(runs.map((r) => r.body.thread_id)).toEqual([undefined, "expired"]);
       expect(events.at(-1)).toMatchObject({ type: EventType.RUN_ERROR });
     });
 

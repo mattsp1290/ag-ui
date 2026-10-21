@@ -237,6 +237,16 @@ class RunTranslator {
   private textMessageId: string | null = null;
   private streamedText = false;
   private toolCalls = new Map<string, { args: unknown; answered: boolean }>();
+  /**
+   * Responses to calls not announced yet. watsonx can send a response before
+   * the call record that carries its arguments (collaborator agents do), so
+   * the response waits for that record, and is released on its own when the
+   * run moves past the tool steps.
+   */
+  private pendingResponses = new Map<
+    string,
+    { name: string; content: string }
+  >();
 
   constructor(
     private subscriber: Subscriber<BaseEvent>,
@@ -253,6 +263,8 @@ class RunTranslator {
       source: "watsonx",
     };
     this.subscriber.next(rawEvent);
+
+    if (event.event !== "run.step.delta") this.flushPendingResponses();
 
     const data = event.data ?? {};
     switch (event.event) {
@@ -323,6 +335,7 @@ class RunTranslator {
     if (!this.failure && !this.completed) {
       this.failure = "stream ended before the run completed";
     }
+    this.flushPendingResponses();
     this.closeText();
     for (const [toolCallId, call] of this.toolCalls) {
       if (!call.answered) this.result(toolCallId, "");
@@ -378,36 +391,65 @@ class RunTranslator {
       case "tool_calls":
         for (const call of step.tool_calls ?? []) {
           if (call.id && call.name)
-            this.toolCall(call.id, call.name, call.args);
+            this.callRecord(call.id, call.name, call.args);
         }
         return;
       case "tool_call":
         if (step.tool_call_id && step.name) {
-          this.toolCall(step.tool_call_id, step.name, step.args);
+          this.callRecord(step.tool_call_id, step.name, step.args);
         }
         return;
       case "tool_response": {
         if (!step.tool_call_id || !step.name) return;
-        this.toolCall(step.tool_call_id, step.name, step.args);
         const content = asString(step.content);
-        const args = this.toolCalls.get(step.tool_call_id)?.args;
-        if (!this.result(step.tool_call_id, content)) return;
-        const state = this.onToolResult?.(
-          { toolCallId: step.tool_call_id, name: step.name, args, content },
-          { state: this.state, input: this.input },
-        );
-        if (state !== undefined) {
-          this.state = state;
-          const stateSnapshot: StateSnapshotEvent = {
-            type: EventType.STATE_SNAPSHOT,
-            snapshot: state,
-          };
-          this.send(stateSnapshot);
+        if (this.toolCalls.has(step.tool_call_id)) {
+          this.answer(step.tool_call_id, step.name, content);
+        } else if (!this.pendingResponses.has(step.tool_call_id)) {
+          this.pendingResponses.set(step.tool_call_id, {
+            name: step.name,
+            content,
+          });
         }
         return;
       }
       default:
         return;
+    }
+  }
+
+  /** Announces a call, then answers it if its response came first. */
+  private callRecord(toolCallId: string, name: string, args: unknown): void {
+    this.toolCall(toolCallId, name, args);
+    const pending = this.pendingResponses.get(toolCallId);
+    if (!pending) return;
+    this.pendingResponses.delete(toolCallId);
+    this.answer(toolCallId, pending.name, pending.content);
+  }
+
+  /** Answers the responses whose call never came, without arguments. */
+  private flushPendingResponses(): void {
+    for (const [toolCallId, { name, content }] of this.pendingResponses) {
+      this.toolCall(toolCallId, name, undefined);
+      this.answer(toolCallId, name, content);
+    }
+    this.pendingResponses.clear();
+  }
+
+  /** Emits a call's result once, then lets `onToolResult` update the state. */
+  private answer(toolCallId: string, name: string, content: string): void {
+    const args = this.toolCalls.get(toolCallId)?.args;
+    if (!this.result(toolCallId, content)) return;
+    const state = this.onToolResult?.(
+      { toolCallId, name, args, content },
+      { state: this.state, input: this.input },
+    );
+    if (state !== undefined) {
+      this.state = state;
+      const stateSnapshot: StateSnapshotEvent = {
+        type: EventType.STATE_SNAPSHOT,
+        snapshot: state,
+      };
+      this.send(stateSnapshot);
     }
   }
 
@@ -583,7 +625,14 @@ export class WatsonxRunsAgent extends AbstractAgent {
     const question = lastUserText(input.messages);
     if (!question) throw new Error("no user message to send");
 
-    const threadKey = `${this.config.agentId}:${input.threadId}`;
+    // watsonx thread ids belong to one instance and environment, so a store
+    // shared across configurations must not mix them up.
+    const threadKey = JSON.stringify([
+      this.baseUrl,
+      this.config.environmentId ?? null,
+      this.config.agentId,
+      input.threadId,
+    ]);
     let watsonxThreadId = await this.threadStore.get(threadKey);
 
     for (let attempt = 0; ; attempt++) {

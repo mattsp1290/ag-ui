@@ -150,12 +150,14 @@ const agent = new WatsonxRunsAgent({
 
 - `message.delta` → `TEXT_MESSAGE_START` / `TEXT_MESSAGE_CONTENT` / `TEXT_MESSAGE_END` (`message.created` is used when nothing was streamed)
 - `run.step.delta` tool calls → `TOOL_CALL_START` / `TOOL_CALL_ARGS` / `TOOL_CALL_END`, once per call
-- `run.step.delta` tool responses → `TOOL_CALL_RESULT`, then `STATE_SNAPSHOT` if `onToolResult` returns a state
+- `run.step.delta` tool responses → `TOOL_CALL_RESULT`, then `STATE_SNAPSHOT` if `onToolResult` returns a state. A response that arrives before its call (as with collaborator agents) waits for the call record, so its arguments still reach `TOOL_CALL_ARGS` and `onToolResult`
 - `run.failed`, `run.cancelled`, `run.expired`, `error` → `RUN_ERROR`
 - Every watsonx event is also emitted as a `RAW` event (`source: "watsonx"`)
 
 Tool calls run on watsonx: each one gets a `TOOL_CALL_RESULT`, so clients do not try to execute them, and frontend tools (`input.tools`) are not forwarded.
 
-watsonx keeps the conversation in its own thread, so only the last user message is sent. The watsonx thread is created on the first turn and reused for the following turns of the same AG-UI thread. If watsonx no longer knows it, the run is retried once in a new thread. The default store is in memory: pass a `threadStore` with `get`, `set` and `delete` (sync or async) to keep conversations across restarts or server instances.
+watsonx keeps the conversation in its own thread, so only the last user message is sent. The watsonx thread is created on the first turn and reused for the following turns of the same AG-UI thread. If watsonx no longer knows it, the run is retried once in a new thread. The default store is in memory: pass a `threadStore` with `get`, `set` and `delete` (sync or async) to keep conversations across restarts or server instances. Stored threads are keyed by instance, environment, agent and AG-UI thread, so one store can serve several configurations.
+
+The adapter does not serialize runs. If two first turns of the same AG-UI thread run at once, each starts its own watsonx thread and the one stored last is kept for later turns. Send one run at a time per AG-UI thread to keep a single conversation.
 
 `forwardedProps` are sent in the request body as is (for example `context`), except for `message`, `agent_id`, `environment_id` and `thread_id`, which the adapter sets.

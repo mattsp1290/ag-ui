@@ -740,6 +740,7 @@ it.each([
       type,
       id: "native-result",
       [field]: "native-call",
+      is_error: true,
       content,
     };
     const history = [{ ...idle, id: "cursor" }, native, idle];
@@ -768,7 +769,7 @@ it.each([
       messageId: native.id,
       toolCallId: "native-call",
       content: content.map((claudeManagedAgents) => ({
-        metadata: { claudeManagedAgents },
+        metadata: { claudeManagedAgents, isError: true },
       })),
     });
     expect(fake.sent).toEqual([]);
@@ -816,7 +817,9 @@ describe("captured child tool results (PNI-688)", () => {
         expect.objectContaining({
           messageId: result.id,
           toolCallId: call.id,
-          content: result.content[0].text,
+          content: result.is_error
+            ? JSON.stringify({ error: true, content: result.content[0].text })
+            : result.content[0].text,
         }),
       ]);
       expect(events.filter((e) => e.type === "RAW")).toContainEqual(

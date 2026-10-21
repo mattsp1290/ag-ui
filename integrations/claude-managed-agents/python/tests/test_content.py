@@ -42,6 +42,7 @@ async def test_full_native_results_and_unknown_rich_events():
     assert result["messageId"] == "original-result"
     assert result["toolCallId"] == "original-call"
     assert [part["metadata"]["claudeManagedAgents"] for part in result["content"]] == content
+    assert all(part["metadata"]["isError"] is True for part in result["content"])
     assert result["content"][1]["source"] == {"type": "data", "value": "AAEC/w==", "mimeType": "image/png"}
 
 async def test_existing_unsupported_history_does_not_block_pending_tool_result():
@@ -165,3 +166,17 @@ async def test_malformed_text_document_is_rejected_without_replacing_bytes(data)
     assert events[0]["input"]["messages"][0]["content"] == original
     assert events[-1]["type"] == "RUN_ERROR"
     assert fake.sent == []
+
+
+@pytest.mark.parametrize("is_error", [True, False])
+@pytest.mark.parametrize("kind,field", [("agent.tool_result", "tool_use_id"), ("agent.mcp_tool_result", "mcp_tool_use_id")])
+async def test_native_result_status_identity_and_continuation(is_error, kind, field):
+    text = "Permission to use read has been rejected."
+    native = {"type": kind, "id": "native-result", field: "native-call", "is_error": is_error, "content": [{"type": "text", "text": text}]}
+    _, _, events = await run([{"type": "text", "text": "hello"}], [native])
+    results = [e for e in events if e["type"] == "TOOL_CALL_RESULT"]
+    assert len(results) == 1
+    assert results[0]["messageId"] == "native-result"
+    assert results[0]["toolCallId"] == "native-call"
+    assert (json.loads(results[0]["content"]) if is_error else results[0]["content"]) == ({"error": True, "content": text} if is_error else text)
+    assert events[-1]["type"] == "RUN_FINISHED"

@@ -752,6 +752,7 @@ async def test_rich_recovered_results_preserve_native_ids_content_and_single_raw
             "type": kind,
             "id": "native-result",
             field: "native-call",
+            "is_error": True,
             "content": content,
         }
         history = [
@@ -789,6 +790,7 @@ async def test_rich_recovered_results_preserve_native_ids_content_and_single_raw
         assert [
             part.metadata["claudeManagedAgents"] for part in result.content
         ] == content
+        assert all(part.metadata["isError"] is True for part in result.content)
         assert store.get(subject._session_key("thread_1")).last_event_id == "done"
         assert not fake.sent
 
@@ -840,7 +842,7 @@ async def test_captured_child_results_cold_allow_deny_and_restart():
         assert len(results) == 1
         assert results[0].tool_call_id == native_call["id"]
         assert results[0].message_id == result["id"]
-        assert results[0].content == result["content"][0]["text"]
+        assert (json.loads(results[0].content) if result["is_error"] else results[0].content) == ({"error": True, "content": result["content"][0]["text"]} if result["is_error"] else result["content"][0]["text"])
         assert any(
             e.type == "RAW"
             and e.event.get("id") == result["id"]

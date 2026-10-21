@@ -371,7 +371,7 @@ async def recover_turn(
                             ToolCallResultEvent(
                                 message_id=get(event, "id") or f"result_{call_id}",
                                 tool_call_id=call_id,
-                                content=tool_content(get(event, "content")),
+                                content=tool_content(get(event, "content"), get(event, "is_error") is True),
                                 role="tool",
                             )
                         )
@@ -619,7 +619,7 @@ async def recover_child_results(
                 ToolCallResultEvent(
                     message_id=get(event, "id"),
                     tool_call_id=call_id,
-                    content=tool_content(get(event, "content")),
+                    content=tool_content(get(event, "content"), get(event, "is_error") is True),
                     role="tool",
                 )
             )

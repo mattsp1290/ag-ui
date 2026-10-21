@@ -29,7 +29,14 @@ public partial class ManagedAgentsRecoveryTest
         var emitted = Assert.Single(events.OfType<ToolCallResultEvent>());
         Assert.Equal(callId, emitted.ToolCallId);
         Assert.Equal(result.GetProperty("id").GetString(), emitted.MessageId);
-        Assert.Equal(result.GetProperty("content")[0].GetProperty("text").GetString()!, Assert.IsType<AGUITextInputContent>(Assert.Single(emitted.Content)).Text);
+        var emittedText = Assert.IsType<AGUITextInputContent>(Assert.Single(emitted.Content)).Text;
+        if (result.GetProperty("is_error").GetBoolean())
+        {
+            using var envelope = JsonDocument.Parse(emittedText);
+            Assert.True(envelope.RootElement.GetProperty("error").GetBoolean());
+            emittedText = envelope.RootElement.GetProperty("content").GetString()!;
+        }
+        Assert.Equal(result.GetProperty("content")[0].GetProperty("text").GetString()!, emittedText);
         Assert.Contains(events.OfType<RawEvent>(), e => e.Event is JsonElement raw && raw.GetProperty("id").GetString() == emitted.MessageId && raw.GetProperty("session_thread_id").GetString() == thread && raw.GetProperty("is_error").GetBoolean() == result.GetProperty("is_error").GetBoolean());
         var restarted = new FakeManagedAgentsClient { History = [.. root, FakeManagedAgentsClient.Json(Idle), result] };
         restarted.ChildHistories[thread] = native;
@@ -383,7 +390,7 @@ public partial class ManagedAgentsRecoveryTest
         var old = FakeManagedAgentsClient.Json(Idle);
         await Collect(Agent(new FakeManagedAgentsClient { History = [old] }, store), Input());
         var content = new object[] { new { type = "text", text = "  " + new string('x', 30000) + "\n" }, new { type = "image", source = new { type = "base64", data = "AAEC", media_type = "image/png" } } };
-        var native = JsonSerializer.SerializeToElement(new Dictionary<string, object> { ["type"] = kind, ["id"] = "native-result", [field] = "native-call", ["content"] = content });
+        var native = JsonSerializer.SerializeToElement(new Dictionary<string, object> { ["type"] = kind, ["id"] = "native-result", [field] = "native-call", ["is_error"] = true, ["content"] = content });
         var fake = new FakeManagedAgentsClient { History = [old, native] };
         var events = await Collect(Agent(fake, store), Input());
         var raw = Assert.Single(events.OfType<RawEvent>(), e => e.Event.GetProperty("id").GetString() == "native-result");
@@ -391,6 +398,7 @@ public partial class ManagedAgentsRecoveryTest
         Assert.True(JsonElement.DeepEquals(native, raw.Event));
         var result = Assert.Single(events.OfType<ToolCallResultEvent>());
         Assert.Equal("native-result", result.MessageId); Assert.Equal("native-call", result.ToolCallId);
+        Assert.All(result.Content, p => Assert.True((p is AGUIMediaInputContent media ? media.Metadata : ((AGUITextInputContent)p).Metadata)!.Value.GetProperty("isError").GetBoolean()));
         var preserved = result.Content.Select(p => (p is AGUIMediaInputContent media ? media.Metadata : ((AGUITextInputContent)p).Metadata)!.Value.GetProperty("claudeManagedAgents")).ToArray();
         Assert.True(JsonElement.DeepEquals(JsonSerializer.SerializeToElement(content), JsonSerializer.SerializeToElement(preserved)));
         Assert.Empty(fake.Sent);

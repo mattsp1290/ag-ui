@@ -345,7 +345,7 @@ async def _consume(
                 "tool_result_delivery_failed",
                 await interrupt(),
             )
-        emit_tool_result(tool_use_id, text)
+        emit_tool_result(tool_use_id, tool_content([{"type": "text", "text": text}], is_error))
         return None
 
     async def run_backend_tool(
@@ -571,14 +571,14 @@ async def _consume(
                 elif event_type == "agent.tool_result":
                     emit_tool_result(
                         get(event, "tool_use_id"),
-                        tool_content(get(event, "content")),
+                        tool_content(get(event, "content"), get(event, "is_error") is True),
                         get(event, "id"),
                     )
 
                 elif event_type == "agent.mcp_tool_result":
                     emit_tool_result(
                         get(event, "mcp_tool_use_id"),
-                        tool_content(get(event, "content")),
+                        tool_content(get(event, "content"), get(event, "is_error") is True),
                         get(event, "id"),
                     )
 

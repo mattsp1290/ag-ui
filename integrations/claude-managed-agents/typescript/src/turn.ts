@@ -355,7 +355,7 @@ export async function runTurn(opts: TurnOptions): Promise<TurnOutcome> {
         await interrupt(),
       );
     }
-    emitToolResult(toolUseId, text);
+    emitToolResult(toolUseId, toolContent([{ type: "text", text }], isError));
     return undefined;
   };
 
@@ -578,7 +578,7 @@ export async function runTurn(opts: TurnOptions): Promise<TurnOutcome> {
           case "agent.tool_result": {
             emitToolResult(
               event.tool_use_id,
-              toolContent(event.content),
+              toolContent(event.content, event.is_error === true),
               event.id,
             );
             break;
@@ -587,7 +587,7 @@ export async function runTurn(opts: TurnOptions): Promise<TurnOutcome> {
           case "agent.mcp_tool_result": {
             emitToolResult(
               event.mcp_tool_use_id,
-              toolContent(event.content),
+              toolContent(event.content, event.is_error === true),
               event.id,
             );
             break;

@@ -279,6 +279,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   order. Previously only URL attachments came back, without a filename, and a
   user message that held only attachments was dropped from the history.
 
+## 0.11.0 — 2026-10-21
+
+- Fixed first-run history import so client history reliably reaches the model on new threads without an ADK session.
+- Seeded history events now spaced 1 ms apart to prevent reordering under DatabaseSessionService timestamp ties.
+- Tool results now named from the session's persisted FunctionCall when the assistant message is absent from client history.
+- Client-supplied state in RunAgentInput.state is now scoped to the session; `app:` and `user:` prefixes stripped before merging.
+- Migrated A2UI helper to published SDK 0.9 APIs using client Catalog instances and the Direct JSON processor.
+- Updated test compatibility for google-adk 2.12 and google-genai 2.x.
+
+### Breaking changes
+
+- Client-supplied state keys with `app:` or `user:` prefixes are now stripped and scoped to the session instead of app-wide/user-wide.
+- Dropped legacy A2UI SDK compatibility; requires published SDK/core 0.9 and current Google ADK/genai versions.
+
 ## 0.10.0 — 2026-10-18
 
 - Added support for Python 3.15; raised requires-python upper bound to <3.16.

@@ -621,7 +621,7 @@ internal sealed class ManagedAgentsTurn
             return;
         }
 
-        EmitToolResult(toolUseId, text);
+        EmitToolResult(toolUseId, isError ? JsonSerializer.Serialize(new { error = true, content = text }) : text);
     }
 
     private void HandleSessionError(JsonElement error)
@@ -879,7 +879,7 @@ internal sealed class ManagedAgentsTurn
 
     private static AGUIContent DescribeContent(JsonElement rawEvent)
     {
-        return ManagedAgentsContent.ToolContent(ContentBlocksOf(rawEvent));
+        return ManagedAgentsContent.ToolContent(ContentBlocksOf(rawEvent), rawEvent.TryGetProperty("is_error", out var error) && error.ValueKind == JsonValueKind.True);
     }
 
     private static string? TextDeltaOf(JsonElement rawEvent)

@@ -319,7 +319,7 @@ function emitRecoveredActivity(
       messageId: event.id,
       toolCallId,
       role: "tool",
-      content: toolContent(event.content),
+      content: toolContent(event.content, event.is_error === true),
     } as BaseEvent);
   }
 }

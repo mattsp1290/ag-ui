@@ -166,6 +166,10 @@ function parseLine(line: string): WatsonxRunEvent | null {
   }
 }
 
+function lineTooLong(): Error {
+  return new Error("watsonx stream buffer exceeded 1MB — aborting");
+}
+
 async function* readEvents(
   body: NonNullable<Response["body"]>,
 ): AsyncGenerator<WatsonxRunEvent> {
@@ -176,18 +180,22 @@ async function* readEvents(
       const { done, value } = await reader.read();
       if (done) break;
       buffer += value;
-      if (buffer.length > MAX_BUFFER_SIZE) {
-        throw new Error("watsonx stream buffer exceeded 1MB — aborting");
-      }
       const lines = buffer.split("\n");
       buffer = lines.pop() ?? "";
       for (const line of lines) {
+        if (line.length > MAX_BUFFER_SIZE) throw lineTooLong();
         const event = parseLine(line);
         if (event) yield event;
       }
+      // Only the unfinished line counts: one read may carry many full lines.
+      if (buffer.length > MAX_BUFFER_SIZE) throw lineTooLong();
     }
     const last = parseLine(buffer);
     if (last) yield last;
+  } catch (err) {
+    // Release the connection instead of leaving the body unread.
+    await reader.cancel().catch(() => {});
+    throw err;
   } finally {
     reader.releaseLock();
   }
@@ -222,6 +230,8 @@ class RunTranslator {
   watsonxThreadId?: string;
   /** Whether an event other than RAW was emitted; a run is not retried after that. */
   emitted = false;
+  /** Whether watsonx reported the end of the run (`run.completed` / `done`). */
+  completed = false;
 
   private state: State;
   private textMessageId: string | null = null;
@@ -284,6 +294,11 @@ class RunTranslator {
         return;
       }
 
+      case "run.completed":
+      case "done":
+        this.completed = true;
+        return;
+
       case "run.failed":
       case "run.cancelled":
       case "run.expired":
@@ -297,13 +312,17 @@ class RunTranslator {
 
       default:
         // run.step.intermediate ("Thinking…"), message.started,
-        // message.completed, run.completed, done: only surfaced as RAW.
+        // message.completed: only surfaced as RAW.
         return;
     }
   }
 
   /** Closes what is still open and ends the run. */
   finish(): void {
+    // A stream cut before the end of the run is not a finished run.
+    if (!this.failure && !this.completed) {
+      this.failure = "stream ended before the run completed";
+    }
     this.closeText();
     for (const [toolCallId, call] of this.toolCalls) {
       if (!call.answered) this.result(toolCallId, "");

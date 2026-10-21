@@ -553,14 +553,58 @@ describe("WatsonxRunsAgent", () => {
             '{"no":"event"}',
             runStarted(),
             textDelta("ok"),
+            ...done(),
             "data: [DONE]",
           ]),
         ),
       );
 
       const events = await collectEvents(makeAgent());
-      expect(ofType(events, EventType.RAW)).toHaveLength(2);
+      expect(ofType(events, EventType.RAW)).toHaveLength(4);
       expect(types(events).at(-1)).toBe(EventType.RUN_FINISHED);
+    });
+
+    it("accepts more than 1MB of lines in a single read", async () => {
+      const big = "y".repeat(400 * 1024);
+      mockFetch(
+        streamResponse(
+          ndjson([
+            runStarted(),
+            textDelta(big),
+            textDelta(big),
+            textDelta(big),
+            ...done(),
+          ]),
+        ),
+      );
+
+      const events = await collectEvents(makeAgent());
+      expect(ofType(events, EventType.TEXT_MESSAGE_CONTENT)).toHaveLength(3);
+      expect(types(events).at(-1)).toBe(EventType.RUN_FINISHED);
+    });
+
+    it("fails a run whose stream ends before the run completed", async () => {
+      mockFetch(
+        streamResponse(
+          ndjson([
+            runStarted(),
+            textDelta("half an ans"),
+            toolCalls("call-1", "lookup", {}),
+          ]),
+        ),
+      );
+
+      const events = await collectEvents(makeAgent());
+      expect(types(events).slice(-2)).toEqual([
+        EventType.TOOL_CALL_RESULT,
+        EventType.RUN_ERROR,
+      ]);
+      expect(events.at(-1)).toMatchObject({
+        code: "WATSONX_RUN_FAILED",
+        message: expect.stringContaining(
+          "stream ended before the run completed",
+        ),
+      });
     });
 
     it("aborts when a line exceeds 1MB", async () => {

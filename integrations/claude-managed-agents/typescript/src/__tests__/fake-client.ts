@@ -63,7 +63,10 @@ export function createFakeClient(options: FakeClientOptions = {}) {
   }));
   const retrieveSession = vi.fn(async () => {
     if (options.sessionError) throw options.sessionError;
-    return { status: options.sessionStatus ?? "idle" };
+    return {
+      status: options.sessionStatus ?? "idle",
+      agent: { tools: options.agentTools ?? [] },
+    };
   });
   const streams = [...(options.streams ?? [])];
   const sendResults = [...(options.sendResults ?? [])];
@@ -183,6 +186,15 @@ export function createFakeClient(options: FakeClientOptions = {}) {
       sessions: {
         retrieve: retrieveSession,
         threads: {
+          list: (sessionId: string) => ({
+            async *[Symbol.asyncIterator]() {
+              yield {
+                id: "primary",
+                parent_thread_id: null,
+                session_id: sessionId,
+              };
+            },
+          }),
           events: {
             list: (id: string, params: unknown, request: unknown) =>
               options.childHistories
@@ -210,3 +222,31 @@ export function createFakeClient(options: FakeClientOptions = {}) {
     spies: { stream, send, create, update, retrieve, retrieveSession, list },
   };
 }
+
+/** Project state blocks out of native traffic while preserving co-delivered context. */
+export const withoutStateSnapshots = (events: unknown[]) =>
+  events.flatMap((event) => {
+    if (
+      typeof event !== "object" ||
+      event === null ||
+      !("type" in event) ||
+      event.type !== "system.message" ||
+      !("content" in event) ||
+      !Array.isArray(event.content)
+    )
+      return [event];
+    const content = event.content.filter(
+      (block: unknown) =>
+        !(
+          typeof block === "object" &&
+          block !== null &&
+          "type" in block &&
+          block.type === "text" &&
+          "text" in block &&
+          typeof block.text === "string" &&
+          block.text.startsWith("AG-UI shared state v1\n")
+        ),
+    );
+    if (content.length === event.content.length) return [event];
+    return content.length ? [{ ...event, content }] : [];
+  });

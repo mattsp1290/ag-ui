@@ -1,3 +1,4 @@
+import { restoreStateHistory } from "./state";
 import { restoreContext } from "./context";
 import type Anthropic from "@anthropic-ai/sdk";
 import type {
@@ -148,6 +149,7 @@ export async function recoverSession(
           break;
       }
     }
+    await restoreStateHistory(client, record, ordered, signal);
     if (ended)
       throw new RecoveryError(
         "session_ended",

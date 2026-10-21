@@ -28,6 +28,10 @@ public sealed class FakeManagedAgentsClient : IManagedAgentsClient
     public Task<ManagedAgentsEventStream> OpenConversationStreamAsync(string sessionId, string? sessionThreadId, bool streamDeltas, CancellationToken cancellationToken)
     { RecoveryOrder.Add("stream"); RequestedThreadId = sessionThreadId; return OpenEventStreamAsync(sessionId, streamDeltas, cancellationToken); }
 
+    public IReadOnlyList<JsonElement>? SessionTools { get; set; }
+    public string? PrimaryThreadId { get; set; }
+    public Task<string?> GetPrimaryThreadIdAsync(string sessionId, CancellationToken cancellationToken) => Task.FromResult(PrimaryThreadId);
+    public Task<IReadOnlyList<JsonElement>> GetSessionToolsAsync(string sessionId, CancellationToken cancellationToken) => Task.FromResult(SessionTools ?? AgentTools);
     public string SessionId { get; set; } = "sesn_1";
 
     /// <summary>The tools the fake agent reports, as tool definition JSON.</summary>
@@ -60,12 +64,14 @@ public sealed class FakeManagedAgentsClient : IManagedAgentsClient
     public Task<string> CreateSessionAsync(ManagedAgentSessionRequest request, CancellationToken cancellationToken)
     {
         CreatedSessions.Add(request);
+        SessionTools = request.OverrideTools?.ToList() ?? AgentTools;
         return CreateFailure is not null ? Task.FromException<string>(CreateFailure) : Task.FromResult(SessionId);
     }
 
     public Task UpdateSessionToolsAsync(string sessionId, IReadOnlyList<JsonElement> tools, CancellationToken cancellationToken)
     {
         Updates.Add(tools);
+        SessionTools = tools;
         return Task.CompletedTask;
     }
 

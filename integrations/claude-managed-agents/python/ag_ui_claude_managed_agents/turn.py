@@ -380,7 +380,10 @@ async def _consume(
         except Exception as err:  # noqa: BLE001 - the tool's failure is reported to the agent
             is_error = True
             text = str(err) or err.__class__.__name__
-        return await answer_custom_tool_use(tool_use_id, text, is_error)
+        outcome = await answer_custom_tool_use(tool_use_id, text, is_error)
+        if outcome is None and not is_error and tool.on_committed is not None:
+            await maybe_await(tool.on_committed(text))
+        return outcome
 
     @asynccontextmanager
     async def handled_event(event):
@@ -505,6 +508,8 @@ async def _consume(
                             await maybe_await(on_client_park(event_id))
                         continue
                     backend = backend_tools.get(name)
+                    if backend is not None and backend.accepts_event is not None and not await maybe_await(backend.accepts_event(event)):
+                        continue
                     if backend is not None:
                         undelivered = await run_backend_tool(
                             event_id, backend, tool_input

@@ -32,7 +32,7 @@ public class ManagedAgentsContentTest
             Part(new AGUIInputContentFileSource { Value = "file_native", Provider = "anthropic", MimeType = mime }),
         }));
         Assert.Same(run.Input, Assert.IsType<RunStartedEvent>(run.Events[0]).Input);
-        Assert.Equal(run.Input.State, Assert.IsType<StateSnapshotEvent>(run.Events[1]).Snapshot);
+        Assert.Equal(run.Input.State, Assert.Single(run.Events.OfType<StateSnapshotEvent>()).Snapshot);
         var blocks = run.Fake.Sent[0][0].GetProperty("content");
         Assert.Equal("AAEC/w==", blocks[0].GetProperty("source").GetProperty("data").GetString());
         Assert.Equal(mime, blocks[0].GetProperty("source").GetProperty("media_type").GetString());

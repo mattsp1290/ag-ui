@@ -5,6 +5,9 @@ namespace AGUI.ClaudeManagedAgents;
 /// </summary>
 public sealed class ManagedAgentsSessionRecord
 {
+    public System.Text.Json.JsonElement? SharedState { get; set; }
+    public long SharedStateRevision { get; set; }
+    public string? PrimaryThreadId { get; set; }
     public Dictionary<string, string> ChildToolCalls { get; set; } = new(StringComparer.Ordinal);
     public HashSet<string> DeliveredChildResultIds { get; set; } = new(StringComparer.Ordinal);
     public string? LastEventId { get; set; }

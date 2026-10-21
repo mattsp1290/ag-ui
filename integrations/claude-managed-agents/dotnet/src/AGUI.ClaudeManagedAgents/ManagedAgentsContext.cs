@@ -45,10 +45,12 @@ internal static class ManagedAgentsContext
     }
     internal static void Restore(JsonElement evt, ManagedAgentsSessionRecord record)
     {
-        if (record.SessionThreadId is not null || !evt.TryGetProperty("content", out var content) || content.ValueKind != JsonValueKind.Array || content.GetArrayLength() != 1) return;
-        if (!content[0].TryGetProperty("text", out var textElement) || textElement.ValueKind != JsonValueKind.String) return;
-        var text = textElement.GetString()!;
-        if (!text.StartsWith(Header, StringComparison.Ordinal)) return;
+        if (record.SessionThreadId is not null || !evt.TryGetProperty("content", out var content) || content.ValueKind != JsonValueKind.Array) return;
+        var matches = content.EnumerateArray().Where(block => block.ValueKind == JsonValueKind.Object &&
+            block.TryGetProperty("type", out var type) && type.ValueKind == JsonValueKind.String && type.GetString() == "text" &&
+            block.TryGetProperty("text", out var candidate) && candidate.ValueKind == JsonValueKind.String && candidate.GetString()!.StartsWith(Header, StringComparison.Ordinal)).ToList();
+        if (matches.Count != 1) return;
+        var text = matches[0].GetProperty("text").GetString()!;
         JsonElement entries;
         try { entries = JsonSerializer.Deserialize<JsonElement>(text[Header.Length..]); }
         catch (JsonException) { return; } // Unrelated/malformed native system text is not our snapshot.

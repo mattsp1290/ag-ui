@@ -15,6 +15,7 @@ from ag_ui.core import (
 )
 
 from .context import attach_context, split_outbound, restore_context
+from . import state as shared
 from ._util import get, maybe_await
 from .turn import _close_stream, _consume, _send_follow_ups
 from .text import text_of
@@ -125,6 +126,8 @@ async def recover_turn(
     try:
         stream = await api.stream(identity, **kwargs)
         history = await history_list(api, identity, **kwargs)
+        await shared.discover_primary(agent.client, record, history)
+        shared.restore(history, record, emit)
         for event in history:
             if (
                 not record.session_thread_id
@@ -226,6 +229,25 @@ async def recover_turn(
                 )
             )
             return
+        recovered_state_results = []
+        # Reserved writes parked during disconnect remain server-owned.
+        for pending_id, event in list(pending.items()):
+            if get(event, "name") != shared.NAME or get(event, "type") != "agent.custom_tool_use":
+                continue
+            tool = agent._state_backend_tools(record, key, emit)[shared.NAME]
+            if not await maybe_await(tool.accepts_event(event)):
+                continue
+            is_error = False
+            try:
+                text = await maybe_await(tool.handler(get(event, "input")))
+            except ValueError as exc:
+                text, is_error = str(exc), True
+            await events_api.send(record.session_id, events=[{"type": "user.custom_tool_result", "custom_tool_use_id": pending_id, "is_error": is_error, "content": [{"type": "text", "text": text}]}])
+            if not is_error:
+                await maybe_await(tool.on_committed(text))
+            recovered_state_results.append((event, ToolCallResultEvent(message_id=f"result_{pending_id}", tool_call_id=pending_id, content=text, role="tool")))
+            pending.pop(pending_id)
+            answered_ids.add(pending_id)
         record.pending_client_tool_use_ids = [
             id for id, e in pending.items() if get(e, "type") == "agent.custom_tool_use"
         ]
@@ -385,6 +407,14 @@ async def recover_turn(
                     emit(event) if not isinstance(event, RawEvent) else None
                 ),
             )
+        for call, result in recovered_state_results:
+            call_id = result.tool_call_id
+            if call_id not in replayed_call_ids:
+                replayed_call_ids.add(call_id)
+                emit(ToolCallStartEvent(tool_call_id=call_id, tool_call_name=shared.NAME))
+                emit(ToolCallArgsEvent(tool_call_id=call_id, delta=json.dumps(get(call, "input") or {})))
+                emit(ToolCallEndEvent(tool_call_id=call_id))
+            emit(result)
         if history:
             await persist_event(history[-1])
 
@@ -435,11 +465,16 @@ async def recover_turn(
         }
         if not record.adopted and followups and not pending:
             await agent._sync_client_tools(record, input.tools or [])
+        if record.adopted and followups and not pending and not record.session_thread_id:
+            await shared.ensure_catalog(agent, record)
         sends = answers + ([] if remaining else followups)
+        state_delivery = shared.attach(sends, input.state, record)
         context_delivery = attach_context(sends, input.context, record)
         answers, followups = split_outbound(sends)
         if answers:
             await events_api.send(record.session_id, events=answers)
+            if state_delivery and state_delivery[1]:
+                shared.apply(record, state_delivery[0], emit)
             if context_delivery:
                 context_delivery.acknowledge(record, results=True)
         record.pending_client_tool_use_ids = [id for id in outbound.still_parked]
@@ -465,11 +500,13 @@ async def recover_turn(
             return
         if followups:
             await _send_follow_ups(agent.client, record.session_id, followups)
+            if state_delivery and not state_delivery[1]:
+                shared.apply(record, state_delivery[0], emit)
             if context_delivery:
                 context_delivery.acknowledge(record, results=False)
             record.last_user_message_id = outbound.last_user_message_id
             await maybe_await(agent.store.set(key, record))
-        elif not answers and get(latest_status, "type") in (
+        elif not answers and not recovered_state_results and get(latest_status, "type") in (
             "session.status_idle",
             "session.thread_status_idle",
         ):
@@ -507,7 +544,7 @@ async def recover_turn(
             session_id=record.session_id,
             stream=deduped(),
             client_tools=agent._client_tools(input.tools or []),
-            backend_tools=agent.backend_tools,
+            backend_tools=agent._state_backend_tools(record, key, emit),
             tool_confirmation=None,
             recovering=True,
             # Native idle events can have been buffered before our result send.

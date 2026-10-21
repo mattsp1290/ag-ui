@@ -68,7 +68,11 @@ describe("lossless live conversation", () => {
       ];
       const { events, input, fake } = await run(parts);
       expect(events[0].input).toEqual(input);
-      expect(events[1]).toMatchObject({
+      expect(
+        events.find(
+          (event: { type: string }) => event.type === EventType.STATE_SNAPSHOT,
+        ),
+      ).toMatchObject({
         type: EventType.STATE_SNAPSHOT,
         snapshot: input.state,
       });

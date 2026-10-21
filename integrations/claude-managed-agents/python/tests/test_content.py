@@ -14,7 +14,7 @@ async def test_media_sources_and_original_recorder_input(kind, mime):
     parts = [{"type": kind, "source": {"type": "data", "value": "AAEC/w==", "mimeType": mime}, "metadata": {"filename": "original.bin"}}, {"type": kind, "source": {"type": "url", "value": "https://example.test/media", "mimeType": mime}}, {"type": kind, "source": {"type": "file", "value": "file_native", "provider": "anthropic"}}]
     fake, value, events = await run(parts)
     assert events[0]["input"] == value.model_dump(mode="json", by_alias=True, exclude_none=True)
-    assert events[1]["snapshot"] == value.state
+    assert next(event["snapshot"] for event in events if event["type"] == "STATE_SNAPSHOT") == value.state
     blocks = fake.sent[0]["events"][0]["content"]
     assert blocks[0]["source"] == {"type": "base64", "data": "AAEC/w==", "media_type": mime}
     assert blocks[1]["source"] == {"type": "url", "url": "https://example.test/media"}

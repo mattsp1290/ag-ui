@@ -27,7 +27,9 @@ export function attachContext(
     throw new ContextDeliveryError(
       "Runtime context cannot be injected into a native child thread.",
     );
-  const results = events.filter((event) => event.type !== "user.message");
+  const results = events.filter(
+    (event) => event.type !== "user.message" && event.type !== "system.message",
+  );
   const companion = results.length ? results.at(-1)! : events.at(-1)!;
   if (
     !["user.message", "user.custom_tool_result", "user.tool_result"].includes(
@@ -37,10 +39,14 @@ export function attachContext(
     throw new ContextDeliveryError(
       "Changed runtime context requires a user message or tool result; an approval alone cannot carry system context.",
     );
-  events.splice(events.indexOf(companion) + 1, 0, {
-    type: "system.message",
-    content: [{ type: "text", text: HEADER + snapshot }],
-  });
+  const next = events[events.indexOf(companion) + 1];
+  if (next?.type === "system.message")
+    next.content.push({ type: "text", text: HEADER + snapshot });
+  else
+    events.splice(events.indexOf(companion) + 1, 0, {
+      type: "system.message",
+      content: [{ type: "text", text: HEADER + snapshot }],
+    });
   return { snapshot, withResults: results.length > 0 };
 }
 
@@ -59,10 +65,15 @@ export function splitOutbound(events: BetaManagedAgentsEventParams[]) {
 
 /** Recover our latest complete snapshot, including on native imports with no local record. */
 export function restoreContext(content: unknown, record: SessionRecord): void {
-  if (record.sessionThreadId || !Array.isArray(content) || content.length !== 1)
-    return;
-  const text: unknown = content[0]?.text;
-  if (typeof text !== "string" || !text.startsWith(HEADER)) return;
+  if (record.sessionThreadId || !Array.isArray(content)) return;
+  const blocks = content.filter(
+    (block) =>
+      block?.type === "text" &&
+      typeof block.text === "string" &&
+      block.text.startsWith(HEADER),
+  );
+  if (blocks.length !== 1) return;
+  const text = blocks[0].text as string;
   let parsed: unknown;
   try {
     parsed = JSON.parse(text.slice(HEADER.length));

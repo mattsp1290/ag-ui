@@ -4,7 +4,7 @@ import { lastValueFrom, toArray } from "rxjs";
 import type { RunAgentInput } from "@ag-ui/client";
 import { ManagedAgentsAgent } from "../agent";
 import { InMemorySessionStore } from "../sessions";
-import { createFakeClient } from "./fake-client";
+import { createFakeClient, withoutStateSnapshots } from "./fake-client";
 
 const idle = {
   type: "session.status_idle",
@@ -67,7 +67,7 @@ it("puts every context entry on the actual native HTTP request without changing 
         );
       const body = JSON.parse(String(init?.body ?? "{}"));
       if (body.events) requests.push(body);
-      return Response.json({ id: "native", data: [] });
+      return Response.json({ id: "native", data: [], tools: [] });
     },
   });
   const agent = new ManagedAgentsAgent({
@@ -79,7 +79,12 @@ it("puts every context entry on the actual native HTTP request without changing 
   const original = structuredClone(value);
   const events = await collect(agent, value);
   expect(events.at(-1)?.type).toBe("RUN_FINISHED");
-  expect(requests).toEqual([
+  expect(
+    requests.map((request) => ({
+      ...request,
+      events: withoutStateSnapshots(request.events),
+    })),
+  ).toEqual([
     {
       events: [
         {
@@ -115,7 +120,9 @@ it("forwards fresh context after a cold store restart and clears it without cros
     sessionStore: coldStore,
   });
   await collect(restored, next);
-  expect(fake.sent[1].events.at(-1)).toEqual(expectedContext(next.context));
+  expect(withoutStateSnapshots(fake.sent[1].events).at(-1)).toEqual(
+    expectedContext(next.context),
+  );
   await collect(
     restored,
     input({
@@ -123,9 +130,11 @@ it("forwards fresh context after a cold store restart and clears it without cros
       context: [],
     }),
   );
-  expect(fake.sent[2].events.at(-1)).toEqual(expectedContext([]));
+  expect(withoutStateSnapshots(fake.sent[2].events).at(-1)).toEqual(
+    expectedContext([]),
+  );
   await collect(restored, input({ threadId: "other", context: [] }));
-  expect(fake.sent[3].events).toHaveLength(1);
+  expect(withoutStateSnapshots(fake.sent[3].events)).toHaveLength(1);
 });
 
 it("attaches context to the tool-result request before the separate follow-up", async () => {
@@ -159,11 +168,11 @@ it("attaches context to the tool-result request before the separate follow-up", 
     }),
   );
   expect(events.at(-1)?.type).toBe("RUN_FINISHED");
-  expect(fake.sent[0].events).toEqual([
+  expect(withoutStateSnapshots(fake.sent[0].events)).toEqual([
     expect.objectContaining({ type: "user.custom_tool_result" }),
     expectedContext(),
   ]);
-  expect(fake.sent[1].events).toEqual([
+  expect(withoutStateSnapshots(fake.sent[1].events)).toEqual([
     { type: "user.message", content: [{ type: "text", text: "next" }] },
   ]);
 });
@@ -175,7 +184,9 @@ it("retries context after a rejected request instead of recording it as delivere
   expect((await collect(agent)).at(-1)?.type).toBe("RUN_ERROR");
   expect(store.get("1:a|0:|1:e|0:|t")?.runtimeContext).toBeUndefined();
   expect((await collect(agent)).at(-1)?.type).toBe("RUN_FINISHED");
-  expect(fake.sent[0].events.at(-1)).toEqual(expectedContext());
+  expect(withoutStateSnapshots(fake.sent[0].events).at(-1)).toEqual(
+    expectedContext(),
+  );
 });
 
 it("does not repeat unchanged context on subsequent user turns", async () => {
@@ -185,7 +196,7 @@ it("does not repeat unchanged context on subsequent user turns", async () => {
     agent,
     input({ messages: [{ id: "u2", role: "user", content: "next" }] }),
   );
-  expect(fake.sent[1].events).toHaveLength(1);
+  expect(withoutStateSnapshots(fake.sent[1].events)).toHaveLength(1);
 });
 
 it("does not manufacture a turn for context-only reconnects", async () => {
@@ -317,9 +328,11 @@ it.each(["clear", "approval"])(
           });
     expect((await collect(agent, value)).at(-1)?.type).toBe("RUN_FINISHED");
     if (mode === "clear")
-      expect(fake.sent[0].events.at(-1)).toEqual(expectedContext([]));
+      expect(withoutStateSnapshots(fake.sent[0].events).at(-1)).toEqual(
+        expectedContext([]),
+      );
     else
-      expect(fake.sent[0].events).toEqual([
+      expect(withoutStateSnapshots(fake.sent[0].events)).toEqual([
         { type: "user.tool_confirmation", tool_use_id: "c", result: "allow" },
       ]);
   },

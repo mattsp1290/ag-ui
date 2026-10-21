@@ -136,9 +136,12 @@ public sealed partial class ManagedAgentsAgent
         var threadId = input.ThreadId;
         var runId = input.RunId;
         yield return new RunStartedEvent { ThreadId = threadId, RunId = runId, ProtocolVersion = AGUIProtocol.Version, Input = input };
-        if (input.State is JsonElement state && state.ValueKind is not (JsonValueKind.Undefined or JsonValueKind.Null))
+
+        if ((input.Tools ?? []).Any(tool => ManagedAgentsCustomTools.NormalizeToolName(tool.Name) == ManagedAgentsState.Name)
+            || _options.BackendTools.Any(tool => ManagedAgentsCustomTools.NormalizeToolName(tool.Name) == ManagedAgentsState.Name))
         {
-            yield return new StateSnapshotEvent { Snapshot = state };
+            yield return new RunErrorEvent { Code = "reserved_state_tool_conflict", Message = "The ag_ui_update_state tool name is reserved." };
+            yield break;
         }
 
         // A blank thread id is not a thread: every caller that omitted one would share a single
@@ -345,6 +348,7 @@ public sealed partial class ManagedAgentsAgent
         }
 
         var contextDelivery = ManagedAgentsContext.Attach(outbound.Events, input.Context, record);
+        var stateDelivery = ManagedAgentsState.Attach(outbound.Events, input.State, record);
 
         // Some parked tool calls are still unanswered: post what we have and stay parked
         // instead of waiting on a session that will not resume.
@@ -353,6 +357,7 @@ public sealed partial class ManagedAgentsAgent
             var results = outbound.Events.Where(evt => StringOf(evt, "type") != "user.message").ToList();
             if (results.Count > 0) await _client.SendEventsAsync(record.SessionId, results, cancellationToken).ConfigureAwait(false);
             if (contextDelivery is not null) record.RuntimeContext = contextDelivery.Snapshot;
+            if (stateDelivery?.Acknowledge(record, results: true) == true) yield return new StateSnapshotEvent { Snapshot = record.SharedState!.Value };
             record.PendingClientToolUseIds = outbound.StillParked;
             await PersistDeliveredAsync(threadKey, record).ConfigureAwait(false);
             yield return new RunFinishedEvent { ThreadId = input.ThreadId, RunId = input.RunId };
@@ -381,12 +386,14 @@ public sealed partial class ManagedAgentsAgent
             onResultsSent: () =>
             {
                 contextDelivery?.Acknowledge(record, results: true);
+                if (stateDelivery?.Acknowledge(record, results: true) == true) run.Turn!.EmitState(record.SharedState!.Value);
                 record.PendingClientToolUseIds = [];
                 return PersistDeliveredAsync(threadKey, record);
             },
             onFollowUpsSent: () =>
             {
                 contextDelivery?.Acknowledge(record, results: false);
+                if (stateDelivery?.Acknowledge(record, results: false) == true) run.Turn!.EmitState(record.SharedState!.Value);
                 if (outbound.LastUserMessageId is not null)
                 {
                     record.LastUserMessageId = outbound.LastUserMessageId;
@@ -408,6 +415,8 @@ public sealed partial class ManagedAgentsAgent
                 return PersistDeliveredAsync(threadKey, record);
             },
             onError: _options.OnError);
+        turn.StateRecord = record;
+        turn.PersistState = () => PersistDeliveredAsync(threadKey, record);
         turn.OnEventHandled = id => { record.LastEventId = id; return PersistDeliveredAsync(threadKey, record); };
         run.Turn = turn;
 
@@ -636,6 +645,8 @@ public sealed partial class ManagedAgentsAgent
             tools.Set(ManagedAgentsCustomTools.NameOf(custom) ?? ManagedAgentsCustomTools.NormalizeToolName(tool.Name), custom);
         }
 
+        if (tools.Keys.Contains(ManagedAgentsState.Name)) throw new ArgumentException("The ag_ui_update_state tool name is reserved.");
+        tools.Set(ManagedAgentsState.Name, ManagedAgentsState.Definition);
         return tools;
     }
 
@@ -654,7 +665,18 @@ public sealed partial class ManagedAgentsAgent
     /// </remarks>
     private async Task SyncClientToolsAsync(ManagedAgentsSessionRecord record, IList<AGUITool>? clientTools, CancellationToken cancellationToken)
     {
-        if (record.PreserveTools) return;
+        if (record.PreserveTools)
+        {
+            var catalog = await _client.GetSessionToolsAsync(record.SessionId, cancellationToken).ConfigureAwait(false);
+            var reserved = catalog.Where(tool => ManagedAgentsCustomTools.NameOf(tool) == ManagedAgentsState.Name).ToList();
+            if (reserved.Count > 0)
+            {
+                if (reserved.Count != 1 || !JsonElement.DeepEquals(reserved[0], ManagedAgentsState.Definition)) throw new ArgumentException("The imported ag_ui_update_state definition conflicts with the reserved contract.");
+                return;
+            }
+            await _client.UpdateSessionToolsAsync(record.SessionId, catalog.Append(ManagedAgentsState.Definition).ToList(), cancellationToken).ConfigureAwait(false);
+            return;
+        }
         var desired = CustomToolsFor(clientTools);
         // A session created without custom tools has no override list to keep in step, and Console
         // edits to the agent reach it on their own.
@@ -687,6 +709,10 @@ public sealed partial class ManagedAgentsAgent
     {
         var names = new HashSet<string>(customTools.Keys, StringComparer.Ordinal);
         var baseTools = await BaseToolsAsync(cancellationToken).ConfigureAwait(false);
+        var reservedBaseTools = baseTools.Where(tool => ManagedAgentsCustomTools.NameOf(tool) == ManagedAgentsState.Name).ToList();
+        if (reservedBaseTools.Count > 1) throw new ArgumentException("Duplicate reserved shared state tools in the base catalog.");
+        foreach (var tool in reservedBaseTools)
+            if (!JsonElement.DeepEquals(tool, ManagedAgentsState.Definition)) throw new ArgumentException("The base ag_ui_update_state definition conflicts with the reserved contract.");
         return baseTools
             .Where(tool => !(tool.TryGetProperty("type", out var type)
                 && type.ValueEquals("custom")

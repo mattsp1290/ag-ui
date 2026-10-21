@@ -202,3 +202,26 @@ messages must target the primary session; the adapter rejects child follow-ups
 rather than delivering them to the wrong agent. Other native content replayed
 as RAW events remains available to the recording application; rendering richer
 content depends on the application's event handling.
+
+### Shared state
+
+The adapter delivers `RunAgentInput.state` to Claude as a versioned native system
+snapshot and installs the reserved `ag_ui_update_state` custom tool. The tool
+supports complete replacement and RFC 7396 merge patches (null deletes a member,
+arrays replace); it requires the current `expectedRevision`. State snapshots are
+emitted only after the native request succeeds. `{}` explicitly clears state;
+missing/null input preserves the latest native state.
+
+On restart or native-only import, native snapshots and successful state-tool
+results reconstruct state. Legacy histories without those records have no
+recoverable state. The session store remains necessary for durable authorized
+thread/session bindings. State writes belong to the primary conversation; child
+activity cannot overwrite it. An approval-only request defers a changed input
+snapshot until a user message or tool result can carry it.
+
+Imported sessions retain their native tool catalog. On a new user turn the adapter
+appends only the state tool; it does not install unrelated frontend tools. A
+reserved-name collision fails explicitly. Do not register a frontend or backend
+tool named `ag_ui_update_state`. See the shared
+[versioned contract](../contracts/shared-state-v1.md) for persistence, ownership,
+ordering and compatibility rules.

@@ -42,6 +42,9 @@ export interface SessionRecord {
   sessionId: string;
   /** Last successfully delivered runtime context snapshot; persist across restarts. */
   runtimeContext?: string;
+  /** Last native-committed shared state. */
+  primaryThreadId?: string;
+  sharedState?: import("./state").StateCommit;
   sessionThreadId?: string;
   lastEventId?: string;
   /** Adopted sessions retain the tools configured by their owner. */

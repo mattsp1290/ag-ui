@@ -183,10 +183,14 @@ function issuedCallIds(message: unknown): string[] {
  *   field of every entry before calling this, and `prepareRunAgentInput`
  *   reads one before a run, so a null entry fails there first.
  * - The anchor of a position is the last entry before it that is an object
- *   whose role is neither `tool` nor `activity`. `activity` never goes to the
- *   backend — `prepareRunAgentInput` strips it from RunAgentInput — so it does
- *   not separate a result from its call; anything else does, `reasoning`
- *   included.
+ *   whose role is not `tool`, `activity` or `reasoning`. `activity` never goes
+ *   to the backend — `prepareRunAgentInput` strips it from RunAgentInput — so
+ *   it does not separate a result from its call. Neither does `reasoning`:
+ *   reasoning stored between a call and its result is the next step's. A
+ *   multi-step Mastra turn whose calls share one assistant message leaves
+ *   `assistant(c1, c2), tool(c1), reasoning, tool(c2)`, and moving the result
+ *   in front of the reasoning leaves it trailing, so Mastra drops it.
+ *   Anything else separates them.
  * - At an assistant message whose `toolCalls` is an array, each entry that is
  *   a non-null object with a string `id` opens a call slot for that id,
  *   recording the message's index as its issuer. Other entries and a
@@ -231,8 +235,9 @@ function issuedCallIds(message: unknown): string[] {
  *   result moves forward, and early results stay where they are.
  * - Output keeps the original order without the moved results. Each issuer's
  *   moved results, forward and backward alike, follow it in their original
- *   order, after the tool, activity, null and non-object entries directly
- *   behind it and before the next entry that is none of those (or at the end).
+ *   order, after the tool, activity, reasoning, null and non-object entries
+ *   directly behind it and before the next entry that is none of those (or at
+ *   the end).
  *
  * Linear in the length of the list, apart from sorting the results that move.
  * Returns the same array when nothing moves.
@@ -286,7 +291,7 @@ export function keepToolResultsWithCalls(messages: Message[]): Message[] {
       // anchor, which no later in-place result can take. Deciding the
       // in-place results first is therefore safe.
       if (unanswered.get(id)! > 0) append(detached, id, index);
-    } else if (role !== "activity") {
+    } else if (role !== "activity" && role !== "reasoning") {
       anchor = index;
       for (const id of issuedCallIds(message)) {
         append(slots, id, { issuer: index, answered: false });
@@ -345,7 +350,11 @@ export function keepToolResultsWithCalls(messages: Message[]): Message[] {
     const message = messages[index];
     const role = roleOf(message);
     const separates =
-      typeof message === "object" && message !== null && role !== "tool" && role !== "activity";
+      typeof message === "object" &&
+      message !== null &&
+      role !== "tool" &&
+      role !== "activity" &&
+      role !== "reasoning";
     if (separates) flush();
     repaired.push(message);
     // Only a separating entry can be an issuer, and it flushed the previous

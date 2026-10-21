@@ -387,8 +387,9 @@ describe("MESSAGES_SNAPSHOT keeps tool results next to their calls", () => {
     expect(ids(await afterSnapshot(snapshot))).toEqual(["u1", "a1", "a2", "t1"]);
   });
 
-  it("moves a result before reasoning that separates it from its call", async () => {
-    // Reasoning is sent back to the backend, so it breaks the pairing.
+  it("leaves a result behind reasoning stored between it and its call", async () => {
+    // Reasoning there is the next step's; moving the result in front of it
+    // leaves it trailing, and Mastra drops it.
     const snapshot = [
       text("u1", "user"),
       call("a1", "c1"),
@@ -397,7 +398,26 @@ describe("MESSAGES_SNAPSHOT keeps tool results next to their calls", () => {
       text("a2"),
     ];
 
-    expect(ids(await afterSnapshot(snapshot))).toEqual(["u1", "a1", "t1", "r1", "a2"]);
+    expect(ids(await afterSnapshot(snapshot))).toEqual(["u1", "a1", "r1", "t1", "a2"]);
+  });
+
+  it("keeps a multi-step turn's later reasoning ahead of the result appended after it", () => {
+    const history = [
+      text("u1", "user"),
+      reasoning("r1"),
+      call("a1", "c-lookup", "c-chart"),
+      result("t-lookup", "c-lookup"),
+      reasoning("r2"),
+      result("t-chart", "c-chart"),
+    ];
+
+    expect(keepToolResultsWithCalls(history)).toBe(history);
+  });
+
+  it("still moves a detached result back past text, and leaves reasoning where it is", () => {
+    const history = [call("a1", "c1"), reasoning("r1"), text("a1t"), result("t1", "c1")];
+
+    expect(ids(keepToolResultsWithCalls(history))).toEqual(["a1", "r1", "t1", "a1t"]);
   });
 
   it("moves a result before a user message that separates it from its call", async () => {
@@ -903,7 +923,11 @@ describe("keepToolResultsWithCalls properties", () => {
   const isTool = (m: unknown) => roleOf(m) === "tool";
   // Null and non-object entries are transparent: they never separate.
   const separates = (m: unknown) =>
-    typeof m === "object" && m !== null && !isTool(m) && roleOf(m) !== "activity";
+    typeof m === "object" &&
+    m !== null &&
+    !isTool(m) &&
+    roleOf(m) !== "activity" &&
+    roleOf(m) !== "reasoning";
   const runOf = (m: unknown) => {
     const run = (m as { subagentRunId?: unknown } | null)?.subagentRunId;
     return typeof run === "string" ? run : "";

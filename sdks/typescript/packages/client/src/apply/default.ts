@@ -365,7 +365,11 @@ export function keepToolResultsWithCalls(messages: Message[]): Message[] {
           break;
         if (role === "reasoning") at = tail;
       }
-      repaired.splice(at, 0, ...owed.map((index) => messages[index]));
+      // Pushed one by one: spreading a large batch into splice() exceeds the
+      // engine's argument limit (RangeError: Maximum call stack size exceeded).
+      const tail = repaired.splice(at);
+      for (const index of owed) repaired.push(messages[index]);
+      for (const entry of tail) repaired.push(entry);
     }
     owed = undefined;
   };

@@ -414,10 +414,46 @@ describe("MESSAGES_SNAPSHOT keeps tool results next to their calls", () => {
     expect(keepToolResultsWithCalls(history)).toBe(history);
   });
 
-  it("still moves a detached result back past text, and leaves reasoning where it is", () => {
-    const history = [call("a1", "c1"), reasoning("r1"), text("a1t"), result("t1", "c1")];
+  it("moves a detached result back in front of reasoning, which stays with the message after it", () => {
+    // Converters give reasoning to the message after it. Landing the result
+    // between r1 and a1t would hand r1 to the result: LangGraph drops it, and
+    // Mastra moves encrypted reasoning onto a1's call.
+    const history = [
+      text("u1", "user"),
+      call("a1", "c1"),
+      reasoning("r1"),
+      text("a1t"),
+      result("t1", "c1"),
+    ];
 
-    expect(ids(keepToolResultsWithCalls(history))).toEqual(["a1", "r1", "t1", "a1t"]);
+    expect(ids(keepToolResultsWithCalls(history))).toEqual(["u1", "a1", "t1", "r1", "a1t"]);
+  });
+
+  it("moves a detached result in front of reasoning that follows its call's other results", () => {
+    const history = [
+      text("u1", "user"),
+      call("a1", "c1", "c2"),
+      result("t1", "c1"),
+      reasoning("r2"),
+      text("a1t"),
+      result("t2", "c2"),
+    ];
+
+    expect(ids(keepToolResultsWithCalls(history))).toEqual(["u1", "a1", "t1", "t2", "r2", "a1t"]);
+  });
+
+  it("looks past activity after reasoning when placing a moved result", () => {
+    // Activity is stripped before a run, so `a1 r1 act t1 a1t` would go out as
+    // `a1 r1 t1 a1t`.
+    const history = [
+      call("a1", "c1"),
+      reasoning("r1"),
+      activity("act"),
+      text("a1t"),
+      result("t1", "c1"),
+    ];
+
+    expect(ids(keepToolResultsWithCalls(history))).toEqual(["a1", "t1", "r1", "act", "a1t"]);
   });
 
   it("moves a result before a user message that separates it from its call", async () => {
@@ -1080,6 +1116,18 @@ describe("keepToolResultsWithCalls properties", () => {
       }
       movedCases++;
       expect(repaired, where).not.toBe(history);
+      // A moved result never lands right after reasoning, looking past
+      // activity, null and non-object entries: reasoning keeps the message
+      // after it.
+      sources.forEach((source, at) => {
+        if (!moved.has(source)) return;
+        for (let before = at - 1; before >= 0; before--) {
+          const entry = repaired[before];
+          if (typeof entry !== "object" || entry === null || roleOf(entry) === "activity") continue;
+          expect(roleOf(entry), where).not.toBe("reasoning");
+          break;
+        }
+      });
       const movedIds = [...moved].map((i) => (history[i] as { toolCallId?: unknown }).toolCallId);
       if (new Set(movedIds).size < movedIds.length) sharedIdMoves++;
 

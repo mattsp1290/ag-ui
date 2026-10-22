@@ -237,9 +237,14 @@ function issuedCallIds(message: unknown): string[] {
  *   moved results, forward and backward alike, follow it in their original
  *   order, after the tool, activity, reasoning, null and non-object entries
  *   directly behind it and before the next entry that is none of those (or at
- *   the end).
+ *   the end) — but in front of any reasoning among the activity, reasoning,
+ *   null and non-object entries at that point. Reasoning belongs to the
+ *   message after it, so a moved result never lands between a reasoning
+ *   message and its owner: `u a(c) r x t(c)` becomes `u a t r x`.
  *
- * Linear in the length of the list, apart from sorting the results that move.
+ * Linear in the length of the list, apart from sorting the results that move
+ * and one case: when a single assistant message repeats a call id k times,
+ * each result for that id behind it scans those k slots.
  * Returns the same array when nothing moves.
  */
 export function keepToolResultsWithCalls(messages: Message[]): Message[] {
@@ -342,7 +347,26 @@ export function keepToolResultsWithCalls(messages: Message[]): Message[] {
   const repaired: Message[] = [];
   let owed: number[] | undefined;
   const flush = () => {
-    if (owed) for (const index of owed) repaired.push(messages[index]);
+    if (owed) {
+      // Converters give a reasoning message to the message after it, so the
+      // owed results go in front of any reasoning among the entries at the
+      // tail that do not separate, never between a reasoning message and its
+      // owner. Activity is stripped before a run, so it is looked past too.
+      let at = repaired.length;
+      for (let tail = repaired.length - 1; tail >= 0; tail--) {
+        const entry = repaired[tail];
+        const role = roleOf(entry);
+        if (
+          typeof entry === "object" &&
+          entry !== null &&
+          role !== "activity" &&
+          role !== "reasoning"
+        )
+          break;
+        if (role === "reasoning") at = tail;
+      }
+      repaired.splice(at, 0, ...owed.map((index) => messages[index]));
+    }
     owed = undefined;
   };
   for (let index = 0; index < messages.length; index++) {

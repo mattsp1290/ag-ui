@@ -492,6 +492,14 @@ class EventTranslator:
             # Handle complete (non-partial) function calls
             if hasattr(adk_event, 'get_function_calls') and not is_partial:
                 function_calls = adk_event.get_function_calls()
+                # Non-Gemini adapters (OpenAI, Anthropic, LiteLLM) send no end
+                # marker: the aggregated call itself closes the open stream.
+                if self._active_streaming_fc_id is not None and any(
+                    getattr(fc, 'name', None) == self._active_streaming_fc_name
+                    for fc in function_calls or []
+                ):
+                    async for event in self._translate_streaming_function_call(types.FunctionCall()):
+                        yield event
                 if function_calls:
                     # Filter out long-running tool calls; those are handled by translate_lro_function_calls
                     try:
@@ -1273,10 +1281,11 @@ class EventTranslator:
             )
             self.emitted_tool_call_ids.add(self._active_streaming_fc_id)
             logger.debug(f"Streaming FC started: tool={tool_name}, id={self._active_streaming_fc_id}")
-            return
+            # Fall through: non-Gemini adapters (OpenAI, Anthropic, LiteLLM) can
+            # carry partial_args on the first chunk.
 
         # --- No active streaming FC — skip stray chunks ---
-        if self._active_streaming_fc_id is None:
+        elif self._active_streaming_fc_id is None:
             return
 
         tool_call_id = self._active_streaming_fc_id

@@ -180,6 +180,12 @@ jobs:
         working-directory: apps/dojo/e2e
         run: pnpm test:event-trace-unit
 
+      - name: Build Managed Agents integration for fake regression tests
+        run: pnpm exec nx run @ag-ui/claude-managed-agents:build
+
+      - name: Test Managed Agents fake recovery through the real SDK
+        run: pnpm exec nx run demo-viewer:test:managed-agents-fake
+
       - name: Type-check event trace harness
         working-directory: apps/dojo/e2e
         run: pnpm check:event-trace-types
@@ -466,7 +472,7 @@ jobs:
       # from the example's wrapper (integrations/community/spring-ai/java/examples/mvnw).
       - name: Set up JDK 17
         if: ${{ contains(join(matrix.services, ','), 'spring-ai') }}
-        uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6  # v6.0.1
+        uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad  # v6.1.0
         with:
           java-version: "17"
           distribution: "temurin"

@@ -250,7 +250,10 @@ it terminates the isolated worker process group **before** releasing the hook,
 repairs the original parent result while no SDK writer is running, and resumes
 fresh. Actual child and parent tool results are emitted as AG-UI events. A child
 that asks another question returns another interrupt. A timeout/failure leaves
-the parent unresolved rather than treating the child as complete.
+the parent unresolved rather than treating the child as complete. If the host
+crashes after child completion but before the recovery SendMessage result is
+saved, a restart returns RUN_ERROR and leaves the parent unresolved. Child
+completion alone cannot reconstruct that lost tool result.
 
 This is a version-sensitive native-history workaround, not a supported SDK
 checkpoint API. Normal SDK shutdown can release the held hook and allow a parent

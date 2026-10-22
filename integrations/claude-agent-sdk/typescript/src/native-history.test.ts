@@ -1,8 +1,14 @@
-import { afterEach, expect, it } from "vitest";
+import type { RunAgentInput } from "@ag-ui/core";
+import { afterEach, expect, it, vi } from "vitest";
 import { mkdtemp, mkdir, writeFile, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { NativeHistory } from "./native-history";
+vi.mock("@anthropic-ai/claude-agent-sdk", () => ({
+  query: vi.fn(() => {
+    throw new Error("Unexpected SDK startup");
+  }),
+}));
 const dirs: string[] = [];
 const session = "11111111-1111-4111-8111-111111111111";
 async function fixture() {
@@ -156,3 +162,104 @@ it("accepts an empty completed child response", async () => {
   await history.repair(checkpoint);
   expect(await history.inspect()).toBeUndefined();
 });
+
+it.each([false, true])(
+  "blocks cold recovery with a lost bridge result (placeholder=%s)",
+  async (placeholder) => {
+    const { root, path, history } = await fixture();
+    const checkpoint = (await history.inspect())!;
+    await history.answer(checkpoint, { question: { content: "REAL RESULT" } });
+    await writeFile(
+      path,
+      JSON.stringify({
+        type: "assistant",
+        uuid: "final",
+        message: {
+          role: "assistant",
+          stop_reason: "end_turn",
+          content: [{ type: "text", text: "DONE" }],
+        },
+      }) + "\n",
+      { flag: "a" },
+    );
+    await writeFile(
+      checkpoint.parentPath,
+      JSON.stringify({
+        type: "assistant",
+        uuid: "bridge",
+        message: {
+          role: "assistant",
+          content: [
+            {
+              type: "tool_use",
+              id: "bridge-call",
+              name: "SendMessage",
+              input: {
+                to: checkpoint.childId,
+                message:
+                  "Continue the original task using the recorded tool results. Do not repeat completed tools.",
+              },
+            },
+          ],
+        },
+      }) + "\n",
+      { flag: "a" },
+    );
+    if (placeholder)
+      await writeFile(
+        checkpoint.parentPath,
+        JSON.stringify({
+          type: "user",
+          uuid: "unknown",
+          message: {
+            role: "user",
+            content: [
+              {
+                type: "tool_result",
+                tool_use_id: "bridge-call",
+                is_error: true,
+                content: "[Tool call interrupted: outcome unknown]",
+              },
+            ],
+          },
+        }) + "\n",
+        { flag: "a" },
+      );
+    const before = await readFile(checkpoint.parentPath, "utf8");
+    const { NativeChildRecovery } = await import("./native-recovery");
+    const release = vi.fn(async () => {});
+    const execute = vi.fn();
+    const recovery = new NativeChildRecovery({
+      directory: root,
+      tools: ["Read"],
+      execute,
+      acquire: async () => release,
+    });
+    const input: RunAgentInput = {
+      threadId: "thread",
+      runId: "run",
+      messages: [],
+      tools: [],
+      context: [],
+      state: {},
+      forwardedProps: {},
+    };
+    await expect(async () => {
+      for await (const _ of recovery.run(
+        input,
+        { resume: session },
+        "continue",
+      )) {
+      }
+    }).rejects.toThrow(/Unresolved recovery tool result/);
+    expect(execute).not.toHaveBeenCalled();
+    expect(release).toHaveBeenCalledOnce();
+    expect(await readFile(checkpoint.parentPath, "utf8")).toBe(before);
+    // A result observed by the hook can be settled; an unknown one cannot be invented.
+    await history.settleBridge(checkpoint, {
+      "bridge-call": { content: "ACTUAL SEND RESPONSE" },
+    });
+    await history.repair(checkpoint);
+    expect(await history.inspect()).toBeUndefined();
+  },
+);

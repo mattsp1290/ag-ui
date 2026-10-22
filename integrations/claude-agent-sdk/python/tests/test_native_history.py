@@ -42,3 +42,37 @@ def test_empty_completed_response(tmp_path):
     assert history.completed(checkpoint)
     history.repair(checkpoint)
     assert history.inspect() is None
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('placeholder', [False, True])
+async def test_cold_recovery_rejects_lost_bridge_result(tmp_path, placeholder, monkeypatch):
+    from unittest.mock import AsyncMock
+    from claude_agent_sdk import ClaudeAgentOptions
+    from ag_ui.core import RunAgentInput
+    from ag_ui_claude_sdk.native_recovery import NativeChildRecovery, NativeChildRecoveryConfig
+    path, history = fixture(tmp_path)
+    checkpoint = history.inspect()
+    history.answer(checkpoint, {'question': {'content': 'REAL RESULT'}})
+    with path.open('a') as f:
+        f.write(json.dumps(dict(type='assistant', uuid='final', message=dict(role='assistant', stop_reason='end_turn', content=[dict(type='text', text='DONE')])))+'\n')
+    with checkpoint['parentPath'].open('a') as f:
+        f.write(json.dumps(dict(type='assistant', uuid='bridge', message=dict(role='assistant', content=[dict(type='tool_use', id='bridge-call', name='SendMessage', input=dict(to=checkpoint['childId'], message='Continue the original task using the recorded tool results. Do not repeat completed tools.'))])))+'\n')
+        if placeholder:
+            f.write(json.dumps(dict(type='user', uuid='unknown', message=dict(role='user', content=[dict(type='tool_result', tool_use_id='bridge-call', is_error=True, content='[Tool call interrupted: outcome unknown]')])))+'\n')
+    def unexpected(*args, **kwargs):
+        raise AssertionError('Unexpected SDK startup')
+    monkeypatch.setattr(NativeChildRecovery, 'execute', unexpected)
+    before = checkpoint['parentPath'].read_bytes()
+    release = AsyncMock()
+    execute = AsyncMock()
+    recovery = NativeChildRecovery(NativeChildRecoveryConfig(str(tmp_path), ['Read'], execute, AsyncMock(return_value=release)))
+    input_data = RunAgentInput(thread_id='thread', run_id='run', messages=[], tools=[], context=[], state={}, forwarded_props={})
+    with pytest.raises(ValueError, match='Unresolved recovery tool result'):
+        async for _ in recovery.run(input_data, ClaudeAgentOptions(resume=SESSION), 'continue'):
+            pass
+    execute.assert_not_called()
+    release.assert_awaited_once()
+    assert checkpoint['parentPath'].read_bytes() == before
+    history.settle_bridge(checkpoint, {'bridge-call': {'content': 'ACTUAL SEND RESPONSE'}})
+    history.repair(checkpoint)
+    assert history.inspect() is None

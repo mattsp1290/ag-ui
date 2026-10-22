@@ -288,6 +288,12 @@ export class NativeHistory {
       throw new Error("Child has not completed recovery");
     const before = await read(fresh.parentPath),
       rows = structuredClone(before);
+    // A crash may lose the in-memory SendMessage response even after the child
+    // finishes. Never repair the Agent and resume with another unanswered call.
+    if (pending(before).some((call) => call.id !== fresh.parent.id))
+      throw new Error(
+        "Unresolved recovery tool result; parent remains unresolved",
+      );
     let changed = false;
     for (const r of rows)
       for (const b of blocks(r))

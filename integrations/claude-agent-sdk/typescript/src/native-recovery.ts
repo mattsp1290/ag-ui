@@ -282,7 +282,6 @@ export class NativeChildRecovery {
     const pre: HookCallback = async (input) => {
       if (input.hook_event_name !== "PreToolUse") return {};
       if (
-        !this.bridge &&
         input.tool_name === "Agent" &&
         (input.agent_id ||
           (input.tool_input as Record<string, unknown>).run_in_background !==

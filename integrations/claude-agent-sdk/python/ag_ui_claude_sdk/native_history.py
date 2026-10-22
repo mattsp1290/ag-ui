@@ -145,6 +145,9 @@ class NativeHistory:
             raise ValueError('Child has not completed recovery')
         before = read(fresh['parentPath'])
         rows = copy.deepcopy(before)
+        # Child completion does not prove an interrupted bridge call's outcome.
+        if any(call['id'] != fresh['parent']['id'] for call in pending(before)):
+            raise ValueError('Unresolved recovery tool result; parent remains unresolved')
         changed = False
         for row in rows:
             for block in blocks(row):

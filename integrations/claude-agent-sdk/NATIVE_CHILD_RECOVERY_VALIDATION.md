@@ -12,8 +12,8 @@ used by this recovery path.
   3.25.76 (workspace override).
 - Python Agent SDK 0.2.170, bundled CLI 2.1.306, Python 3.14.4. Full suite and
   final subprocess controls use the committed uv lockfile.
-- TypeScript: 107 tests pass; typecheck and CJS/ESM/declaration builds pass.
-- Python: 207 tests pass (two existing WebSockets deprecation warnings).
+- TypeScript: 111 tests pass; typecheck and CJS/ESM/declaration builds pass.
+- Python: 211 tests pass (two existing WebSockets deprecation warnings).
 - `git diff --check` passes.
 
 The tests use real SDK subprocesses with a local scripted Messages provider,
@@ -59,6 +59,20 @@ the parent receives the child's completed report. Stalled-child controls emit
 RUN_ERROR and never continue the parent. No synthetic successful result is used
 to cover an incomplete child. Normal completed SDK turns close gracefully;
 held recovery workers are terminated before SDK shutdown can unblock the parent.
+
+## Review regressions
+
+Both implementations now reject parent repair if any other root tool result is
+still unresolved. Synthetic cold-start fixtures cover a completed child with a
+missing recovery SendMessage result and with an interrupted placeholder. They
+assert no SDK startup, no executor call, lease release, and unchanged parent
+history. A known actual bridge response can still be settled and repaired.
+
+Hook-level fixtures also attempt foreground and background nested Agent launches
+during recovery; both are denied. These boundary regressions use synthetic
+history and mocked SDK hooks, not real process crashes or live model reasoning.
+The six standalone real-SDK process controls above were rerun after these fixes
+and passed.
 
 ## Required host contracts and limits
 

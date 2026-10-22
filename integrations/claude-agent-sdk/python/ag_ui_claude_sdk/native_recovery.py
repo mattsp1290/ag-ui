@@ -167,7 +167,7 @@ class NativeChildRecovery:
         opts.extra_args = {**(options.extra_args or {}), 'await-initialize': None}
 
         async def pre(data, tool_id, context):
-            if not self.bridge and data['tool_name'] == 'Agent' and (data.get('agent_id') or data.get('tool_input', {}).get('run_in_background') is not False):
+            if data['tool_name'] == 'Agent' and (data.get('agent_id') or data.get('tool_input', {}).get('run_in_background') is not False):
                 return {'hookSpecificOutput': {'hookEventName': 'PreToolUse', 'permissionDecision': 'deny', 'permissionDecisionReason': 'Native recovery requires one direct foreground child. Set run_in_background to false.'}}
             if self.bridge and not data.get('agent_id'):
                 args = data.get('tool_input', {})

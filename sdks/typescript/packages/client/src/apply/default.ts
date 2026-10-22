@@ -158,7 +158,8 @@ function issuedCallIds(message: unknown): string[] {
  * Move each tool result that has drifted away from its call to sit right
  * after the assistant message that issued it — usually back to an earlier
  * call, and forward only when exactly one call in the whole history has its
- * id. Runs when a MESSAGES_SNAPSHOT is applied.
+ * id. Runs when a MESSAGES_SNAPSHOT is applied, and on the copy of the
+ * history `prepareRunAgentInput` sends as a run's input.
  *
  * Providers require an assistant tool_call to be immediately followed by its
  * result, and this history is sent back as the next run's input. The
@@ -182,10 +183,14 @@ function issuedCallIds(message: unknown): string[] {
  *   field of every entry before calling this, and `prepareRunAgentInput`
  *   reads one before a run, so a null entry fails there first.
  * - The anchor of a position is the last entry before it that is an object
- *   whose role is neither `tool` nor `activity`. `activity` never goes to the
- *   backend — `prepareRunAgentInput` strips it from RunAgentInput — so it does
- *   not separate a result from its call; anything else does, `reasoning`
- *   included.
+ *   whose role is not `tool`, `activity` or `reasoning`. `activity` never goes
+ *   to the backend — `prepareRunAgentInput` strips it from RunAgentInput — so
+ *   it does not separate a result from its call. Neither does `reasoning`:
+ *   reasoning stored between a call and its result is the next step's. A
+ *   multi-step Mastra turn whose calls share one assistant message leaves
+ *   `assistant(c1, c2), tool(c1), reasoning, tool(c2)`, and moving the result
+ *   in front of the reasoning leaves it trailing, so Mastra drops it.
+ *   Anything else separates them.
  * - At an assistant message whose `toolCalls` is an array, each entry that is
  *   a non-null object with a string `id` opens a call slot for that id,
  *   recording the message's index as its issuer. Other entries and a
@@ -230,15 +235,28 @@ function issuedCallIds(message: unknown): string[] {
  *   result moves forward, and early results stay where they are.
  * - Output keeps the original order without the moved results. Each issuer's
  *   moved results, forward and backward alike, follow it in their original
- *   order, after the tool, activity, null and non-object entries directly
- *   behind it and before the next entry that is none of those (or at the end).
+ *   order, after the tool, activity, reasoning, null and non-object entries
+ *   directly behind it and before the next entry that is none of those (or at
+ *   the end) — but in front of any reasoning among the activity, reasoning,
+ *   null and non-object entries at that point. Reasoning belongs to the
+ *   message after it, so a moved result never lands between a reasoning
+ *   message and its owner: `u a(c) r x t(c)` becomes `u a t r x`.
  *
- * Returns the same array when nothing moves. Exported for tests only.
+ * Linear in the length of the list, apart from sorting the results that move
+ * and one case: when a single assistant message repeats a call id k times,
+ * each result for that id behind it scans those k slots.
+ * Returns the same array when nothing moves.
  */
 export function keepToolResultsWithCalls(messages: Message[]): Message[] {
   // Call slots per call id, as issuer indices in the order opened, and
   // whether each is answered.
   const slots = new Map<string, { issuer: number; answered: boolean }[]>();
+  // How many of each id's slots are still unanswered.
+  const unanswered = new Map<string, number>();
+  const answer = (id: string, slot: { issuer: number; answered: boolean }) => {
+    slot.answered = true;
+    unanswered.set(id, unanswered.get(id)! - 1);
+  };
   // Detached result indices per call id, in original order.
   const detached = new Map<string, number[]>();
   // Result indices per call id, in original order, that no earlier slot for
@@ -263,21 +281,26 @@ export function keepToolResultsWithCalls(messages: Message[]): Message[] {
         append(early, id, index);
         continue;
       }
-      const open = idSlots.filter((slot) => !slot.answered);
-      const inPlace = open.find((slot) => slot.issuer === anchor);
+      // Slots open in list order and the anchor is the newest issuer, so the
+      // anchor's slots sit at the tail: scan only those.
+      let inPlace: { issuer: number; answered: boolean } | undefined;
+      for (let s = idSlots.length - 1; s >= 0 && idSlots[s].issuer === anchor; s--) {
+        if (!idSlots[s].answered) inPlace = idSlots[s];
+      }
       if (inPlace) {
-        inPlace.answered = true;
+        answer(id, inPlace);
         continue;
       }
       // Every slot for this id issued at the anchor is answered, so a
       // detached result can only take a slot for its id issued before the
       // anchor, which no later in-place result can take. Deciding the
       // in-place results first is therefore safe.
-      if (open.length > 0) append(detached, id, index);
-    } else if (role !== "activity") {
+      if (unanswered.get(id)! > 0) append(detached, id, index);
+    } else if (role !== "activity" && role !== "reasoning") {
       anchor = index;
       for (const id of issuedCallIds(message)) {
         append(slots, id, { issuer: index, answered: false });
+        unanswered.set(id, (unanswered.get(id) ?? 0) + 1);
       }
     }
   }
@@ -285,23 +308,24 @@ export function keepToolResultsWithCalls(messages: Message[]): Message[] {
   // Moved result indices per issuer index.
   const owedTo = new Map<number, number[]>();
   const moved: boolean[] = [];
-  const move = (index: number, slot: { issuer: number; answered: boolean }) => {
-    slot.answered = true;
+  const move = (id: string, index: number, slot: { issuer: number; answered: boolean }) => {
+    answer(id, slot);
     append(owedTo, slot.issuer, index);
     moved[index] = true;
   };
   // Backward: each id's detached results, newest first, take the newest
-  // unanswered slot for their id issued before them.
+  // unanswered slot for their id issued before them. Each result needs a slot
+  // issued before it and they go newest first, so that slot only ever moves
+  // left: one cursor per id keeps the pass linear even when every turn reuses
+  // the same id.
   for (const [id, results] of detached) {
     const idSlots = slots.get(id)!;
+    let s = idSlots.length - 1;
     for (let r = results.length - 1; r >= 0; r--) {
       const index = results[r];
-      for (let s = idSlots.length - 1; s >= 0; s--) {
-        if (!idSlots[s].answered && idSlots[s].issuer < index) {
-          move(index, idSlots[s]);
-          break;
-        }
-      }
+      while (s >= 0 && (idSlots[s].answered || idSlots[s].issuer >= index)) s--;
+      if (s < 0) break;
+      move(id, index, idSlots[s]);
     }
   }
   // Forward: only when the id is on exactly one call slot in the whole list.
@@ -313,7 +337,7 @@ export function keepToolResultsWithCalls(messages: Message[]): Message[] {
   for (const [id, results] of early) {
     const idSlots = slots.get(id);
     if (idSlots?.length !== 1 || idSlots[0].answered) continue;
-    move(results[0], idSlots[0]);
+    move(id, results[0], idSlots[0]);
   }
   if (owedTo.size === 0) return messages;
   // Ids are matched one at a time, and forward and backward moves can share
@@ -323,7 +347,26 @@ export function keepToolResultsWithCalls(messages: Message[]): Message[] {
   const repaired: Message[] = [];
   let owed: number[] | undefined;
   const flush = () => {
-    if (owed) for (const index of owed) repaired.push(messages[index]);
+    if (owed) {
+      // Converters give a reasoning message to the message after it, so the
+      // owed results go in front of any reasoning among the entries at the
+      // tail that do not separate, never between a reasoning message and its
+      // owner. Activity is stripped before a run, so it is looked past too.
+      let at = repaired.length;
+      for (let tail = repaired.length - 1; tail >= 0; tail--) {
+        const entry = repaired[tail];
+        const role = roleOf(entry);
+        if (
+          typeof entry === "object" &&
+          entry !== null &&
+          role !== "activity" &&
+          role !== "reasoning"
+        )
+          break;
+        if (role === "reasoning") at = tail;
+      }
+      repaired.splice(at, 0, ...owed.map((index) => messages[index]));
+    }
     owed = undefined;
   };
   for (let index = 0; index < messages.length; index++) {
@@ -331,7 +374,11 @@ export function keepToolResultsWithCalls(messages: Message[]): Message[] {
     const message = messages[index];
     const role = roleOf(message);
     const separates =
-      typeof message === "object" && message !== null && role !== "tool" && role !== "activity";
+      typeof message === "object" &&
+      message !== null &&
+      role !== "tool" &&
+      role !== "activity" &&
+      role !== "reasoning";
     if (separates) flush();
     repaired.push(message);
     // Only a separating entry can be an issuer, and it flushed the previous

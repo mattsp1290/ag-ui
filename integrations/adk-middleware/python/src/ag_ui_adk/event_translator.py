@@ -29,6 +29,7 @@ from google.adk.events import Event as ADKEvent
 
 from .config import PredictStateMapping, normalize_predict_state
 from .serialization import serialize_tool_args
+from .session_manager import _is_processed_message_state_key
 from .utils.converters import _escape_json_pointer_token
 
 import logging
@@ -491,6 +492,14 @@ class EventTranslator:
             # Handle complete (non-partial) function calls
             if hasattr(adk_event, 'get_function_calls') and not is_partial:
                 function_calls = adk_event.get_function_calls()
+                # Non-Gemini adapters (OpenAI, Anthropic, LiteLLM) send no end
+                # marker: the aggregated call itself closes the open stream.
+                if self._active_streaming_fc_id is not None and any(
+                    getattr(fc, 'name', None) == self._active_streaming_fc_name
+                    for fc in function_calls or []
+                ):
+                    async for event in self._translate_streaming_function_call(types.FunctionCall()):
+                        yield event
                 if function_calls:
                     # Filter out long-running tool calls; those are handled by translate_lro_function_calls
                     try:
@@ -1267,10 +1276,11 @@ class EventTranslator:
             )
             self.emitted_tool_call_ids.add(self._active_streaming_fc_id)
             logger.debug(f"Streaming FC started: tool={tool_name}, id={self._active_streaming_fc_id}")
-            return
+            # Fall through: non-Gemini adapters (OpenAI, Anthropic, LiteLLM) can
+            # carry partial_args on the first chunk.
 
         # --- No active streaming FC — skip stray chunks ---
-        if self._active_streaming_fc_id is None:
+        elif self._active_streaming_fc_id is None:
             return
 
         tool_call_id = self._active_streaming_fc_id
@@ -1405,6 +1415,8 @@ class EventTranslator:
         # Use "add" operation which works for both new and existing paths
         patches = []
         for key, value in state_delta.items():
+            if _is_processed_message_state_key(key):
+                continue
             patches.append({
                 "op": "add",
                 "path": f"/{_escape_json_pointer_token(key)}",
@@ -1431,7 +1443,10 @@ class EventTranslator:
  
         return StateSnapshotEvent(
             type=EventType.STATE_SNAPSHOT,
-            snapshot=state_snapshot
+            snapshot={
+                key: value for key, value in state_snapshot.items()
+                if not _is_processed_message_state_key(key)
+            }
         )
     
     async def force_close_streaming_message(self) -> AsyncGenerator[BaseEvent, None]:

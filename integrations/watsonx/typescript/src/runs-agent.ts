@@ -264,7 +264,18 @@ class RunTranslator {
     };
     this.subscriber.next(rawEvent);
 
-    if (event.event !== "run.step.delta") this.flushPendingResponses();
+    if (
+      [
+        "run.completed",
+        "done",
+        "run.failed",
+        "run.cancelled",
+        "run.expired",
+        "error",
+      ].includes(event.event)
+    ) {
+      this.flushPendingResponses();
+    }
 
     const data = event.data ?? {};
     switch (event.event) {
@@ -358,6 +369,7 @@ class RunTranslator {
   }
 
   private text(delta: string): void {
+    this.flushPendingResponses();
     if (!this.textMessageId) {
       this.textMessageId = crypto.randomUUID();
       const msgStart: TextMessageStartEvent = {
@@ -402,6 +414,9 @@ class RunTranslator {
       case "tool_response": {
         if (!step.tool_call_id || !step.name) return;
         const content = asString(step.content);
+        if (step.args !== undefined) {
+          this.callRecord(step.tool_call_id, step.name, step.args);
+        }
         if (this.toolCalls.has(step.tool_call_id)) {
           this.answer(step.tool_call_id, step.name, content);
         } else if (!this.pendingResponses.has(step.tool_call_id)) {

@@ -327,6 +327,77 @@ describe("WatsonxRunsAgent", () => {
         },
       });
 
+    it.each([
+      "run.step.intermediate",
+      "message.started",
+      "message.completed",
+      "provider.progress",
+    ])("keeps pending arguments across RAW-only %s", async (event) => {
+      const args = { user_id: "user-1" };
+      mockFetch(
+        streamResponse(
+          ndjson([
+            runStarted(),
+            responseOnly(CALL, TOOL, RESULT),
+            wxo(event),
+            callRecord(CALL, TOOL, args),
+            ...done(),
+          ]),
+        ),
+      );
+      const onToolResult = vi.fn<WatsonxToolResultHandler>(() => undefined);
+
+      const events = await collectEvents(makeAgent({ onToolResult }));
+      expect(
+        ofType<ToolCallArgsEvent>(events, EventType.TOOL_CALL_ARGS),
+      ).toMatchObject([{ delta: JSON.stringify(args) }]);
+      expect(onToolResult).toHaveBeenCalledTimes(1);
+      expect(onToolResult.mock.calls[0][0]).toMatchObject({ args });
+    });
+
+    it.each([false, true])(
+      "uses response-carried arguments and preserves the first result (queued: %s)",
+      async (queued) => {
+        const args = { user_id: "user-1" };
+        mockFetch(
+          streamResponse(
+            ndjson([
+              runStarted(),
+              ...(queued ? [responseOnly(CALL, TOOL, RESULT)] : []),
+              wxo("run.step.delta", {
+                delta: {
+                  step_details: [
+                    {
+                      type: "tool_response",
+                      tool_call_id: CALL,
+                      name: TOOL,
+                      content: queued ? "later duplicate" : RESULT,
+                      args,
+                    },
+                  ],
+                },
+              }),
+              ...done(),
+            ]),
+          ),
+        );
+        const onToolResult = vi.fn<WatsonxToolResultHandler>(() => undefined);
+
+        const events = await collectEvents(makeAgent({ onToolResult }));
+        expect(
+          ofType<ToolCallArgsEvent>(events, EventType.TOOL_CALL_ARGS),
+        ).toMatchObject([{ delta: JSON.stringify(args) }]);
+        expect(ofType(events, EventType.TOOL_CALL_RESULT)).toMatchObject([
+          { content: RESULT },
+        ]);
+        expect(onToolResult).toHaveBeenCalledTimes(1);
+        expect(onToolResult.mock.calls[0][0]).toMatchObject({
+          args,
+          content: RESULT,
+        });
+      },
+    );
+
     it("keeps the arguments of a call recorded after its response", async () => {
       const args = { email: "abrennan@workday.net" };
       mockFetch(

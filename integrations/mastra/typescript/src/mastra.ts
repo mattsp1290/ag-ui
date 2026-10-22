@@ -26,7 +26,11 @@ import type {
   ToolCallStartEvent,
 } from "@ag-ui/client";
 import { AbstractAgent, EventType, PROTOCOL_VERSION } from "@ag-ui/client";
-import { TokenUsage, tokenUsageFromAiSdkUsage } from "@ag-ui/core";
+import {
+  TokenUsage,
+  aggregateTokenUsage,
+  tokenUsageFromAiSdkUsage,
+} from "@ag-ui/core";
 import type { Agent as LocalMastraAgent } from "@mastra/core/agent";
 import { RequestContext } from "@mastra/core/request-context";
 import { randomUUID } from "@ag-ui/client";
@@ -61,6 +65,7 @@ import {
   toolResultContent,
 } from "./tool-results";
 import {
+  type DelegatedUsage,
   type DelegationScope,
   type EventSink,
   type LaneProcessor,
@@ -70,8 +75,11 @@ import {
   type SubagentLane,
   type SubagentRunEnding,
   SubagentTracker,
+  delegatedUsage,
   isDelegationTool,
   loadSubagentDirectory,
+  modelIdentityOf,
+  subagentAt,
   withoutSubagentMessages,
 } from "./subagents";
 
@@ -936,6 +944,12 @@ interface MastraAgentStreamOptions {
    * dropped.
    */
   delegations?: DelegationScope;
+  /**
+   * A delegated sub-agent run's usage, from the `finish` Mastra forwards in
+   * the delegating call's output, in either visibility (the run's usage
+   * includes its sub-agents'). Called by the run's own stream only.
+   */
+  onDelegatedUsage?: (usage: DelegatedUsage) => void;
 }
 
 export class MastraAgent extends AbstractAgent {
@@ -1150,6 +1164,8 @@ export class MastraAgent extends AbstractAgent {
       let endDrainedRun: (() => void) | undefined;
       // How that drained run ends its open sub-agent invocations.
       let drainedEnding: SubagentRunEnding | undefined;
+      // Sub-agent runs' usage, reported with the run's own on RUN_FINISHED.
+      const delegatedUsages: DelegatedUsage[] = [];
 
       // A run stopped on purpose (abortRun(), or the remote handle's own
       // signal) closes what it opened and ends with RUN_FINISHED carrying the
@@ -1274,7 +1290,14 @@ export class MastraAgent extends AbstractAgent {
             }),
           );
         };
-        if (readResult) ({ traceId, usage } = await readResult());
+        if (readResult) {
+          ({ traceId, usage } = await readResult());
+          usage = await this.withDelegatedUsage(
+            usage,
+            delegatedUsages,
+            this.applyInputContext(input.context),
+          );
+        }
         if (subscriber.closed || lifecycle.ended) return;
         await this.emitWorkingMemorySnapshot(lifecycle, input.threadId);
         if (subscriber.closed || lifecycle.ended) return;
@@ -1432,6 +1455,7 @@ export class MastraAgent extends AbstractAgent {
             onError: (error) => {
               failRun(error);
             },
+            onDelegatedUsage: (usage) => delegatedUsages.push(usage),
             ...(subagents ? { delegations: subagents.root } : {}),
           };
 
@@ -1606,6 +1630,7 @@ export class MastraAgent extends AbstractAgent {
                 failRun(error);
               },
               onRunFinished: finishRun,
+              onDelegatedUsage: (usage) => delegatedUsages.push(usage),
               ...(subagents ? { delegations: subagents.root } : {}),
             },
             abortController.signal,
@@ -2041,12 +2066,39 @@ export class MastraAgent extends AbstractAgent {
   /** Best-effort provider/model of the configured local agent (undefined for
    * remote agents or when the model doesn't expose these). */
   private getModelIdentity(): { provider?: string; model?: string } {
-    const model = (this.agent as any)?.model;
-    const provider =
-      typeof model?.provider === "string" ? model.provider : undefined;
-    const modelId =
-      typeof model?.modelId === "string" ? model.modelId : undefined;
-    return { provider, model: modelId };
+    const { provider, model } = modelIdentityOf(this.agent);
+    return { provider, model };
+  }
+
+  /**
+   * The run's usage with its sub-agents' added (AG-UI counts a subagent's
+   * model calls as the run's), one entry per provider and model. A local
+   * agent's sub-agents are labelled with their own models; a remote agent's
+   * sub-agents cannot be seen from here and stay unlabelled, as its own usage
+   * does.
+   */
+  private async withDelegatedUsage(
+    usage: TokenUsage[] | undefined,
+    delegated: readonly DelegatedUsage[],
+    requestContext: RequestContext,
+  ): Promise<TokenUsage[] | undefined> {
+    if (delegated.length === 0) return usage;
+    const directory = this.isLocalMastraAgent(this.agent)
+      ? await this.readSubagentDirectory(
+          requestContext,
+          Math.max(...delegated.map(({ path }) => path.length)),
+        )
+      : new Map();
+    const entries = delegated.flatMap(({ path, usage: raw }) => {
+      const subagent = subagentAt(directory, path);
+      const entry = tokenUsageFromAiSdkUsage(raw, {
+        provider: subagent?.provider,
+        model: subagent?.model,
+      });
+      return entry ? [entry] : [];
+    });
+    if (entries.length === 0) return usage;
+    return aggregateTokenUsage([...(usage ?? []), ...entries]);
   }
 
   /**
@@ -3205,6 +3257,14 @@ export class MastraAgent extends AbstractAgent {
         // sub-agents attributed it is mapped as that sub-agent's invocation;
         // otherwise it is dropped like any other output.
         case "tool-output": {
+          // A sub-agent's usage counts toward the run's however its stream is
+          // shown. Read once, where every level of delegation arrives wrapped:
+          // a lane sees only its own level.
+          if (!lane) {
+            for (const usage of delegatedUsage(chunk.payload)) {
+              callbacks.onDelegatedUsage?.(usage);
+            }
+          }
           const delegation = callbacks.delegations?.match(chunk.payload);
           if (!delegation) break;
           // The delegating call goes out, and is closed, before the first

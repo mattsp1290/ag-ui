@@ -15,7 +15,17 @@ import {
 // sub-agents could be attributed: a delegated sub-agent's stream is dropped
 // and the client sees the delegating call and its result only. These tests
 // pin that contract on real Mastra delegation streams, so attribution can
-// never leak into a client that did not ask for it.
+// never leak into a client that did not ask for it. The one difference is the
+// run's token usage, which includes its sub-agents' calls in every visibility
+// (subagent-usage.test.ts).
+
+/** The events with RUN_FINISHED's usage left out. */
+const withoutRunUsage = (events: any[]) =>
+  events.map((event) =>
+    event.type === EventType.RUN_FINISHED
+      ? { ...event, usage: undefined }
+      : event,
+  );
 
 const DELEGATING: CaptureName[] = [
   "a-single",
@@ -53,7 +63,9 @@ describe.each(PATHS)("subagentVisibility (%s)", (_path, make) => {
           FIRST_TURN,
         );
         expect(chunks.some(isDelegatedChunk)).toBe(true);
-        expect(canonical(withDelegated)).toBe(canonical(without));
+        expect(canonical(withoutRunUsage(withDelegated))).toBe(
+          canonical(withoutRunUsage(without)),
+        );
       },
     );
 

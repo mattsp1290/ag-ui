@@ -138,6 +138,9 @@ type LaneClosing =
 
 export interface SubagentDirectoryEntry {
   description?: string;
+  /** The sub-agent's model, when it exposes one (labels its token usage). */
+  provider?: string;
+  model?: string;
   children: SubagentDirectory;
 }
 
@@ -161,8 +164,24 @@ function readDescription(agent: unknown): string | undefined {
 }
 
 /**
- * Reads a local agent's sub-agents (`listAgents`) and their descriptions,
- * recursively up to `maxDepth` levels. An agent without sub-agents yields an
+ * A local agent's provider and model id, when its configured model exposes
+ * them (a model given as a string or a function does not).
+ */
+export function modelIdentityOf(agent: unknown): {
+  provider?: string;
+  model?: string;
+} {
+  const model = isRecord(agent) ? agent.model : undefined;
+  if (!isRecord(model)) return {};
+  return {
+    ...(typeof model.provider === "string" ? { provider: model.provider } : {}),
+    ...(typeof model.modelId === "string" ? { model: model.modelId } : {}),
+  };
+}
+
+/**
+ * Reads a local agent's sub-agents (`listAgents`), their descriptions and
+ * models, recursively up to `maxDepth` levels. An agent without sub-agents yields an
  * empty directory. Throws what `listAgents` throws.
  */
 export async function loadSubagentDirectory(
@@ -183,6 +202,7 @@ export async function loadSubagentDirectory(
     const description = readDescription(subagent);
     directory.set(key, {
       ...(description ? { description } : {}),
+      ...modelIdentityOf(subagent),
       children: await loadSubagentDirectory(
         subagent,
         requestContext,
@@ -192,6 +212,52 @@ export async function loadSubagentDirectory(
     });
   }
   return directory;
+}
+
+/** One sub-agent run's token usage, by its path of delegation names (`["mid", "leaf"]`). */
+export interface DelegatedUsage {
+  path: string[];
+  usage: unknown;
+}
+
+/**
+ * The usage of every sub-agent run a delegating call's output carries, in
+ * either visibility. Mastra forwards a delegated agent's chunks wrapped once
+ * per level of delegation, and each agent's `finish` reports only its own
+ * model calls, not those of the agents it delegated to. A run ends in one
+ * `finish`; `step-finish` repeats the running total, so only `finish` counts.
+ * Workflows and plain tool writers are not sub-agents and are skipped.
+ */
+export function delegatedUsage(
+  payload: unknown,
+  path: readonly string[] = [],
+): DelegatedUsage[] {
+  if (!isRecord(payload)) return [];
+  const { output, toolName } = payload;
+  if (!isRecord(output) || typeof output.type !== "string") return [];
+  if (!isDelegationTool(toolName)) return [];
+  const here = [...path, toolName.slice(DELEGATION_TOOL_PREFIX.length)];
+  if (output.type === "tool-output")
+    return delegatedUsage(output.payload, here);
+  if (output.type !== "finish" || output.from !== "AGENT") return [];
+  const result = isRecord(output.payload) ? output.payload.output : undefined;
+  const usage = isRecord(result) ? result.usage : undefined;
+  return usage === undefined ? [] : [{ path: here, usage }];
+}
+
+/** The directory entry of a sub-agent by its path of delegation names. */
+export function subagentAt(
+  directory: SubagentDirectory,
+  path: readonly string[],
+): SubagentDirectoryEntry | undefined {
+  let entry: SubagentDirectoryEntry | undefined;
+  let level = directory;
+  for (const name of path) {
+    entry = level.get(name);
+    if (!entry) return undefined;
+    level = entry.children;
+  }
+  return entry;
 }
 
 /**

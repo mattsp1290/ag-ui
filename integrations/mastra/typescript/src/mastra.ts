@@ -798,7 +798,8 @@ export interface MastraAgentConfig extends AgentConfig {
    *
    * `"attributed"` needs an AG-UI 1.0 client (`@ag-ui/client` >= 1.0,
    * CopilotKit >= 1.76). A sub-agent's `data-*` chunks, workflows used as
-   * tools, and `agent.network()` are not attributed.
+   * tools, and `agent.network()` are not attributed. In either visibility the
+   * run's token usage includes its sub-agents' model calls.
    */
   subagentVisibility?: MastraSubagentVisibility;
   /**

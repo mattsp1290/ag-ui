@@ -4,6 +4,7 @@ import { z } from "zod/v4";
 import { Observable, of, EMPTY } from "rxjs";
 import { mergeMap } from "rxjs/operators";
 import { type DebugLoggerInput, resolveDebugLogger } from "@/debug-logger";
+import { type EnforcementOptions, resolveMaxEntries } from "./limits";
 import { literalValue, stripUnknown } from "./strip";
 
 /**
@@ -66,10 +67,14 @@ function warnDeviation(message: string): void {
  *   stripped, each with a warning naming its path.
  * - A malformed value on a field the protocol DOES describe stays fatal:
  *   the generated validator throws, and the run errors.
+ * - An event with more entries than `options.maxEntries` (default
+ *   DEFAULT_MAX_ENFORCED_ENTRIES, per event) is fatal too, with an
+ *   AGUIEnforcementLimitError.
  */
-export const enforceEvents =
-  (debugLogger?: DebugLoggerInput) =>
-  (source$: Observable<BaseEvent>): Observable<BaseEvent> => {
+export const enforceEvents = (debugLogger?: DebugLoggerInput, options?: EnforcementOptions) => {
+  // Judged here, not per subscription, so a bad budget fails where it is passed.
+  const maxEntries = resolveMaxEntries(options?.maxEntries);
+  return (source$: Observable<BaseEvent>): Observable<BaseEvent> => {
     const log = resolveDebugLogger(debugLogger);
     return source$.pipe(
       mergeMap((event) => {
@@ -88,7 +93,7 @@ export const enforceEvents =
           // same schema; guarded so a future drift fails loudly.
           throw new Error(`No validator for recognised event type '${String(event.type)}'`);
         }
-        const { value, stripped } = stripUnknown(event, schema);
+        const { value, stripped } = stripUnknown(event, schema, { maxEntries });
         for (const path of stripped) {
           warnDeviation(
             `Removed unrecognised material at '${path}' on ${String(event.type)}. Nothing handled it; see the repo-root DEPRECATIONS.md if it is a retired shape.`,
@@ -99,16 +104,23 @@ export const enforceEvents =
       }),
     );
   };
+};
 
 /**
  * The outgoing half of the same boundary: checked immediately before
  * transmission. Unknown properties are stripped with a warning; a malformed
- * known field is fatal before a byte leaves the process.
+ * known field is fatal before a byte leaves the process, and so is an input
+ * with more entries than `options.maxEntries`.
  */
-export function enforceOutgoingInput(input: RunAgentInput): RunAgentInput {
+export function enforceOutgoingInput(
+  input: RunAgentInput,
+  options?: EnforcementOptions,
+): RunAgentInput {
+  const maxEntries = resolveMaxEntries(options?.maxEntries);
   const { value, stripped } = stripUnknown(
     omitOptionalNulls(input, "RunAgentInput"),
     RunAgentInputSchema as unknown as z.ZodType,
+    { maxEntries },
   );
   for (const path of stripped) {
     warnDeviation(`Removed unrecognised material at '${path}' from the outgoing input.`);

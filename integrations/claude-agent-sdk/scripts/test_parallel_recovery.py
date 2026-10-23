@@ -1,4 +1,5 @@
 """No-cost real SDK root parallel native/frontend recovery control."""
+import shutil
 import json, os, sys, tempfile, threading, subprocess, uuid
 from pathlib import Path
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -6,6 +7,7 @@ base = Path(__file__).resolve().parent.parent
 lang = sys.argv[1]
 frontend = '--frontend' in sys.argv
 deny = '--deny' in sys.argv
+state_control = '--state' in sys.argv
 root = Path(tempfile.mkdtemp(prefix='agui-parallel-'))
 marker = 'ACTUAL_' + uuid.uuid4().hex
 (root/'fixture.txt').write_text(marker)
@@ -17,7 +19,7 @@ class Handler(BaseHTTPRequestHandler):
   if 'count_tokens' in self.path: self.send_response(200);self.end_headers();self.wfile.write(b'{"input_tokens":10}');return
   requests.append(dict(phase=phase,body=body))
   if phase=='start':
-   blocks=[dict(type='tool_use',id='parallel'+str(i),name='mcp__ag_ui__chart' if frontend and i==1 else 'Read',input=dict(value=7) if frontend and i==1 else dict(file_path=str(root/'fixture.txt'))) for i in range(2)]
+   blocks=[dict(type='tool_use',id='parallel'+str(i),name='mcp__ag_ui__chart' if frontend and i==1 else 'Read',input=dict(value=7) if frontend and i==1 else dict(file_path=str(root/'fixture.txt'))) for i in range(2)] + ([dict(type='tool_use',id='state-update',name='mcp__ag_ui__ag_ui_update_state',input=dict(state_updates=dict(counter=2)))] if state_control else [])
   else:
    results=[b for m in body['messages'] if isinstance(m.get('content'),list) for b in m['content'] if b.get('type')=='tool_result']
    for i in range(2):
@@ -38,23 +40,29 @@ env=dict(PATH=os.environ['PATH'],HOME=str(root),CLAUDE_CONFIG_DIR=str(root/'conf
 outputs={}
 try:
  for phase in ['start','refresh','answer1','refresh_partial','answer2','repeat','second_restart']:
-  data=dict(threadId='parallel',runId=str(uuid.uuid4()),messages=[dict(id='prompt',role='user',content='Read two files concurrently.')],tools=[dict(name='chart',description='Render chart',parameters=dict(type='object',properties=dict(value=dict(type='number'))))] if frontend else [],context=[],state={},forwardedProps={} if phase=='start' else dict(resume=session))
+  data=dict(threadId='parallel',runId=str(uuid.uuid4()),messages=[dict(id='prompt',role='user',content='Read two files concurrently.')],tools=[dict(name='chart',description='Render chart',parameters=dict(type='object',properties=dict(value=dict(type='number'))))] if frontend else [],context=[],state=dict(counter=1 if phase=='start' else 2) if state_control else {},forwardedProps={} if phase=='start' else dict(resume=session))
   if phase=='answer1': data['resume']=[dict(interruptId='parallel0',status='resolved',payload=dict(behavior='allow'))]
   if phase in ['answer2','repeat']:
    if frontend: data['messages'].append(dict(id='frontend-result',role='tool',toolCallId='parallel1',content='FRONTEND_ACTUAL'))
    else: data['resume']=[dict(interruptId='parallel1',status='resolved',payload=dict(behavior='deny' if deny else 'allow'))]
+  if phase=='repeat' and '--history' in sys.argv:
+   data.pop('resume',None)
+   data['messages']=next(e['messages'] for e in reversed(outputs['answer2']) if e['type']=='MESSAGES_SNAPSHOT')
   c=root/'config.json';c.write_text(json.dumps(dict(root=str(root),session=session,phase=phase,env=env,decision='allow',input=data)))
   cmd=['node','--import',str(base/'typescript/node_modules/tsx/dist/loader.mjs'),str(base/'typescript/scripts/child-recovery-worker.mjs'),str(c)] if lang=='ts' else [sys.executable,str(base/'python/scripts/child_recovery_worker.py'),str(c)]
   process=subprocess.run(cmd,env={**env,'PYTHONPATH':str(base/'python')},capture_output=True,text=True,timeout=20)
   (root/(phase+'.log')).write_text(process.stdout+'\n'+process.stderr)
   lines=[line[7:] for line in process.stdout.splitlines() if line.startswith('EVENTS ')];assert lines,process.stderr
   events=json.loads(lines[-1]);outputs[phase]=events
-  assert process.returncode==0,events
+  shutil.copytree(root/'config/projects', root/'snapshots'/phase/'projects', dirs_exist_ok=True)
+  assert process.returncode==0,events[-1]
   if phase in ['start','refresh','answer1','refresh_partial']:
    ids=[i['id'] for i in events[-1]['outcome']['interrupts']]
    assert set(ids)==({'parallel0','parallel1'} if phase in ['start','refresh'] else {'parallel1'}),ids
    assert len(requests)==1,requests
   else: assert events[-1]['type']=='RUN_FINISHED'
+  if state_control and phase=='start':
+   assert any(e['type']=='STATE_SNAPSHOT' and e.get('snapshot',{}).get('counter')==2 for e in events), 'State update did not reach AG-UI'
  executions=(root/'executions.log').read_text().splitlines()
  assert len(executions)==(1 if frontend or deny else 2),executions
  assert len(requests)==4,len(requests)

@@ -360,7 +360,10 @@ class ClaudeAgentAdapter:
                 if isinstance(proxy, dict) and proxy.get('type') == 'sdk':
                     loopback = LoopbackMcpServer(proxy)
                     options.mcp_servers = {**options.mcp_servers, AG_UI_MCP_SERVER_NAME: await loopback.start()}
-                native = NativeChildRecovery(self._native_child_recovery)
+                async def execute_state(call):
+                    result = await create_state_management_tool().handler(call['input'])
+                    return dict(content='\n'.join(b['text'] for b in result['content']), is_error=bool(result.get('isError')))
+                native = NativeChildRecovery(self._native_child_recovery, {STATE_MANAGEMENT_TOOL_FULL_NAME: execute_state})
                 yield RunStartedEvent(type=EventType.RUN_STARTED, thread_id=thread_id, run_id=run_id)
                 try:
                     async with asyncio.timeout(self._query_timeout_seconds):

@@ -23,7 +23,7 @@ def test_reconstruct_and_answer(tmp_path):
 def test_ambiguous_children(tmp_path):
     path, history=fixture(tmp_path)
     path.with_name('agent-def456.jsonl').write_bytes(path.read_bytes())
-    with pytest.raises(ValueError,match='one child'):history.inspect()
+    with pytest.raises(ValueError,match='one child|identity mismatch'):history.inspect()
 def test_path_traversal(tmp_path):
     with pytest.raises(ValueError,match='session'):NativeHistory(tmp_path,'../escape',['Read'])
 def test_repair_only_after_child_completion(tmp_path):
@@ -99,3 +99,83 @@ def test_diagnostic_calls_and_results_are_preserved_not_interpreted(tmp_path):
     assert history.inspect() is None
     for file, diagnostic in snapshots.items():
         assert [r for r in map(json.loads, file.read_text().splitlines()) if r['type'] == 'api-request-blob'] == diagnostic
+
+def test_nested_repair_preserves_sidechain_identity(tmp_path):
+    path, history=fixture(tmp_path)
+    original=json.loads(path.read_text());original['isSidechain']=True
+    original['message']['content']=[dict(type='tool_use',id='inner',name='Agent',input={})]
+    path.write_text(json.dumps(original)+'\n')
+    path.with_suffix('.meta.json').write_text(json.dumps(dict(toolUseId='parent')))
+    leaf_path=path.with_name('agent-leaf.jsonl')
+    leaf_path.write_text(json.dumps({**original,'uuid':'leaf-row','agentId':'leaf','message':dict(role='assistant',content=[dict(type='tool_use',id='leaf-read',name='Read',input={})])})+'\n')
+    leaf_path.with_suffix('.meta.json').write_text(json.dumps(dict(toolUseId='inner',parentAgentId='abc123')))
+    checkpoints=history.children()
+    assert next(c for c in checkpoints if c['childId']=='abc123')['dependencies']==['inner']
+    leaf=next(c for c in checkpoints if c['childId']=='leaf')
+    history.answer(leaf,{'leaf-read':dict(content='ACTUAL')})
+    with leaf_path.open('a') as f:f.write(json.dumps(dict(type='assistant',uuid='leaf-final',agentId='leaf',message=dict(role='assistant',stop_reason='end_turn',content=[dict(type='text',text='LEAF DONE')])) )+'\n')
+    history.repair(leaf)
+    result=json.loads(path.read_text().splitlines()[-1])
+    assert result['agentId']=='abc123' and result['isSidechain'] is True
+    assert result['sourceToolAssistantUUID']==original['uuid']
+    assert result['message']['content'][0]['tool_use_id']=='inner'
+    assert [c['childId'] for c in history.children()]==['abc123']
+    assert len(history.children(True))==2
+
+def test_metadata_parent_must_match_canonical_owner(tmp_path):
+    path, history = fixture(tmp_path)
+    path.with_suffix('.meta.json').write_text(json.dumps(dict(toolUseId='parent',parentAgentId='other')))
+    with pytest.raises(ValueError, match='parent identity mismatch'):
+        history.children()
+
+@pytest.mark.asyncio
+async def test_automatic_state_validates_first_and_only_acknowledges_once(tmp_path):
+    from unittest.mock import AsyncMock
+    from claude_agent_sdk import ClaudeAgentOptions
+    from ag_ui.core import RunAgentInput
+    from ag_ui_claude_sdk.native_recovery import NativeChildRecovery, NativeChildRecoveryConfig
+    path, _ = fixture(tmp_path)
+    row=json.loads(path.read_text())
+    row['message']['content'].append(dict(type='tool_use', id='state', name='internal_state', input=dict(state_updates=dict(count=2))))
+    path.write_text(json.dumps(row)+'\n'); before=path.read_bytes()
+    automatic=AsyncMock(return_value=dict(content='Actual acknowledgement'))
+    execute=AsyncMock();release=AsyncMock()
+    config=NativeChildRecoveryConfig(str(tmp_path), ['Read'], execute, AsyncMock(return_value=release))
+    data=dict(thread_id='t',run_id='r',messages=[],tools=[],context=[],state={},forwarded_props={})
+    for key in ['unknown','state']:
+        recovery=NativeChildRecovery(config,dict(internal_state=automatic))
+        with pytest.raises(ValueError):
+            async for _ in recovery.run(RunAgentInput(**data,resume=[dict(interruptId=key,status='resolved',payload=dict(behavior='allow'))]),ClaudeAgentOptions(resume=SESSION),'continue'): pass
+        assert path.read_bytes()==before
+    automatic.assert_not_awaited();execute.assert_not_awaited()
+    for _ in range(2):
+        recovery=NativeChildRecovery(config,dict(internal_state=automatic))
+        async for _ in recovery.run(RunAgentInput(**data),ClaudeAgentOptions(resume=SESSION),'continue'): pass
+        assert [i['id'] for i in recovery.outcome['interrupts']]==['question']
+    automatic.assert_awaited_once();execute.assert_not_awaited()
+    assert release.await_count==4
+
+def test_retires_answered_defer_with_provenance(tmp_path):
+    path,history=fixture(tmp_path)
+    marker=dict(type='attachment',uuid='deferred',parentUuid='question-row',attachment=dict(type='hook_deferred_tool',toolUseID='question'))
+    with path.open('a') as f:
+        f.write(json.dumps(marker)+'\n'+json.dumps(dict(type='attachment',uuid='snapshot',parentUuid='deferred',attachment=dict(type='prompt_snapshot')))+'\n')
+    history.answer(history.inspect(),dict(question=dict(content='ACTUAL')))
+    rows=list(map(json.loads,path.read_text().splitlines()))
+    assert not any(r.get('attachment',{}).get('type')=='hook_deferred_tool' for r in rows)
+    assert next(r for r in rows if r.get('uuid')=='snapshot')['parentUuid']=='question-row'
+    assert rows[-1]['agUiResolvedDeferrals']==[marker]
+    assert rows[-1]['message']['content'][0]['content']=='ACTUAL'
+
+@pytest.mark.asyncio
+async def test_retransmission_cannot_change_error_status(tmp_path):
+    from unittest.mock import AsyncMock
+    from claude_agent_sdk import ClaudeAgentOptions
+    from ag_ui.core import RunAgentInput
+    from ag_ui_claude_sdk.native_recovery import NativeChildRecovery, NativeChildRecoveryConfig
+    _,history=fixture(tmp_path)
+    history.answer(history.inspect(),dict(question=dict(content='ACTUAL')))
+    recovery=NativeChildRecovery(NativeChildRecoveryConfig(str(tmp_path),['Read'],AsyncMock(),AsyncMock(return_value=AsyncMock())))
+    data=RunAgentInput(thread_id='t',run_id='r',messages=[dict(id='result',role='tool',toolCallId='question',content='ACTUAL',error='changed')],tools=[],context=[],state={},forwarded_props={})
+    with pytest.raises(ValueError,match='differs from canonical history'):
+        async for _ in recovery.run(data,ClaudeAgentOptions(resume=SESSION),'continue'):pass

@@ -251,18 +251,47 @@ export class ClaudeAgentAdapter extends AbstractAgent {
               : input.tools,
         },
         profileOptions,
-        (name, args) => recovery.resolveFrontendResult(name, args),
+        (name, args) => {
+          if (this.config.nativeChildRecovery)
+            throw new Error(
+              "Frontend tool must be suspended before execution in native recovery mode",
+            );
+          return recovery.resolveFrontendResult(name, args);
+        },
       );
       if (this.config.nativeChildRecovery) {
         const proxy = options.mcpServers?.[AG_UI_MCP_SERVER_NAME];
-        if (proxy && typeof proxy === "object" && proxy.type === "sdk") {
-          loopback = await startLoopbackMcp(proxy);
-          options.mcpServers = {
-            ...options.mcpServers,
-            [AG_UI_MCP_SERVER_NAME]: loopback.config,
-          };
-        }
-        const native = new NativeChildRecovery(this.config.nativeChildRecovery);
+        const native = new NativeChildRecovery(
+          this.config.nativeChildRecovery,
+          {
+            [STATE_MANAGEMENT_TOOL_FULL_NAME]: async (call) => {
+              const result = await createStateManagementTool().handler(
+                call.input,
+              );
+              return {
+                content: result.content
+                  .map((b: { text: string }) => b.text)
+                  .join("\n"),
+                is_error: !!result.isError,
+              };
+            },
+          },
+          proxy && typeof proxy === "object" && proxy.type === "sdk"
+            ? async (workerOptions) => {
+                const endpoint = await startLoopbackMcp(proxy);
+                return {
+                  options: {
+                    ...workerOptions,
+                    mcpServers: {
+                      ...workerOptions.mcpServers,
+                      [AG_UI_MCP_SERVER_NAME]: endpoint.config,
+                    },
+                  },
+                  close: () => endpoint.close(),
+                };
+              }
+            : undefined,
+        );
         options.resume = binding?.sessionId ?? options.resume;
         options.sessionId = options.resume
           ? undefined

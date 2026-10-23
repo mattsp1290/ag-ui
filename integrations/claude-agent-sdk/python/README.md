@@ -219,17 +219,29 @@ starting the SDK or making a model request. Answer with `resume` containing the
 original `interruptId`, `status: "resolved"`, and `payload: { behavior: "allow" }`
 (or `"deny"`). Cancellation is also treated as denial.
 
-This mode requires a local POSIX runtime, the bundled CLI **2.1.306**, and one
-unresolved foreground `Agent` call with exactly one direct child transcript.
-Ambiguous, nested, remote/SessionStore, forked, and rewound sessions fail closed.
-Frontend MCP tools are not supported by this opt-in mode; use the existing
-frontend recovery mode for them. Existing native single-call `defer` recovery
-and its safeguards remain the default.
+This mode requires a local POSIX runtime and bundled CLI **2.1.306**. It
+reconstructs parallel root and child calls, including nested and background
+children linked through native `.meta.json` files. Ambiguous identities,
+remote/SessionStore, forked, and rewound sessions fail closed. Default single-call
+`defer` recovery and its safeguards remain unchanged.
+
+Provide current frontend tool declarations in `input.tools`. Answer frontend
+calls with original-ID `role: "tool"` messages containing the actual result;
+native approvals use `resume`. Partial answers persist immediately, and the next
+interrupt contains only unanswered calls. Retransmissions do not execute a
+completed tool again; conflicting frontend results fail explicitly.
+
+The built-in `mcp__ag_ui__ag_ui_update_state` tool is automatic, not a user
+approval. If shutdown interrupted its acknowledgement, the adapter invokes its
+actual internal handler and saves that acknowledgement before continuing. It
+never asks the host executor or user to answer this internal call. Supply the
+complete initial `input.state`: an acknowledgement does not reconstruct missing
+initial state from partial updates.
 
 The trusted host configuration supplies:
 
 - `directory`: the original `CLAUDE_CONFIG_DIR/projects` directory.
-- `tools`: the explicit native child tool names requiring approval.
+- `tools`: the explicit native root or child tool names requiring approval.
 - `execute(call, key)`: execute the original name/input under the host's normal
   authorization rules, returning the **actual** string `content` and optional
   boolean `is_error`. An approval is not a tool result. The callback must be
@@ -242,8 +254,8 @@ The trusted host configuration supplies:
   when concurrent writers are possible. This is execution ownership, not event
   or approval storage.
 
-On approval, the adapter records the real result under the original child call
-ID. It resumes that same child with `SendMessage`, denies unrelated parent tools,
+On approval, the adapter records the real result under the original call ID.
+For an unfinished child, it resumes that same child with `SendMessage`, denies unrelated parent tools,
 and holds the parent's `PostToolUse` hook. Recovery-worker parent output is not
 forwarded to the UI. Once the child's final result is present in native storage,
 it terminates the isolated worker process group **before** releasing the hook,
@@ -258,8 +270,11 @@ completion alone cannot reconstruct that lost tool result.
 This is a version-sensitive native-history workaround, not a supported SDK
 checkpoint API. Normal SDK shutdown can release the held hook and allow a parent
 request before repair; the recovery worker therefore uses immediate process-group
-termination. Normal completed runs retain graceful shutdown. Root batch recovery
-and automatic recovery of ambiguous child identities remain unsupported.
+termination. Normal completed runs retain graceful shutdown. Children recover
+from leaves outward before parent continuation. Background completion is appended
+as an actual completion message; the original successful launch result remains
+unchanged. Diagnostic `api-request-blob` copies are preserved and never treated
+as canonical calls or results. Ambiguous child identities remain unsupported.
 
 Pass `native_child_recovery=NativeChildRecoveryConfig(directory, tools, execute,
 acquire, timeout_seconds=10)` to `ClaudeAgentAdapter`. The timeout must be below

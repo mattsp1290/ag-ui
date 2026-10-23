@@ -98,6 +98,10 @@ async function replace(path: string, before: Row[], after: Row[]) {
   await rename(temp, path);
 }
 export interface ChildCheckpoint {
+  rootPath?: string;
+  ownerAgentId?: string;
+  parentResolved?: boolean;
+  dependencies?: string[];
   parentPath: string;
   childPath: string;
   childId: string;
@@ -149,10 +153,17 @@ export class NativeHistory {
       pending: unresolved,
     };
   }
+  async assertRootReady() {
+    const root = await this.root();
+    if (pending(await read(root.childPath)).length)
+      throw new Error(
+        "Unresolved native root tool results; refusing model continuation",
+      );
+  }
   async result(
     checkpoint: ChildCheckpoint,
     id: string,
-  ): Promise<NativeResult | undefined> {
+  ): Promise<(NativeResult & { rawContent: unknown }) | undefined> {
     const results = (await read(checkpoint.childPath))
       .filter((r) => r.type === "user")
       .flatMap(blocks)
@@ -164,6 +175,7 @@ export class NativeHistory {
     const result = results[0];
     if (!result) return undefined;
     return {
+      rawContent: result.content,
       content:
         typeof result.content === "string"
           ? result.content
@@ -172,84 +184,121 @@ export class NativeHistory {
     };
   }
   async inspect(): Promise<ChildCheckpoint | undefined> {
-    const matches: string[] = [];
-    for (const entry of await readdir(this.directory, { withFileTypes: true }))
-      if (entry.isDirectory()) {
-        const path = join(
-          this.directory,
-          entry.name,
-          this.sessionId + ".jsonl",
-        );
-        try {
-          await lstat(path);
-          matches.push(path);
-        } catch (e) {
-          if ((e as NodeJS.ErrnoException).code !== "ENOENT") throw e;
-        }
-      }
-    if (matches.length !== 1)
-      throw new Error("Expected one original native session");
-    const parentPath = matches[0],
-      root = await read(parentPath),
-      unfinished = pending(root);
-    const parents = unfinished.filter((c) => c.name === "Agent");
-    if (!parents.length) return undefined;
-    if (parents.length !== 1)
-      throw new Error(
-        "Native recovery currently requires one unresolved parent Agent call",
+    return (await this.children())[0];
+  }
+  async children(includeCompleted = false): Promise<ChildCheckpoint[]> {
+    const root = await this.root();
+    const folder = join(dirname(root.childPath), this.sessionId, "subagents");
+    let files: string[];
+    try {
+      files = (await readdir(folder)).filter((n) =>
+        /^agent-[a-zA-Z0-9_-]+\.jsonl$/.test(n),
       );
-    const folder = join(dirname(parentPath), this.sessionId, "subagents");
-    const children = (await readdir(folder)).filter((n) =>
-      /^agent-[a-zA-Z0-9_-]+\.jsonl$/.test(n),
-    );
-    if (children.length !== 1)
-      throw new Error(
-        "Native recovery requires exactly one child; ambiguous or nested recovery is unsupported",
-      );
-    const childPath = join(folder, children[0]),
-      rows = await read(childPath),
-      childId = children[0].slice(6, -6);
-    if (
-      unfinished.some(
-        (c) =>
-          c.id !== parents[0].id &&
-          !this.tools.includes(c.name) &&
-          !(
-            c.name === "SendMessage" &&
-            c.input.to === childId &&
-            c.input.message ===
-              "Continue the original task using the recorded tool results. Do not repeat completed tools."
-          ),
+    } catch (error) {
+      if (
+        (error as NodeJS.ErrnoException).code === "ENOENT" &&
+        !root.calls.some((c) => c.name === "Agent")
       )
-    )
-      throw new Error("Unresolved parent tools outside child recovery");
-    if (rows.some((r) => r.agentId && r.agentId !== childId))
-      throw new Error("Native child identity mismatch");
-    const unresolved = pending(rows);
-    if (unresolved.some((c) => !this.tools.includes(c.name)))
-      throw new Error(
-        "Unanswered child tool has no configured recovery executor",
+        return [];
+      throw error;
+    }
+    const records = [
+      { path: root.childPath, id: "", rows: await read(root.childPath) },
+      ...(await Promise.all(
+        files.map(async (file) => ({
+          path: join(folder, file),
+          id: file.slice(6, -6),
+          rows: await read(join(folder, file)),
+        })),
+      )),
+    ];
+    const checkpoints: ChildCheckpoint[] = [];
+    for (const child of records.slice(1)) {
+      if (child.rows.some((r) => r.agentId && r.agentId !== child.id))
+        throw new Error("Native child identity mismatch");
+      let toolId: string | undefined;
+      let parentAgentId: string | undefined;
+      try {
+        const metaPath = child.path.replace(/\.jsonl$/, ".meta.json");
+        if ((await lstat(metaPath)).isSymbolicLink())
+          throw new Error("Native child metadata must not be a symlink");
+        const meta = JSON.parse(await readFile(metaPath, "utf8"));
+        toolId = meta.toolUseId;
+        parentAgentId = meta.parentAgentId;
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      }
+      const parents = records.flatMap((owner) =>
+        calls(owner.rows)
+          .filter(
+            (c) =>
+              c.name === "Agent" &&
+              (toolId ? c.id === toolId : owner.id === ""),
+          )
+          .map((call) => ({ owner, call })),
       );
-    const messages = rows.filter(
-      (r) => r.type === "assistant" || r.type === "user",
-    );
-    const last = messages.at(-1);
-    const final =
-      last?.type === "assistant" && last.message?.stop_reason === "end_turn"
-        ? blocks(last)
-            .filter((b) => b.type === "text")
-            .map((b) => b.text ?? "")
-            .join("\n")
-        : undefined;
-    return {
-      parentPath,
-      childPath,
-      childId,
-      parent: parents[0],
-      pending: unresolved,
-      calls: calls(rows),
-      ...(final !== undefined ? { final } : {}),
-    };
+      if (parents.length !== 1 || (!toolId && files.length !== 1))
+        throw new Error(
+          "Expected one child parent identity in native metadata",
+        );
+      const { owner, call } = parents[0];
+      if (owner.id === child.id) throw new Error("Cyclic child identity");
+      if (parentAgentId && parentAgentId !== owner.id)
+        throw new Error("Native child parent identity mismatch");
+      const unfinished = pending(child.rows);
+      const unanswered = unfinished.filter((c) => c.name !== "Agent");
+      if (unanswered.some((c) => !this.tools.includes(c.name)))
+        throw new Error(
+          "Unanswered child tool has no configured recovery executor",
+        );
+      const last = child.rows
+        .filter((r) => r.type === "assistant" || r.type === "user")
+        .at(-1);
+      const final =
+        !unfinished.length &&
+        last?.type === "assistant" &&
+        last.message?.stop_reason === "end_turn"
+          ? blocks(last)
+              .filter((b) => b.type === "text")
+              .map((b) => b.text ?? "")
+              .join("\n")
+          : undefined;
+      const parentResolved = !pending(owner.rows).some((c) => c.id === call.id);
+      // Completed foreground/background siblings remain completed. A background
+      // completion is recorded separately; never overwrite its real launch result.
+      const recorded = owner.rows.some(
+        (r) => r.agUiRecoveredChildId === child.id,
+      );
+      if (
+        !includeCompleted &&
+        parentResolved &&
+        final !== undefined &&
+        (call.input.run_in_background !== true || recorded)
+      )
+        continue;
+      checkpoints.push({
+        rootPath: root.childPath,
+        parentPath: owner.path,
+        ownerAgentId: owner.id || undefined,
+        childPath: child.path,
+        childId: child.id,
+        parent: call,
+        parentResolved,
+        pending: unanswered,
+        calls: calls(child.rows),
+        dependencies: unfinished
+          .filter((c) => c.name === "Agent")
+          .map((c) => c.id),
+        ...(final !== undefined ? { final } : {}),
+      });
+    }
+    for (const record of records)
+      for (const call of pending(record.rows).filter((c) => c.name === "Agent"))
+        if (!checkpoints.some((c) => c.parent.id === call.id))
+          throw new Error(
+            "Pending Agent has no recoverable native child identity",
+          );
+    return checkpoints;
   }
   async answer(
     checkpoint: ChildCheckpoint,
@@ -312,23 +361,49 @@ export class NativeHistory {
         },
       });
     }
+    // Retire resolved execution metadata, retaining provenance on the actual result.
+    for (const marker of [...rows]) {
+      const attachment = marker.attachment as
+        | { type?: string; toolUseID?: string }
+        | undefined;
+      if (
+        marker.type !== "attachment" ||
+        attachment?.type !== "hook_deferred_tool" ||
+        !attachment.toolUseID ||
+        !(attachment.toolUseID in results)
+      )
+        continue;
+      if (!marker.uuid) throw new Error("Missing deferred tool ancestry");
+      const target = rows.find(
+        (r) =>
+          r.type === "user" &&
+          blocks(r).some((b) => b.tool_use_id === attachment.toolUseID),
+      )!;
+      target.agUiResolvedDeferrals = [
+        ...((target.agUiResolvedDeferrals as Row[]) ?? []),
+        structuredClone(marker),
+      ];
+      for (const row of rows) {
+        if (row.parentUuid === marker.uuid) row.parentUuid = marker.parentUuid;
+        if (row.leafUuid === marker.uuid) row.leafUuid = marker.parentUuid;
+      }
+      rows.splice(rows.indexOf(marker), 1);
+    }
     await replace(checkpoint.childPath, before, rows);
   }
   async settleBridge(
     checkpoint: ChildCheckpoint,
     results: Record<string, NativeResult>,
   ) {
-    const unresolved = pending(await read(checkpoint.parentPath));
+    const bridgePath = checkpoint.rootPath ?? checkpoint.parentPath;
+    const unresolved = pending(await read(bridgePath));
     const missing = Object.fromEntries(
       Object.entries(results).filter(([id]) =>
         unresolved.some((c) => c.id === id),
       ),
     );
     if (Object.keys(missing).length)
-      await this.answer(
-        { ...checkpoint, childPath: checkpoint.parentPath },
-        missing,
-      );
+      await this.answer({ ...checkpoint, childPath: bridgePath }, missing);
   }
   async completed(checkpoint: ChildCheckpoint): Promise<boolean> {
     const rows = await read(checkpoint.childPath),
@@ -343,21 +418,56 @@ export class NativeHistory {
     );
   }
   async repair(checkpoint: ChildCheckpoint) {
-    const fresh = await this.inspect();
+    const fresh = (await this.children()).find(
+      (c) => c.childId === checkpoint.childId,
+    );
     if (
       fresh?.final === undefined ||
       fresh.pending.length ||
       fresh.childId !== checkpoint.childId
     )
       throw new Error("Child has not completed recovery");
+    if (
+      fresh.rootPath &&
+      pending(await read(fresh.rootPath)).some((c) => c.name === "SendMessage")
+    )
+      throw new Error(
+        "Unresolved recovery tool result; parent remains unresolved",
+      );
     const before = await read(fresh.parentPath),
       rows = structuredClone(before);
     // A crash may lose the in-memory SendMessage response even after the child
     // finishes. Never repair the Agent and resume with another unanswered call.
-    if (pending(before).some((call) => call.id !== fresh.parent.id))
+    if (
+      pending(before).some(
+        (call) => call.id !== fresh.parent.id && call.name !== "Agent",
+      )
+    )
       throw new Error(
         "Unresolved recovery tool result; parent remains unresolved",
       );
+    if (fresh.parentResolved) {
+      const last = rows.filter((r) => r.uuid).at(-1);
+      rows.push({
+        agentId: fresh.ownerAgentId,
+        isSidechain: !!fresh.ownerAgentId,
+        type: "user",
+        uuid: randomUUID(),
+        parentUuid: last?.uuid ?? null,
+        sessionId: this.sessionId,
+        version: "2.1.306",
+        timestamp: new Date().toISOString(),
+        cwd: last?.cwd,
+        userType: last?.userType,
+        agUiRecoveredChildId: fresh.childId,
+        message: {
+          role: "user",
+          content: `Recovered child ${fresh.childId} completed: ${fresh.final}`,
+        },
+      });
+      await replace(fresh.parentPath, before, rows);
+      return;
+    }
     let changed = false;
     for (const r of rows)
       for (const b of blocks(r))
@@ -377,9 +487,15 @@ export class NativeHistory {
         last = rows.filter((r) => r.uuid).at(-1);
       if (!source || !last) throw new Error("Parent call ancestry is missing");
       rows.push({
+        ...Object.fromEntries(
+          ["agentId", "isSidechain", "cwd", "userType", "entrypoint"]
+            .filter((k) => k in source)
+            .map((k) => [k, source[k]]),
+        ),
         type: "user",
         uuid: randomUUID(),
         parentUuid: last.uuid,
+        sourceToolAssistantUUID: source.uuid,
         sessionId: this.sessionId,
         version: source.version,
         timestamp: new Date().toISOString(),

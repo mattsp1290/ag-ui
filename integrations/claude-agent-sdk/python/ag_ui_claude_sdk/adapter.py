@@ -1301,12 +1301,17 @@ class ClaudeAgentAdapter:
                 self._per_run_result[(thread_id, run_id)] = run_result
 
                 if not has_streamed_text and result_text and not is_error:
-                    result_msg_id = str(uuid.uuid4())
+                    # ResultMessage repeats the final AssistantMessage when
+                    # partial streaming is disabled. Reuse that message only,
+                    # never deduplicate distinct turns by their text.
+                    last_assistant = next((m for m in reversed(run_messages) if getattr(m, 'role', None) == 'assistant'), None)
+                    matching_assistant = last_assistant if last_assistant is not None and last_assistant.content == result_text else None
+                    result_msg_id = matching_assistant.id if matching_assistant is not None else str(uuid.uuid4())
                     yield TextMessageStartEvent(type=EventType.TEXT_MESSAGE_START, thread_id=thread_id, run_id=run_id, message_id=result_msg_id, role="assistant")
                     yield TextMessageContentEvent(type=EventType.TEXT_MESSAGE_CONTENT, thread_id=thread_id, run_id=run_id, message_id=result_msg_id, delta=result_text)
                     yield TextMessageEndEvent(type=EventType.TEXT_MESSAGE_END, thread_id=thread_id, run_id=run_id, message_id=result_msg_id)
 
-                    upsert_message(AguiAssistantMessage(
+                    upsert_message(matching_assistant if matching_assistant is not None else AguiAssistantMessage(
                         id=result_msg_id,
                         role="assistant",
                         content=result_text,

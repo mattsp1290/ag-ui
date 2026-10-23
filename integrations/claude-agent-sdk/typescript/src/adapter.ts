@@ -1276,7 +1276,14 @@ export class ClaudeAgentAdapter extends AbstractAgent {
 
           const resultText = (resultMsg as { result?: string }).result;
           if (!hasStreamedText && resultText) {
-            const resultMsgId = randomUUID();
+            // With partial streaming disabled, ResultMessage repeats the last
+            // complete assistant message. Preserve its canonical identity.
+            const lastAssistant = runMessages
+              .filter((m) => m.role === "assistant")
+              .at(-1);
+            const matchingAssistant =
+              lastAssistant?.content === resultText ? lastAssistant : undefined;
+            const resultMsgId = matchingAssistant?.id ?? randomUUID();
             subscriber.next({
               type: EventType.TEXT_MESSAGE_START,
               threadId,
@@ -1298,11 +1305,13 @@ export class ClaudeAgentAdapter extends AbstractAgent {
               messageId: resultMsgId,
             });
 
-            upsertMessage({
-              id: resultMsgId,
-              role: "assistant" as const,
-              content: resultText,
-            });
+            upsertMessage(
+              matchingAssistant ?? {
+                id: resultMsgId,
+                role: "assistant" as const,
+                content: resultText,
+              },
+            );
           }
         }
       }

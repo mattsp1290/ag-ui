@@ -94,38 +94,75 @@ class NativeChildRecovery:
         self.outcome = {'type': 'interrupt', 'interrupts': [dict(id=c['id'], toolCallId=c['id'], reason='tool_approval',
                          metadata=dict(source='claude-sdk-native-child', sessionId=self.session_id, childId=checkpoint['childId'], parentToolUseId=checkpoint['parent']['id'],toolName=c['name'], input=c['input'])) for c in checkpoint['pending']]}
 
+    async def answer_checkpoint(self, input_data, checkpoint):
+        results = {}
+        for call in checkpoint['calls']:
+            decisions = [r for r in (input_data.resume or []) if r.interrupt_id == call['id']]
+            messages = [m for m in input_data.messages if m.role == 'tool' and m.tool_call_id == call['id']]
+            if len(decisions) > 1 or len(messages) > 1 or (decisions and messages):
+                raise ValueError('Duplicate or conflicting tool answers')
+            response = decisions[0] if decisions else None
+            message = messages[0] if messages else None
+            if response is None and message is None:
+                continue
+            submitted = None
+            if message is not None:
+                if call['name'] not in self.frontend_names:
+                    raise ValueError('Client tool results may only answer configured frontend tools')
+                marker = (message.metadata or {}).get('ag-ui:tool-result', {})
+                error = message.error or (marker.get('error') if isinstance(marker, dict) else None)
+                submitted = dict(content=message.content if isinstance(message.content, str) else json.dumps(message.content), is_error=bool(error))
+            if response is not None:
+                if call['name'] in self.frontend_names:
+                    raise ValueError('Frontend calls require their actual tool result')
+                if response.status != 'cancelled' and (response.payload or {}).get('behavior') not in ('allow', 'deny'):
+                    raise ValueError('Child answer requires behavior allow or deny')
+                if (response.payload or {}).get('updatedInput'):
+                    raise ValueError('Native recovery answers cannot change the original tool input')
+            saved = self.history().result(checkpoint, call['id'])
+            if saved is not None:
+                if submitted is not None and submitted != saved:
+                    raise ValueError('Retransmitted frontend result differs from canonical history')
+                continue
+            if not any(c['id'] == call['id'] for c in checkpoint['pending']):
+                raise ValueError('Tool is not awaiting an answer')
+            result = submitted
+            if result is None:
+                result = await self.config.execute(copy.deepcopy(call), f"{self.session_id}:{checkpoint['childId']}:{call['id']}") if response.status != 'cancelled' and response.payload.get('behavior') == 'allow' else dict(content='Tool execution denied by user', is_error=True)
+            if not isinstance(result.get('content'), str) or ('is_error' in result and not isinstance(result['is_error'], bool)):
+                raise ValueError('Recovery executor must return actual string content and optional is_error')
+            self.history().answer(checkpoint, {call['id']: result})
+            results[call['id']] = result
+        if results:
+            yield UserMessage(content=[ToolResultBlock(tool_use_id=key, content=r['content'], is_error=bool(r.get('is_error'))) for key,r in results.items()], parent_tool_use_id=checkpoint['parent']['id'] or None)
+
     async def run(self, input_data, options, prompt):
         if os.name != 'posix' or options.session_store or options.fork_session or options.resume_session_at or options.continue_conversation:
             raise ValueError('Native child recovery requires exclusive local POSIX sessions without custom store, fork or rewind')
+        self.frontend_names = {f'mcp__ag_ui__{t.name}' for t in input_data.tools}
+        self.config = copy.copy(self.config)
+        self.config.tools = list(set(self.config.tools) | self.frontend_names)
         self.session_id = options.resume or options.session_id
         if not self.session_id:
             raise ValueError('Native child recovery requires an explicit session_id for new sessions')
         release = await self.config.acquire(self.session_id)
         try:
+            root = self.history().root() if options.resume else None
             checkpoint = self.history().inspect() if options.resume else None
+            known = (root['calls'] if root else []) + (checkpoint['calls'] if checkpoint else [])
+            ids = [r.interrupt_id for r in (input_data.resume or [])]
+            if len(set(ids)) != len(ids) or any(key not in {c['id'] for c in known} for key in ids):
+                raise ValueError('Answer does not match the original tool call or is duplicated')
+            for saved in [root, checkpoint]:
+                if saved:
+                    async for message in self.answer_checkpoint(input_data, saved):
+                        yield message
+            root_pending = self.history().root() if root else None
+            if root_pending and root_pending['pending']:
+                child_pending = self.history().inspect()
+                self.interrupt({**root_pending, 'pending': root_pending['pending'] + (child_pending['pending'] if child_pending else [])})
+                return
             if checkpoint:
-                responses = input_data.resume or []
-                ids = [r.interrupt_id for r in responses]
-                if len(set(ids)) != len(ids) or any(key not in {c['id'] for c in checkpoint['calls']} for key in ids):
-                    raise ValueError('Answer does not match the original child call or is duplicated')
-                for response in responses:
-                    if response.status != 'cancelled' and (response.payload or {}).get('behavior') not in ('allow', 'deny'):
-                        raise ValueError('Child answer requires behavior allow or deny')
-                    if (response.payload or {}).get('updatedInput'):
-                        raise ValueError('Native recovery answers cannot change the original tool input')
-                results = {}
-                for response in responses:
-                    call = next((c for c in checkpoint['pending'] if c['id'] == response.interrupt_id), None)
-                    if not call:
-                        continue
-                    allow = response.status != 'cancelled' and response.payload['behavior'] == 'allow'
-                    result = await self.config.execute(copy.deepcopy(call), f"{self.session_id}:{checkpoint['childId']}:{call['id']}") if allow else dict(content='Tool execution denied by user', is_error=True)
-                    if not isinstance(result.get('content'), str) or ('is_error' in result and not isinstance(result['is_error'], bool)):
-                        raise ValueError('Recovery executor must return actual string content and optional is_error')
-                    results[call['id']] = result
-                if results:
-                    self.history().answer(checkpoint, results)
-                    yield UserMessage(content=[ToolResultBlock(tool_use_id=key, content=r['content'], is_error=bool(r.get('is_error'))) for key, r in results.items()], parent_tool_use_id=checkpoint['parent']['id'])
                 checkpoint = self.history().inspect()
                 if checkpoint['pending']:
                     self.interrupt(checkpoint)
@@ -147,12 +184,12 @@ class NativeChildRecovery:
                 self.history().repair(checkpoint)
                 yield UserMessage(content=[ToolResultBlock(tool_use_id=checkpoint['parent']['id'], content=completed['final'], is_error=False)])
                 prompt = 'Continue from the completed child result recorded in your history.'
-            elif input_data.resume:
-                raise ValueError('No unanswered native child call matches this answer')
             async for message in self.execute(options, prompt):
                 yield message
             if self.pausing:
-                checkpoint = self.history().inspect()
+                root_pending = self.history().root()
+                child_pending = self.history().inspect()
+                checkpoint = {**(child_pending or root_pending), 'pending': root_pending['pending'] + (child_pending['pending'] if child_pending else [])}
                 if not checkpoint or not checkpoint['pending']:
                     raise RuntimeError('Child approval was not durably recorded')
                 self.interrupt(checkpoint)
@@ -176,12 +213,12 @@ class NativeChildRecovery:
                     return {}
                 self.bridge_results[data['tool_use_id']] = dict(content='Parent tool was not executed: held during child recovery', is_error=True)
                 return {'hookSpecificOutput': {'hookEventName': 'PreToolUse', 'permissionDecision': 'deny', 'permissionDecisionReason': 'Parent is held during child recovery'}}
-            if data.get('agent_id') and data['tool_name'] in self.config.tools:
+            if data['tool_name'] in self.config.tools:
                 self.pausing = True
                 deadline = asyncio.get_running_loop().time() + 4
                 while True:
                     try:
-                        saved = self.history().inspect()
+                        saved = self.history().inspect() if data.get('agent_id') else self.history().root()
                         if saved and any(c['id'] == data['tool_use_id'] for c in saved['pending']):
                             break
                     except (ValueError, FileNotFoundError) as error:

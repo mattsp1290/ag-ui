@@ -254,10 +254,14 @@ export class ClaudeAgentAdapter extends AbstractAgent {
         (name, args) => recovery.resolveFrontendResult(name, args),
       );
       if (this.config.nativeChildRecovery) {
-        if (input.tools.length)
-          throw new Error(
-            "Native child recovery currently supports configured native tools, not frontend MCP tools",
-          );
+        const proxy = options.mcpServers?.[AG_UI_MCP_SERVER_NAME];
+        if (proxy && typeof proxy === "object" && proxy.type === "sdk") {
+          loopback = await startLoopbackMcp(proxy);
+          options.mcpServers = {
+            ...options.mcpServers,
+            [AG_UI_MCP_SERVER_NAME]: loopback.config,
+          };
+        }
         const native = new NativeChildRecovery(this.config.nativeChildRecovery);
         options.resume = binding?.sessionId ?? options.resume;
         options.sessionId = options.resume
@@ -269,6 +273,11 @@ export class ClaudeAgentAdapter extends AbstractAgent {
               native.abort("SDK query timed out; parent remains unresolved"),
             this.config.queryTimeoutMs,
           );
+        if (hasState(input.state))
+          subscriber.next({
+            type: EventType.STATE_SNAPSHOT,
+            snapshot: input.state,
+          });
         const sdkStream = native.run(
           input,
           options,
@@ -286,7 +295,7 @@ export class ClaudeAgentAdapter extends AbstractAgent {
           threadId,
           runId,
           input,
-          new Set(),
+          new Set(extractToolNames(input.tools)),
           subscriber,
           runCtx,
         );

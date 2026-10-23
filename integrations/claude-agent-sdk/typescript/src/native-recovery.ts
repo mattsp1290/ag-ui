@@ -42,6 +42,7 @@ export class NativeChildRecovery {
   private resumeIssued = false;
   private timer?: ReturnType<typeof setTimeout>;
   private failure?: Error;
+  private frontendNames = new Set<string>();
   private bridgeResults: Record<string, NativeResult> = {};
   constructor(private config: NativeChildRecoveryConfig) {
     if (!config.tools.length)
@@ -106,6 +107,110 @@ export class NativeChildRecovery {
       })),
     };
   }
+  private async *answerCheckpoint(
+    input: RunAgentInput,
+    checkpoint: ChildCheckpoint,
+  ): AsyncGenerator<SDKMessage> {
+    const results: Record<string, NativeResult> = {};
+    for (const call of checkpoint.calls) {
+      const decisions = (input.resume ?? []).filter(
+        (r) => r.interruptId === call.id,
+      );
+      const messages = input.messages.filter(
+        (m) => m.role === "tool" && m.toolCallId === call.id,
+      );
+      if (
+        decisions.length > 1 ||
+        messages.length > 1 ||
+        (decisions.length && messages.length)
+      )
+        throw new Error("Duplicate or conflicting tool answers");
+      const response = decisions[0];
+      const message = messages[0];
+      if (!response && !message) continue;
+      let submitted: NativeResult | undefined;
+      if (message?.role === "tool") {
+        if (!this.frontendNames.has(call.name))
+          throw new Error(
+            "Client tool results may only answer configured frontend tools",
+          );
+        const marker = message.metadata?.["ag-ui:tool-result"];
+        const error =
+          message.error ??
+          (marker && typeof marker === "object" && "error" in marker
+            ? marker.error
+            : undefined);
+        submitted = {
+          content:
+            typeof message.content === "string"
+              ? message.content
+              : JSON.stringify(message.content),
+          is_error: !!error,
+        };
+      }
+      if (response) {
+        if (this.frontendNames.has(call.name))
+          throw new Error("Frontend calls require their actual tool result");
+        if (
+          response.status !== "cancelled" &&
+          !["allow", "deny"].includes(response.payload?.behavior)
+        )
+          throw new Error("Child answer requires behavior allow or deny");
+        if (response.payload?.updatedInput)
+          throw new Error(
+            "Native recovery answers cannot change the original tool input",
+          );
+      }
+      const saved = await this.history().result(checkpoint, call.id);
+      if (saved) {
+        if (
+          submitted &&
+          (submitted.content !== saved.content ||
+            !!submitted.is_error !== !!saved.is_error)
+        )
+          throw new Error(
+            "Retransmitted frontend result differs from canonical history",
+          );
+        continue;
+      }
+      if (!checkpoint.pending.some((c) => c.id === call.id))
+        throw new Error("Tool is not awaiting an answer");
+      const result =
+        submitted ??
+        (response!.status !== "cancelled" &&
+        response!.payload?.behavior === "allow"
+          ? await this.config.execute(
+              structuredClone(call),
+              `${this.sessionId}:${checkpoint.childId}:${call.id}`,
+            )
+          : { content: "Tool execution denied by user", is_error: true });
+      if (
+        typeof result.content !== "string" ||
+        (result.is_error !== undefined && typeof result.is_error !== "boolean")
+      )
+        throw new Error(
+          "Recovery executor must return actual string content and optional is_error",
+        );
+      // Save each result before another handler can run or the process can yield.
+      await this.history().answer(checkpoint, { [call.id]: result });
+      results[call.id] = result;
+    }
+    if (Object.keys(results).length)
+      yield {
+        type: "user",
+        session_id: this.sessionId!,
+        parent_tool_use_id: checkpoint.parent.id || null,
+        message: {
+          role: "user",
+          content: Object.entries(results).map(([id, r]) => ({
+            type: "tool_result",
+            tool_use_id: id,
+            content: r.content,
+            is_error: !!r.is_error,
+          })),
+        },
+      };
+  }
   async *run(
     input: RunAgentInput,
     options: Options,
@@ -122,6 +227,13 @@ export class NativeChildRecovery {
       throw new Error(
         "Native child recovery requires exclusive local POSIX sessions without custom transport/store, fork or rewind",
       );
+    this.frontendNames = new Set(
+      input.tools.map((t) => `mcp__ag_ui__${t.name}`),
+    );
+    this.config = {
+      ...this.config,
+      tools: [...new Set([...this.config.tools, ...this.frontendNames])],
+    };
     this.sessionId = options.resume ?? options.sessionId;
     if (!this.sessionId)
       throw new Error(
@@ -134,75 +246,34 @@ export class NativeChildRecovery {
     if (signal?.aborted) onAbort();
     try {
       if (this.failure) throw this.failure;
+      const root = options.resume ? await this.history().root() : undefined;
       let checkpoint = options.resume
         ? await this.history().inspect()
         : undefined;
+      const known = [...(root?.calls ?? []), ...(checkpoint?.calls ?? [])];
+      if (
+        (input.resume ?? []).some(
+          (r) => !known.some((c) => c.id === r.interruptId),
+        )
+      )
+        throw new Error("Answer does not match the original tool call");
+      if (
+        new Set((input.resume ?? []).map((r) => r.interruptId)).size !==
+        (input.resume ?? []).length
+      )
+        throw new Error("Duplicate tool answers");
+      if (root) yield* this.answerCheckpoint(input, root);
+      if (checkpoint) yield* this.answerCheckpoint(input, checkpoint);
+      const rootPending = root ? await this.history().root() : undefined;
+      if (rootPending?.pending.length) {
+        const childPending = await this.history().inspect();
+        this.interrupt({
+          ...rootPending,
+          pending: [...rootPending.pending, ...(childPending?.pending ?? [])],
+        });
+        return;
+      }
       if (checkpoint) {
-        const responses = input.resume ?? [];
-        if (
-          responses.some(
-            (r) => !checkpoint!.calls.some((c) => c.id === r.interruptId),
-          )
-        )
-          throw new Error("Answer does not match the original child call");
-        if (
-          new Set(responses.map((r) => r.interruptId)).size !== responses.length
-        )
-          throw new Error("Duplicate child answers");
-        // Validate the complete request before executing any tool.
-        for (const response of responses) {
-          if (
-            response.status !== "cancelled" &&
-            !["allow", "deny"].includes(response.payload?.behavior)
-          )
-            throw new Error("Child answer requires behavior allow or deny");
-          if (response.payload?.updatedInput)
-            throw new Error(
-              "Native recovery answers cannot change the original tool input",
-            );
-        }
-        const results: Record<string, NativeResult> = {};
-        for (const response of responses) {
-          const call = checkpoint.pending.find(
-            (c) => c.id === response.interruptId,
-          );
-          if (!call) continue;
-          const allow =
-            response.status !== "cancelled" &&
-            response.payload?.behavior === "allow";
-          const result = allow
-            ? await this.config.execute(
-                structuredClone(call),
-                `${this.sessionId}:${checkpoint.childId}:${call.id}`,
-              )
-            : { content: "Tool execution denied by user", is_error: true };
-          if (
-            typeof result.content !== "string" ||
-            (result.is_error !== undefined &&
-              typeof result.is_error !== "boolean")
-          )
-            throw new Error(
-              "Recovery executor must return actual string content and optional is_error",
-            );
-          results[call.id] = result;
-        }
-        if (Object.keys(results).length) {
-          await this.history().answer(checkpoint, results);
-          yield {
-            type: "user",
-            session_id: this.sessionId,
-            parent_tool_use_id: checkpoint.parent.id,
-            message: {
-              role: "user",
-              content: Object.entries(results).map(([id, r]) => ({
-                type: "tool_result",
-                tool_use_id: id,
-                content: r.content,
-                is_error: !!r.is_error,
-              })),
-            },
-          };
-        }
         checkpoint = await this.history().inspect();
         if (checkpoint!.pending.length) {
           this.interrupt(checkpoint!);
@@ -254,11 +325,17 @@ export class NativeChildRecovery {
         };
         prompt =
           "Continue from the completed child result recorded in your history.";
-      } else if (input.resume?.length)
-        throw new Error("No unanswered native child call matches this answer");
+      }
       yield* this.execute(options, prompt);
       if (this.pausing) {
-        const pending = await this.history().inspect();
+        const rootPending = await this.history().root();
+        const childPending = await this.history().inspect();
+        const pending = childPending
+          ? {
+              ...childPending,
+              pending: [...rootPending.pending, ...childPending.pending],
+            }
+          : rootPending;
         if (!pending?.pending.length)
           throw new Error("Child approval was not durably recorded");
         this.interrupt(pending);
@@ -318,14 +395,16 @@ export class NativeChildRecovery {
           },
         };
       }
-      if (input.agent_id && this.config.tools.includes(input.tool_name)) {
+      if (this.config.tools.includes(input.tool_name)) {
         this.pausing = true;
         // The tool call is already in native history before permission execution.
         // Do not return a denial/defer: leave the original call unanswered.
         const deadline = Date.now() + 4000;
         while (true) {
           try {
-            const saved = await this.history().inspect();
+            const saved = input.agent_id
+              ? await this.history().inspect()
+              : await this.history().root();
             if (saved?.pending.some((c) => c.id === input.tool_use_id)) break;
           } catch (error) {
             if (Date.now() >= deadline) {

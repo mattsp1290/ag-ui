@@ -19,6 +19,13 @@ it.each([false, true])(
     const inspect = vi
       .spyOn(NativeHistory.prototype, "inspect")
       .mockResolvedValue(checkpoint);
+    const root = vi
+      .spyOn(NativeHistory.prototype, "root")
+      .mockResolvedValue({
+        ...checkpoint,
+        childId: "",
+        parent: { id: "", name: "", input: {} },
+      });
     let decision: unknown;
     queryMock.mockImplementation(({ options }: { options: Options }) => {
       const stream = (async function* () {
@@ -70,6 +77,7 @@ it.each([false, true])(
       });
     } finally {
       inspect.mockRestore();
+      root.mockRestore();
     }
   },
 );

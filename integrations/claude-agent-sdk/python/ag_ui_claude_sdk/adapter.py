@@ -347,8 +347,6 @@ class ClaudeAgentAdapter:
         try:
             if self._native_child_recovery is not None:
                 from .native_recovery import NativeChildRecovery
-                if input_data.tools:
-                    raise ValueError("Native child recovery currently supports configured native tools, not frontend MCP tools")
                 binding = await self._session_binding_store.load(thread_id) if self._session_binding_store else self._memory_bindings.get(thread_id)
                 requested = (input_data.forwarded_props or {}).get("resume")
                 if binding and requested and requested != binding.session_id:
@@ -358,11 +356,15 @@ class ClaudeAgentAdapter:
                 options = self.build_options(input_data, thread_id=thread_id, profile_options=profile_options)
                 options.resume = binding.session_id if binding else (requested or options.resume)
                 options.session_id = None if options.resume else (options.session_id or str(uuid.uuid4()))
+                proxy = options.mcp_servers.get(AG_UI_MCP_SERVER_NAME) if isinstance(options.mcp_servers, dict) else None
+                if isinstance(proxy, dict) and proxy.get('type') == 'sdk':
+                    loopback = LoopbackMcpServer(proxy)
+                    options.mcp_servers = {**options.mcp_servers, AG_UI_MCP_SERVER_NAME: await loopback.start()}
                 native = NativeChildRecovery(self._native_child_recovery)
                 yield RunStartedEvent(type=EventType.RUN_STARTED, thread_id=thread_id, run_id=run_id)
                 try:
                     async with asyncio.timeout(self._query_timeout_seconds):
-                        async for event in self._stream_claude_sdk(native.run(input_data, options, prompt), thread_id, run_id, input_data, set()):
+                        async for event in self._stream_claude_sdk(native.run(input_data, options, prompt), thread_id, run_id, input_data, {t.name for t in input_data.tools}):
                             yield event
                 finally:
                     native.stop()

@@ -32,36 +32,43 @@ type Row = {
   [key: string]: unknown;
 };
 const blocks = (r: Row): Block[] =>
-  Array.isArray(r.message?.content) ? r.message.content : [];
+  (r.type === "assistant" || r.type === "user") &&
+  Array.isArray(r.message?.content)
+    ? r.message.content
+    : [];
 const interrupted = (b: Block) =>
   b.type === "tool_result" &&
   b.is_error === true &&
   typeof b.content === "string" &&
   b.content.startsWith("[Tool call interrupted:");
 function calls(rows: Row[]): NativeCall[] {
-  return rows.flatMap((r) =>
-    blocks(r)
-      .filter((b) => b.type === "tool_use")
-      .map((b) => {
-        if (
-          typeof b.id !== "string" ||
-          typeof b.name !== "string" ||
-          !b.input ||
-          typeof b.input !== "object" ||
-          Array.isArray(b.input)
-        )
-          throw new Error("Invalid native tool call");
-        return { id: b.id, name: b.name, input: b.input };
-      }),
-  );
+  return rows
+    .filter((r) => r.type === "assistant")
+    .flatMap((r) =>
+      blocks(r)
+        .filter((b) => b.type === "tool_use")
+        .map((b) => {
+          if (
+            typeof b.id !== "string" ||
+            typeof b.name !== "string" ||
+            !b.input ||
+            typeof b.input !== "object" ||
+            Array.isArray(b.input)
+          )
+            throw new Error("Invalid native tool call");
+          return { id: b.id, name: b.name, input: b.input };
+        }),
+    );
 }
 function pending(rows: Row[]) {
   const done = new Set(
-    rows.flatMap((r) =>
-      blocks(r)
-        .filter((b) => b.type === "tool_result" && !interrupted(b))
-        .map((b) => b.tool_use_id),
-    ),
+    rows
+      .filter((r) => r.type === "user")
+      .flatMap((r) =>
+        blocks(r)
+          .filter((b) => b.type === "tool_result" && !interrupted(b))
+          .map((b) => b.tool_use_id),
+      ),
   );
   return calls(rows).filter((c) => !done.has(c.id));
 }
@@ -108,6 +115,62 @@ export class NativeHistory {
     if (!/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(sessionId))
       throw new Error("Invalid native session UUID");
   }
+  async root(): Promise<ChildCheckpoint> {
+    const matches: string[] = [];
+    for (const entry of await readdir(this.directory, {
+      withFileTypes: true,
+    })) {
+      if (!entry.isDirectory()) continue;
+      const path = join(this.directory, entry.name, this.sessionId + ".jsonl");
+      try {
+        await lstat(path);
+        matches.push(path);
+      } catch (e) {
+        if ((e as NodeJS.ErrnoException).code !== "ENOENT") throw e;
+      }
+    }
+    if (matches.length !== 1)
+      throw new Error("Expected one original native session");
+    const path = matches[0],
+      rows = await read(path);
+    const unresolved = pending(rows).filter(
+      (c) => c.name !== "Agent" && c.name !== "SendMessage",
+    );
+    if (unresolved.some((c) => !this.tools.includes(c.name)))
+      throw new Error(
+        "Unanswered root tool has no configured recovery executor",
+      );
+    return {
+      parentPath: path,
+      childPath: path,
+      childId: "",
+      parent: { id: "", name: "", input: {} },
+      calls: calls(rows),
+      pending: unresolved,
+    };
+  }
+  async result(
+    checkpoint: ChildCheckpoint,
+    id: string,
+  ): Promise<NativeResult | undefined> {
+    const results = (await read(checkpoint.childPath))
+      .filter((r) => r.type === "user")
+      .flatMap(blocks)
+      .filter(
+        (b) =>
+          b.type === "tool_result" && b.tool_use_id === id && !interrupted(b),
+      );
+    if (results.length > 1) throw new Error("Ambiguous canonical tool results");
+    const result = results[0];
+    if (!result) return undefined;
+    return {
+      content:
+        typeof result.content === "string"
+          ? result.content
+          : JSON.stringify(result.content),
+      is_error: !!result.is_error,
+    };
+  }
   async inspect(): Promise<ChildCheckpoint | undefined> {
     const matches: string[] = [];
     for (const entry of await readdir(this.directory, { withFileTypes: true }))
@@ -150,6 +213,7 @@ export class NativeHistory {
       unfinished.some(
         (c) =>
           c.id !== parents[0].id &&
+          !this.tools.includes(c.name) &&
           !(
             c.name === "SendMessage" &&
             c.input.to === childId &&

@@ -76,3 +76,26 @@ async def test_cold_recovery_rejects_lost_bridge_result(tmp_path, placeholder, m
     history.settle_bridge(checkpoint, {'bridge-call': {'content': 'ACTUAL SEND RESPONSE'}})
     history.repair(checkpoint)
     assert history.inspect() is None
+
+def test_diagnostic_calls_and_results_are_preserved_not_interpreted(tmp_path):
+    path, history = fixture(tmp_path)
+    checkpoint = history.inspect()
+    snapshots = {}
+    for file in [checkpoint['parentPath'], path]:
+        call = json.loads(file.read_text())['message']['content'][0]
+        diagnostic = [
+            dict(type='api-request-blob', message=dict(role='assistant', content=[dict(**call, caller=dict(type='direct'))])),
+            dict(type='api-request-blob', message=dict(role='user', content=[dict(type='tool_result', tool_use_id=call['id'], content='DIAGNOSTIC ONLY')])),
+            dict(type='api-request-blob', message=dict(role='user', content=[dict(type='tool_result', tool_use_id=call['id'], content='[Tool call interrupted: diagnostic]', is_error=True)])),
+        ]
+        snapshots[file] = diagnostic
+        with file.open('a') as f:
+            f.write(''.join(json.dumps(r)+'\n' for r in diagnostic))
+    assert [c['id'] for c in history.inspect()['pending']] == ['question']
+    history.answer(checkpoint, {'question': {'content': 'ACTUAL'}})
+    with path.open('a') as f:
+        f.write(json.dumps(dict(type='assistant', uuid='final', message=dict(role='assistant', stop_reason='end_turn', content=[dict(type='text', text='DONE')])) )+'\n')
+    history.repair(checkpoint)
+    assert history.inspect() is None
+    for file, diagnostic in snapshots.items():
+        assert [r for r in map(json.loads, file.read_text().splitlines()) if r['type'] == 'api-request-blob'] == diagnostic

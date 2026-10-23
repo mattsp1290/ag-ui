@@ -10,6 +10,7 @@ from ag_ui_claude_sdk.native_recovery import NativeChildRecovery, NativeChildRec
 async def test_bridge_denies_nested_agent(monkeypatch, background):
     checkpoint = dict(parentPath='unused', childPath='unused', childId='child', parent=dict(id='parent'), pending=[], calls=[], final=None)
     monkeypatch.setattr(NativeHistory, 'inspect', lambda self: checkpoint)
+    monkeypatch.setattr(NativeHistory, 'root', lambda self: {**checkpoint, 'childId': '', 'parent': {'id': ''}})
     decisions = []
     class Transport:
         finished_normally = False

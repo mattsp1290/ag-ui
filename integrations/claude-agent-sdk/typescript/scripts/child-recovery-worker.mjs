@@ -38,7 +38,7 @@ const adapter = new ClaudeAgentAdapter({
     },
   },
 });
-const input = {
+const input = c.input ?? {
   threadId: "standalone",
   runId: crypto.randomUUID(),
   messages: [

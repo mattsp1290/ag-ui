@@ -9,6 +9,8 @@ from datetime import datetime, timezone
 
 
 def blocks(row):
+    if row.get('type') not in ('assistant', 'user'):
+        return []
     content = row.get('message', {}).get('content', [])
     return content if isinstance(content, list) else []
 
@@ -22,6 +24,8 @@ def interrupted(block):
 def calls(rows):
     result = []
     for row in rows:
+        if row.get('type') != 'assistant':
+            continue
         for block in blocks(row):
             if block.get('type') != 'tool_use':
                 continue
@@ -32,7 +36,7 @@ def calls(rows):
 
 
 def pending(rows):
-    done = {b.get('tool_use_id') for r in rows for b in blocks(r)
+    done = {b.get('tool_use_id') for r in rows if r.get('type') == 'user' for b in blocks(r)
             if b.get('type') == 'tool_result' and not interrupted(b)}
     return [call for call in calls(rows) if call['id'] not in done]
 
@@ -64,6 +68,27 @@ class NativeHistory:
             raise ValueError('Invalid native session UUID')
         self.directory, self.session_id, self.tools = Path(directory), session_id, tools
 
+    def root(self):
+        matches = list(self.directory.glob('*/' + self.session_id + '.jsonl'))
+        if len(matches) != 1:
+            raise ValueError('Expected one original native session')
+        path = matches[0]
+        rows = read(path)
+        unresolved = [c for c in pending(rows) if c['name'] not in ('Agent', 'SendMessage')]
+        if any(c['name'] not in self.tools for c in unresolved):
+            raise ValueError('Unanswered root tool has no configured recovery executor')
+        return dict(parentPath=path, childPath=path, childId='', parent=dict(id='', name='', input={}), calls=calls(rows), pending=unresolved, final=None)
+
+    def result(self, checkpoint, key):
+        results = [b for r in read(checkpoint['childPath']) if r['type'] == 'user' for b in blocks(r) if b.get('type') == 'tool_result' and b.get('tool_use_id') == key and not interrupted(b)]
+        if len(results) > 1:
+            raise ValueError('Ambiguous canonical tool results')
+        if not results:
+            return None
+        result = results[0]
+        content = result.get('content')
+        return dict(content=content if isinstance(content, str) else json.dumps(content), is_error=bool(result.get('is_error')))
+
     def inspect(self):
         matches = list(self.directory.glob('*/' + self.session_id + '.jsonl'))
         if len(matches) != 1:
@@ -82,7 +107,7 @@ class NativeHistory:
         child_id = child_path.stem.removeprefix('agent-')
         if not re.fullmatch(r'[a-zA-Z0-9_-]+', child_id):
             raise ValueError('Invalid native child ID')
-        if any(c['id'] != parents[0]['id'] and not (c['name'] == 'SendMessage' and c['input'].get('to') == child_id and c['input'].get('message') == 'Continue the original task using the recorded tool results. Do not repeat completed tools.') for c in unfinished):
+        if any(c['id'] != parents[0]['id'] and c['name'] not in self.tools and not (c['name'] == 'SendMessage' and c['input'].get('to') == child_id and c['input'].get('message') == 'Continue the original task using the recorded tool results. Do not repeat completed tools.') for c in unfinished):
             raise ValueError('Unresolved parent tools outside child recovery')
         rows = read(child_path)
         if any(r.get('agentId') and r['agentId'] != child_id for r in rows):

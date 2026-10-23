@@ -263,3 +263,76 @@ it.each([false, true])(
     expect(await history.inspect()).toBeUndefined();
   },
 );
+
+it("preserves diagnostic call/result copies without interpreting or repairing them", async () => {
+  const { path, history } = await fixture();
+  const checkpoint = (await history.inspect())!;
+  const snapshots = new Map<string, string[]>();
+  for (const file of [checkpoint.parentPath, path]) {
+    const callRow = JSON.parse((await readFile(file, "utf8")).trim());
+    const call = callRow.message.content[0];
+    const diagnostic = [
+      {
+        type: "api-request-blob",
+        message: {
+          role: "assistant",
+          content: [{ ...call, caller: { type: "direct" } }],
+        },
+      },
+      {
+        type: "api-request-blob",
+        message: {
+          role: "user",
+          content: [
+            {
+              type: "tool_result",
+              tool_use_id: call.id,
+              content: "DIAGNOSTIC ONLY",
+            },
+          ],
+        },
+      },
+      {
+        type: "api-request-blob",
+        message: {
+          role: "user",
+          content: [
+            {
+              type: "tool_result",
+              tool_use_id: call.id,
+              content: "[Tool call interrupted: diagnostic]",
+              is_error: true,
+            },
+          ],
+        },
+      },
+    ].map((row) => JSON.stringify(row));
+    snapshots.set(file, diagnostic);
+    await writeFile(file, diagnostic.join("\n") + "\n", { flag: "a" });
+  }
+  expect((await history.inspect())?.pending.map((c) => c.id)).toEqual([
+    "question",
+  ]);
+  await history.answer(checkpoint, { question: { content: "ACTUAL" } });
+  await writeFile(
+    path,
+    JSON.stringify({
+      type: "assistant",
+      uuid: "final",
+      message: {
+        role: "assistant",
+        stop_reason: "end_turn",
+        content: [{ type: "text", text: "DONE" }],
+      },
+    }) + "\n",
+    { flag: "a" },
+  );
+  await history.repair(checkpoint);
+  expect(await history.inspect()).toBeUndefined();
+  for (const [file, diagnostic] of snapshots) {
+    const saved = (await readFile(file, "utf8")).trim().split("\n");
+    expect(
+      saved.filter((line) => JSON.parse(line).type === "api-request-blob"),
+    ).toEqual(diagnostic);
+  }
+});

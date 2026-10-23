@@ -158,6 +158,30 @@ describe("MESSAGES_SNAPSHOT keeps tool results next to their calls", () => {
     );
   });
 
+  it("moves a large batch of detached results without overflowing the call stack", () => {
+    const n = 150_000;
+    const callIds = Array.from({ length: n }, (_, i) => `c${i}`);
+    const results = callIds.map((id, i) => result(`t${i}`, id));
+    // Built directly: call("a1", ...callIds) would itself spread n arguments.
+    const issuer: Message = {
+      ...call("a1"),
+      toolCalls: callIds.map((id) => ({
+        id,
+        type: "function",
+        function: { name: "lookup", arguments: "{}" },
+      })),
+    } as Message;
+    const history = [issuer, text("x"), ...results];
+
+    const repaired = keepToolResultsWithCalls(history);
+
+    expect(repaired).toHaveLength(history.length);
+    expect(repaired[0].id).toBe("a1");
+    expect(repaired[1].id).toBe("t0");
+    expect(repaired[n].id).toBe(`t${n - 1}`);
+    expect(repaired[n + 1].id).toBe("x");
+  });
+
   it("leaves a result whose call is not in the history where it is", async () => {
     const snapshot = [
       text("u1", "user"),

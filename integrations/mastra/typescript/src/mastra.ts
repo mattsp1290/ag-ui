@@ -555,21 +555,20 @@ function extractLastAssistantText(uiMessages: unknown): string | undefined {
     }
     const content = (message as { content?: unknown }).content;
     if (typeof content === "string") {
-      return content.length > 0 ? content : undefined;
+      return content;
     }
     if (Array.isArray(content)) {
-      const text = content
-        .filter(
-          (part: any): part is { type: "text"; text: string } =>
-            part?.type === "text" && typeof part.text === "string",
-        )
-        .map((part) => part.text)
-        .join("");
-      return text.length > 0 ? text : undefined;
+      const parts = content.filter(
+        (part: any): part is { type: "text"; text: string } =>
+          part?.type === "text" && typeof part.text === "string",
+      );
+      // No text parts means no processed text was supplied. An explicit empty
+      // text part, however, must not restore content the processor removed.
+      return parts.length ? parts.map((part) => part.text).join("") : undefined;
     }
     // Some UIMessage shapes expose pre-joined text via a `text` field.
     const text = (message as { text?: unknown }).text;
-    if (typeof text === "string" && text.length > 0) return text;
+    if (typeof text === "string") return text;
     return undefined;
   }
   return undefined;
@@ -2217,7 +2216,7 @@ export class MastraAgent extends AbstractAgent {
     // continuation message, keyed by a deterministic id derived from that id
     // (so re-sent history still dedups; see selectNewMessages).
     //
-    // Keying off the tool call's own parent id (rather than a per-turn flag)
+    // Keying off the native base id (rather than a per-turn flag)
     // keeps the split correct whether Mastra re-announces the same id across the
     // step boundary (the real bug: text collapses onto the tool id) or omits
     // the id and relies on messageId rotation (each step already gets a fresh
@@ -2226,7 +2225,7 @@ export class MastraAgent extends AbstractAgent {
     // means no tool call has rendered under this id yet, so text keeps the base
     // id. Each further boundary bumps the index, giving that run of text its own
     // continuation message (#2380) — a turn can alternate more than once.
-    const continuationIndexByParentId = new Map<string, number>();
+    const continuationIndexByBaseId = new Map<string, number>();
     // Per base id: the highest continuation index already in history. A resumed
     // turn's first boundary starts past it so its text never appends onto a
     // continuation message an earlier run emitted.
@@ -2243,38 +2242,42 @@ export class MastraAgent extends AbstractAgent {
         Math.max(historyContinuationIndex.get(base) ?? 0, index),
       );
     }
-    // Whether text has streamed since the last tool call on the current base id.
+    // Base ids with text received since their last tool call, including text
+    // buffered for processing that has not yet been emitted.
     // Back-to-back tool calls (parallel calls) must not burn a segment index.
-    let textSinceLastToolCall = false;
+    const textSinceLastToolCall = new Set<string>();
     // The id the currently buffered segment was assigned when its first raw
     // delta arrived, held until that text is released. Only used under
     // `useProcessedFinalText`; undefined means nothing is being held.
     let bufferedSegmentMessageId: string | undefined;
+    // Ownership follows logical text order, even when its content is withheld
+    // for output processing. Never use a previous native message's segment.
+    let lastTextSegment: { baseId: string; segmentId: string } | undefined;
 
     // The id a segment starting now would carry.
     const segmentMessageIdFor = (currentId: string) => {
-      const segmentIndex = continuationIndexByParentId.get(currentId) ?? 0;
+      const segmentIndex = continuationIndexByBaseId.get(currentId) ?? 0;
       return segmentIndex === 0
         ? currentId
         : MastraAgent.continuationMessageId(currentId, segmentIndex);
     };
 
-    // Open a text-continuation boundary on the id a tool call renders under;
+    // Open a text-continuation boundary on the native base id;
     // trailing text on the same id is then split to a continuation message
     // (see onTextPart). Only advance past the first boundary once text has
-    // actually streamed into the current segment, so consecutive tool calls
+    // arrived in the current segment, so consecutive tool calls
     // share one boundary instead of skipping segment ids.
-    const openToolCallBoundary = (parentMessageId: string) => {
-      const openBoundaries = continuationIndexByParentId.get(parentMessageId);
+    const openToolCallBoundary = (baseId: string) => {
+      const openBoundaries = continuationIndexByBaseId.get(baseId);
       if (openBoundaries === undefined) {
-        continuationIndexByParentId.set(
-          parentMessageId,
-          (historyContinuationIndex.get(parentMessageId) ?? 0) + 1,
+        continuationIndexByBaseId.set(
+          baseId,
+          (historyContinuationIndex.get(baseId) ?? 0) + 1,
         );
-      } else if (textSinceLastToolCall) {
-        continuationIndexByParentId.set(parentMessageId, openBoundaries + 1);
+      } else if (textSinceLastToolCall.has(baseId)) {
+        continuationIndexByBaseId.set(baseId, openBoundaries + 1);
       }
-      textSinceLastToolCall = false;
+      textSinceLastToolCall.delete(baseId);
     };
 
     const closeReasoning = () => {
@@ -2409,8 +2412,14 @@ export class MastraAgent extends AbstractAgent {
         // A held segment already chose its id, back when its text arrived.
         const textMessageId =
           bufferedSegmentMessageId ?? segmentMessageIdFor(currentId);
+        if (bufferedSegmentMessageId === undefined) {
+          lastTextSegment = { baseId: currentId, segmentId: textMessageId };
+          textSinceLastToolCall.add(currentId);
+        }
+        // Buffered text claimed its position on arrival. Releasing it after a
+        // tool must not count it again as text following that tool.
         bufferedSegmentMessageId = undefined;
-        textSinceLastToolCall = true;
+        if (!text) return;
         subscriber.next({
           type: EventType.TEXT_MESSAGE_CHUNK,
           role: "assistant",
@@ -2419,21 +2428,20 @@ export class MastraAgent extends AbstractAgent {
         } as TextMessageChunkEvent);
       },
       onTextBuffered: () => {
-        /*
-         * Claim the id now, while the state still describes where this text sits.
-         *
-         * `textSinceLastToolCall` is deliberately not touched here. The release path sets it, and
-         * a tool call arriving between the buffered deltas and that release is the case the flag
-         * already handles correctly: the first boundary opens on it and a second consecutive tool
-         * call does not burn an index. Setting it here as well changed no observable behaviour and
-         * no test could distinguish it, so it is left out rather than shipped uncovered.
-         */
-        bufferedSegmentMessageId ??= segmentMessageIdFor(getMessageId());
+        if (bufferedSegmentMessageId !== undefined) return;
+        const baseId = getMessageId();
+        bufferedSegmentMessageId = segmentMessageIdFor(baseId);
+        lastTextSegment = { baseId, segmentId: bufferedSegmentMessageId };
+        textSinceLastToolCall.add(baseId);
       },
       onToolCallStart: (streamPart) => {
         closeReasoning();
-        const parentMessageId = getMessageId();
-        openToolCallBoundary(parentMessageId);
+        const baseId = getMessageId();
+        const parentMessageId =
+          lastTextSegment?.baseId === baseId
+            ? lastTextSegment.segmentId
+            : baseId;
+        openToolCallBoundary(baseId);
         subscriber.next({
           type: EventType.TOOL_CALL_START,
           parentMessageId,
@@ -2456,7 +2464,10 @@ export class MastraAgent extends AbstractAgent {
       },
       onToolCallInHistory: ({ parentMessageId }) => {
         closeReasoning();
-        openToolCallBoundary(parentMessageId);
+        const baseId =
+          MastraAgent.continuationBaseId(parentMessageId) ?? parentMessageId;
+        lastTextSegment = { baseId, segmentId: parentMessageId };
+        openToolCallBoundary(baseId);
       },
       onToolResultPart: (streamPart) => {
         subscriber.next({
@@ -3463,7 +3474,14 @@ export class MastraAgent extends AbstractAgent {
             const toolName = chunk.payload.toolName || "tool";
             const args = chunk.payload.args ?? {};
             if (historyMessageId) {
-              if (!messageIdAnnounced) adoptMessageId(historyMessageId);
+              if (!messageIdAnnounced) {
+                // The client owner may be a synthetic text segment. Native
+                // continuation accounting stays on Mastra's stored id.
+                adoptMessageId(
+                  MastraAgent.continuationBaseId(historyMessageId) ??
+                    historyMessageId,
+                );
+              }
               callbacks.onToolCallInHistory?.({
                 toolCallId,
                 parentMessageId: historyMessageId,

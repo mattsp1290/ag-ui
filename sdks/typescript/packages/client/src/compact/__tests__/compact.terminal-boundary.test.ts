@@ -1,4 +1,4 @@
-import { BaseEvent, EventType } from "@ag-ui/core";
+import { BaseEvent, EventType, type ToolCallStartEvent } from "@ag-ui/core";
 import { firstValueFrom, from } from "rxjs";
 import { toArray } from "rxjs/operators";
 import { compactEvents } from "../compact";
@@ -112,6 +112,103 @@ describe("compaction at run terminal boundaries", () => {
       });
     }
   }
+
+  it("flushes two unfinished tool calls in opening order before RUN_ERROR", async () => {
+    const events: BaseEvent[] = [
+      { type: EventType.RUN_STARTED, threadId: "t", runId: "r-parallel" },
+      { type: EventType.TOOL_CALL_START, toolCallId: "first", toolCallName: "search" },
+      { type: EventType.TOOL_CALL_START, toolCallId: "second", toolCallName: "edit" },
+      { type: EventType.TOOL_CALL_ARGS, toolCallId: "second", delta: '{"path":' },
+      { type: EventType.TOOL_CALL_ARGS, toolCallId: "first", delta: '{"q":' },
+      { type: EventType.RUN_ERROR, message: "aborted", code: "ABORTED" },
+    ];
+
+    await expect(verify(events)).resolves.toHaveLength(events.length);
+
+    const compacted = compactEvents(events);
+    expect(compacted.map((event) => event.type)).toEqual([
+      EventType.RUN_STARTED,
+      EventType.TOOL_CALL_START,
+      EventType.TOOL_CALL_ARGS,
+      EventType.TOOL_CALL_START,
+      EventType.TOOL_CALL_ARGS,
+      EventType.RUN_ERROR,
+    ]);
+    // Both streams have the same event types: check IDs, not just types.
+    expect(
+      compacted
+        .filter((event) => event.type === EventType.TOOL_CALL_START)
+        .map((event) => (event as ToolCallStartEvent).toolCallId),
+    ).toEqual(["first", "second"]);
+    await expect(verify(compacted)).resolves.toHaveLength(compacted.length);
+  });
+
+  it("drops a closed stream from the pending order without losing an open tool call", async () => {
+    const events: BaseEvent[] = [
+      { type: EventType.RUN_STARTED, threadId: "t", runId: "r-prune" },
+      { type: EventType.TEXT_MESSAGE_START, messageId: "m", role: "assistant" },
+      { type: EventType.TEXT_MESSAGE_CONTENT, messageId: "m", delta: "done" },
+      { type: EventType.TOOL_CALL_START, toolCallId: "still-open", toolCallName: "edit" },
+      { type: EventType.TOOL_CALL_ARGS, toolCallId: "still-open", delta: "{" },
+      { type: EventType.TEXT_MESSAGE_END, messageId: "m" },
+      { type: EventType.RUN_ERROR, message: "aborted", code: "ABORTED" },
+    ];
+
+    await expect(verify(events)).resolves.toHaveLength(events.length);
+
+    const compacted = compactEvents(events);
+    expect(compacted.map((event) => event.type)).toEqual([
+      EventType.RUN_STARTED,
+      EventType.TEXT_MESSAGE_START,
+      EventType.TEXT_MESSAGE_CONTENT,
+      EventType.TEXT_MESSAGE_END,
+      EventType.TOOL_CALL_START,
+      EventType.TOOL_CALL_ARGS,
+      EventType.RUN_ERROR,
+    ]);
+    await expect(verify(compacted)).resolves.toHaveLength(compacted.length);
+  });
+
+  it("keeps a fully closed run verifier-readable after normal stream reordering", async () => {
+    const events: BaseEvent[] = [
+      { type: EventType.RUN_STARTED, threadId: "t", runId: "r-finished" },
+      { type: EventType.TEXT_MESSAGE_START, messageId: "m", role: "assistant" },
+      { type: EventType.TEXT_MESSAGE_CONTENT, messageId: "m", delta: "done" },
+      { type: EventType.TOOL_CALL_START, toolCallId: "tool", toolCallName: "search" },
+      { type: EventType.TOOL_CALL_ARGS, toolCallId: "tool", delta: "{}" },
+      { type: EventType.TOOL_CALL_END, toolCallId: "tool" },
+      { type: EventType.TEXT_MESSAGE_END, messageId: "m" },
+      { type: EventType.RUN_FINISHED, threadId: "t", runId: "r-finished" },
+    ];
+
+    await expect(verify(events)).resolves.toHaveLength(events.length);
+
+    const compacted = compactEvents(events);
+    // The completed tool call flushes before the text group: that preexisting
+    // reordering is legal, unlike moving either stream past the run terminal.
+    expect(compacted.map((event) => event.type)).toEqual([
+      EventType.RUN_STARTED,
+      EventType.TOOL_CALL_START,
+      EventType.TOOL_CALL_ARGS,
+      EventType.TOOL_CALL_END,
+      EventType.TEXT_MESSAGE_START,
+      EventType.TEXT_MESSAGE_CONTENT,
+      EventType.TEXT_MESSAGE_END,
+      EventType.RUN_FINISHED,
+    ]);
+    await expect(verify(compacted)).resolves.toHaveLength(compacted.length);
+  });
+
+  it("rejects an unfinished stream at RUN_FINISHED before compaction", async () => {
+    const events: BaseEvent[] = [
+      { type: EventType.RUN_STARTED, threadId: "t", runId: "r-unfinished" },
+      { type: EventType.TEXT_MESSAGE_START, messageId: "m", role: "assistant" },
+      { type: EventType.TEXT_MESSAGE_CONTENT, messageId: "m", delta: "unfinished" },
+      { type: EventType.RUN_FINISHED, threadId: "t", runId: "r-unfinished" },
+    ];
+    // Only RUN_ERROR permits unfinished streams in verifier-valid input.
+    await expect(verify(events)).rejects.toThrow();
+  });
 
   it("keeps replayed later runs verifier-readable after an aborted stream", async () => {
     const aborted = compactEvents([

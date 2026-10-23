@@ -1,3 +1,4 @@
+import { registerClaudeSdkWeatherFixtures } from "./claude-sdk-weather-fixtures";
 import {
   LLMock,
   type ChatCompletionRequest,
@@ -149,6 +150,7 @@ export function registerLLMockFixtures(mockServer: LLMock): void {
   // own system prompts, before the generic loader.
   registerStrandsFixtures(mockServer);
   registerStrandsWeatherFixtures(mockServer);
+  registerClaudeSdkWeatherFixtures(mockServer);
 
   // Extract text from message content — handles both string and array-of-parts
   // (Strands SDK sends content as [{type: "text", text: "..."}])
@@ -453,7 +455,8 @@ export function registerLLMockFixtures(mockServer: LLMock): void {
         req.messages.some((m) => m.role === "tool"),
     },
     response: {
-      content: "I've kicked off the research on the Solana ecosystem in the background. You'll get the findings shortly.",
+      content:
+        "I've kicked off the research on the Solana ecosystem in the background. You'll get the findings shortly.",
     },
   });
 

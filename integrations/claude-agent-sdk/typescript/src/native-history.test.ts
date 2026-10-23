@@ -570,3 +570,120 @@ it("rejects a retransmission that changes the canonical result error status", as
     }
   }).rejects.toThrow("differs from canonical history");
 });
+
+it.each([
+  "valid",
+  "wrong-target",
+  "wrong-message",
+  "no-receipt",
+  "failed-receipt",
+  "no-prompt",
+])("supersedes only a verified recovery delivery: %s", async (variant) => {
+  const { path, history } = await fixture();
+  const cp = (await history.inspect())!;
+  await history.answer(cp, { question: { content: "ACTUAL" } });
+  await writeFile(
+    path,
+    JSON.stringify({
+      type: "assistant",
+      uuid: "final",
+      message: {
+        role: "assistant",
+        stop_reason: "end_turn",
+        content: [{ type: "text", text: "DONE" }],
+      },
+    }) + "\n",
+    { flag: "a" },
+  );
+  const message =
+    "Continue the original task using the recorded tool results. Do not repeat completed tools.";
+  const unknown = {
+    type: "tool_result",
+    tool_use_id: "old-bridge",
+    is_error: true,
+    content: "[Tool call interrupted: outcome unknown]",
+  };
+  const records: any[] = [];
+  for (const key of ["old-bridge", "new-bridge"]) {
+    const target =
+      variant === "wrong-target" && key === "new-bridge"
+        ? "different-child"
+        : cp.childId;
+    const text =
+      variant === "wrong-message" && key === "new-bridge"
+        ? "another message"
+        : message;
+    records.push(
+      {
+        type: "user",
+        uuid: key + "-prompt",
+        message: {
+          role: "user",
+          content:
+            variant === "no-prompt"
+              ? "not recovery"
+              : `Resume child ${target} with SendMessage, message exactly: ${text}`,
+        },
+      },
+      {
+        type: "assistant",
+        uuid: key,
+        message: {
+          role: "assistant",
+          content: [
+            {
+              type: "tool_use",
+              id: key,
+              name: "SendMessage",
+              input: { to: target, message: text },
+            },
+          ],
+        },
+      },
+    );
+    if (variant === "no-receipt" && key === "new-bridge") continue;
+    records.push({
+      type: "user",
+      uuid: key + "-result",
+      message: {
+        role: "user",
+        content: [
+          key === "old-bridge"
+            ? unknown
+            : {
+                type: "tool_result",
+                tool_use_id: key,
+                is_error: variant === "failed-receipt",
+                content: JSON.stringify({
+                  success: true,
+                  resumedAgentId: target,
+                }),
+              },
+        ],
+      },
+    });
+  }
+  await writeFile(
+    cp.parentPath,
+    records.map((r) => JSON.stringify(r) + "\n").join(""),
+    { flag: "a" },
+  );
+  const before = await readFile(cp.parentPath, "utf8");
+  if (variant !== "valid") {
+    await expect(history.repair(cp)).rejects.toThrow(/Unresolved recovery/);
+    expect(await readFile(cp.parentPath, "utf8")).toBe(before);
+    return;
+  }
+  await history.repair(cp);
+  await history.assertRootReady();
+  expect(await history.inspect()).toBeUndefined();
+  const saved = (await readFile(cp.parentPath, "utf8"))
+    .trim()
+    .split("\n")
+    .map((r) => JSON.parse(r))
+    .flatMap((r) =>
+      Array.isArray(r.message?.content) ? r.message.content : [],
+    )
+    .filter((b) => b.tool_use_id === "old-bridge");
+  expect(saved).toEqual([unknown]);
+});

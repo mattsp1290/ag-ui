@@ -309,3 +309,23 @@ python integrations/claude-agent-sdk/scripts/test_child_recovery.py ts deny
 python integrations/claude-agent-sdk/scripts/test_child_recovery.py ts allow --stall
 # Use the Python integration's .venv/bin/python and replace ts with py for Python.
 ```
+
+### Interrupted recovery delivery retries
+
+An interrupted internal recovery `SendMessage` retains its original unknown
+error result. If native history contains a later successful delivery receipt
+for the same child and exact recovery message, both issued under the adapter's
+exact recovery prompt, the earlier control is superseded for pending-call
+accounting. Its result is neither replaced nor relabeled as success. Parent
+repair still requires the child's actual completed native response. Missing or
+failed receipts, other targets/messages, arbitrary SendMessage calls and absent
+interrupted result blocks remain fail-closed.
+
+An isolated copy of the original failed nested Python session was continued
+through the real SDK against a local scripted provider, then continued in a
+second fresh process. Both reached parent completion; no native tools executed
+again, and the original unknown bridge result remained unchanged. The fixture
+comparator accepted only the exact SDK environment reminder with `/var` and
+`/private/var` paths resolving to the same recorded directory. The failed attempt
+and its ledger/history were retained. The coordinator's original browser session
+still requires retry after deploying this change.

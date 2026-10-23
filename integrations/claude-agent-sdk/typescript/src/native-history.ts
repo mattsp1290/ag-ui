@@ -70,7 +70,71 @@ function pending(rows: Row[]) {
           .map((b) => b.tool_use_id),
       ),
   );
+  for (const id of supersededRecoveryBridges(rows)) done.add(id);
   return calls(rows).filter((c) => !done.has(c.id));
+}
+function supersededRecoveryBridges(rows: Row[]): string[] {
+  // Preserve the original unknown result. Only the identical internal recovery
+  // control can be superseded by a later actual successful delivery receipt.
+  const message =
+    "Continue the original task using the recorded tool results. Do not repeat completed tools.";
+  const bridges: {
+    id: string;
+    target: string;
+    unknown: boolean;
+    delivered: boolean;
+  }[] = [];
+  let prompt: unknown;
+  for (const row of rows) {
+    if (row.type === "user") prompt = row.message?.content;
+    if (row.type !== "assistant" || row.agentId) continue;
+    for (const call of blocks(row)) {
+      const args = call.input;
+      if (
+        call.name !== "SendMessage" ||
+        !call.id ||
+        typeof args?.to !== "string" ||
+        args.message !== message ||
+        prompt !==
+          `Resume child ${args.to} with SendMessage, message exactly: ${message}`
+      )
+        continue;
+      const results = rows
+        .filter((r) => r.type === "user")
+        .flatMap(blocks)
+        .filter((b) => b.type === "tool_result" && b.tool_use_id === call.id);
+      if (results.length !== 1) continue;
+      const result = results[0];
+      let delivered = false;
+      if (!result.is_error) {
+        try {
+          const receipt =
+            typeof result.content === "string"
+              ? JSON.parse(result.content)
+              : result.content;
+          delivered =
+            receipt?.success === true && receipt?.resumedAgentId === args.to;
+        } catch {
+          /* A non-JSON result cannot establish delivery. */
+        }
+      }
+      bridges.push({
+        id: call.id,
+        target: args.to,
+        unknown: interrupted(result),
+        delivered,
+      });
+    }
+  }
+  return bridges
+    .filter(
+      (b, index) =>
+        b.unknown &&
+        bridges
+          .slice(index + 1)
+          .some((next) => next.target === b.target && next.delivered),
+    )
+    .map((b) => b.id);
 }
 async function read(path: string): Promise<Row[]> {
   if ((await lstat(path)).isSymbolicLink())

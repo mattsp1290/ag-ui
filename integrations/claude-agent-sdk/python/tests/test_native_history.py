@@ -179,3 +179,35 @@ async def test_retransmission_cannot_change_error_status(tmp_path):
     data=RunAgentInput(thread_id='t',run_id='r',messages=[dict(id='result',role='tool',toolCallId='question',content='ACTUAL',error='changed')],tools=[],context=[],state={},forwarded_props={})
     with pytest.raises(ValueError,match='differs from canonical history'):
         async for _ in recovery.run(data,ClaudeAgentOptions(resume=SESSION),'continue'):pass
+
+@pytest.mark.parametrize('variant', ['valid', 'wrong-target', 'wrong-message', 'no-receipt', 'failed-receipt', 'no-prompt'])
+def test_completed_child_supersedes_only_verified_recovery_delivery(tmp_path, variant):
+    path, history = fixture(tmp_path)
+    cp = history.inspect()
+    history.answer(cp, {'question': {'content': 'ACTUAL'}})
+    with path.open('a') as f:
+        f.write(json.dumps(dict(type='assistant', uuid='final', message=dict(role='assistant', stop_reason='end_turn', content=[dict(type='text', text='DONE')])))+'\n')
+    message = 'Continue the original task using the recorded tool results. Do not repeat completed tools.'
+    unknown = dict(type='tool_result', tool_use_id='old-bridge', is_error=True, content='[Tool call interrupted: outcome unknown]')
+    records = []
+    for key in ['old-bridge', 'new-bridge']:
+        target = 'different-child' if variant == 'wrong-target' and key == 'new-bridge' else cp['childId']
+        text = 'another message' if variant == 'wrong-message' and key == 'new-bridge' else message
+        records.extend([dict(type='user', uuid=key+'-prompt', message=dict(role='user', content='not recovery' if variant == 'no-prompt' else f'Resume child {target} with SendMessage, message exactly: {text}')), dict(type='assistant', uuid=key, message=dict(role='assistant', content=[dict(type='tool_use', id=key, name='SendMessage', input=dict(to=target, message=text))]))])
+        if key == 'old-bridge':
+            result = unknown
+        else:
+            if variant == 'no-receipt':continue
+            result = dict(type='tool_result', tool_use_id=key, is_error=variant == 'failed-receipt', content=json.dumps(dict(success=True,resumedAgentId=target)))
+        records.append(dict(type='user',uuid=key+'-result',message=dict(role='user',content=[result])))
+    with cp['parentPath'].open('a') as f:f.write(''.join(json.dumps(r)+'\n' for r in records))
+    before = cp['parentPath'].read_bytes()
+    if variant != 'valid':
+        with pytest.raises(ValueError, match='Unresolved recovery'):history.repair(cp)
+        assert cp['parentPath'].read_bytes() == before
+        return
+    history.repair(cp)
+    NativeHistory(tmp_path,SESSION,['Read']).assert_root_ready()
+    assert history.inspect() is None
+    saved = [b for r in map(json.loads,cp['parentPath'].read_text().splitlines()) for b in r.get('message',{}).get('content',[]) if isinstance(b,dict) and b.get('tool_use_id')=='old-bridge']
+    assert saved == [unknown]

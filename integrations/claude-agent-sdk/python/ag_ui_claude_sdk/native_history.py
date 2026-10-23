@@ -38,7 +38,36 @@ def calls(rows):
 def pending(rows):
     done = {b.get('tool_use_id') for r in rows if r.get('type') == 'user' for b in blocks(r)
             if b.get('type') == 'tool_result' and not interrupted(b)}
+    done.update(superseded_recovery_bridges(rows))
     return [call for call in calls(rows) if call['id'] not in done]
+
+
+def superseded_recovery_bridges(rows):
+    """Keep unknown bridge results intact; a later recorded delivery supersedes the retry control."""
+    message = 'Continue the original task using the recorded tool results. Do not repeat completed tools.'
+    bridges = []
+    prompt = None
+    for row in rows:
+        if row.get('type') == 'user':
+            prompt = row.get('message', {}).get('content')
+        if row.get('type') != 'assistant' or row.get('agentId'):
+            continue
+        for call in blocks(row):
+            args = call.get('input', {})
+            if call.get('name') == 'SendMessage' and args.get('message') == message and prompt == f"Resume child {args.get('to')} with SendMessage, message exactly: {message}":
+                results = [b for r in rows if r.get('type') == 'user' for b in blocks(r) if b.get('type') == 'tool_result' and b.get('tool_use_id') == call.get('id')]
+                if len(results) != 1:
+                    continue
+                result = results[0]
+                delivered = False
+                if not result.get('is_error'):
+                    try:
+                        receipt = json.loads(result['content']) if isinstance(result.get('content'), str) else result.get('content')
+                        delivered = isinstance(receipt, dict) and receipt.get('success') is True and receipt.get('resumedAgentId') == args.get('to')
+                    except (ValueError, TypeError):
+                        pass
+                bridges.append((call['id'], args.get('to'), interrupted(result), delivered))
+    return {key for index, (key, target, unknown, _) in enumerate(bridges) if unknown and any(other == target and delivered for _, other, _, delivered in bridges[index + 1:])}
 
 
 def read(path):

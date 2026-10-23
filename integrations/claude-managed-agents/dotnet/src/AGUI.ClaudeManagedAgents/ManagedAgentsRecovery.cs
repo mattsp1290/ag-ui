@@ -118,7 +118,8 @@ public sealed partial class ManagedAgentsAgent
         foreach (var pending in calls.Where(entry => StringOf(entry.Value, "type") == "agent.custom_tool_use" && StringOf(entry.Value, "name") == ManagedAgentsState.Name).ToList())
         {
             var stateTurn = new ManagedAgentsTurn(_client, record.SessionId, [], clientTools, _backendTools, null, _options.StreamDeltas, onError: _options.OnError)
-            { StateRecord = record, PersistState = () => PersistDeliveredAsync(key, record), Recovering = true, SuppressStateCall = knownToolCalls.Contains(pending.Key) };
+            { StateRecord = record, PersistState = () => PersistDeliveredAsync(key, record), Recovering = true, SuppressStateCall = knownToolCalls.Contains(pending.Key),
+                AttachResultContext = batch => ManagedAgentsContext.Attach(batch, input.Context, record) };
             await foreach (var evt in stateTurn.ResumeStateCallAsync(pending.Value, cancellationToken).ConfigureAwait(false)) yield return evt;
             if (!stateTurn.IsAcknowledged(pending.Key)) yield break;
             answered.Add(pending.Key); calls.Remove(pending.Key); knownToolCalls.Add(pending.Key); knownResults.Add(pending.Key);

@@ -44,6 +44,7 @@ internal sealed class ManagedAgentsTurn
     internal bool SuppressStateCall { get; set; }
     internal ManagedAgentsSessionRecord? StateRecord { get; set; }
     internal Func<Task>? PersistState { get; set; }
+    internal Func<List<JsonElement>, ContextDelivery?>? AttachResultContext { get; set; }
     internal void EmitState(JsonElement state) => Emit(new StateSnapshotEvent { Snapshot = state });
     internal ManagedAgentsEventStream? ConnectedStream { get; set; }
     internal HashSet<string> SeenEventIds { get; } = new(StringComparer.Ordinal);
@@ -630,13 +631,16 @@ internal sealed class ManagedAgentsTurn
     /// the tool already ran (or was answered) and the session is waiting on the result — but is
     /// bounded by its own timeout so a stalled connection cannot hold the thread's run gate open.
     /// </summary>
-    private async Task PostCustomToolResultAsync(string toolUseId, string text, bool isError)
+    private async Task<ContextDelivery?> PostCustomToolResultAsync(string toolUseId, string text, bool isError)
     {
+        var events = new List<JsonElement> { ManagedAgentsSessionEvents.CustomToolResult(toolUseId, text, isError) };
+        // A recovered state result can resume the model immediately. Carry required context
+        // on that supported companion, not on a later approval or follow-up request.
+        var context = AttachResultContext?.Invoke(events);
         using var sendTimeout = new CancellationTokenSource(ManagedAgentsLimits.BestEffortSendTimeout);
-        await _client
-            .SendEventsAsync(_sessionId, [ManagedAgentsSessionEvents.CustomToolResult(toolUseId, text, isError)], sendTimeout.Token)
-            .ConfigureAwait(false);
+        await _client.SendEventsAsync(_sessionId, events, sendTimeout.Token).ConfigureAwait(false);
         _ackedToolUses.Add(toolUseId);
+        return context;
     }
 
     /// <summary>
@@ -647,9 +651,10 @@ internal sealed class ManagedAgentsTurn
     /// </summary>
     private async Task AnswerCustomToolUseAsync(string toolUseId, string text, bool isError)
     {
+        ContextDelivery? context;
         try
         {
-            await PostCustomToolResultAsync(toolUseId, text, isError).ConfigureAwait(false);
+            context = await PostCustomToolResultAsync(toolUseId, text, isError).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
@@ -665,6 +670,13 @@ internal sealed class ManagedAgentsTurn
             return;
         }
 
+        // Persistence failures are not delivery failures: the native result already landed.
+        // Let the run error propagate without interrupting native sibling work.
+        if (context is not null && StateRecord is { } record)
+        {
+            context.Acknowledge(record, results: true);
+            if (PersistState is not null) await PersistState().ConfigureAwait(false);
+        }
         EmitToolResult(toolUseId, isError ? JsonSerializer.Serialize(new { error = true, content = text }) : text);
     }
 

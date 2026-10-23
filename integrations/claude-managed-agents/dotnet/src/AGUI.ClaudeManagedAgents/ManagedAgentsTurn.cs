@@ -502,10 +502,17 @@ internal sealed class ManagedAgentsTurn
         // registered on the managed agent.
         if (name == ManagedAgentsState.Name && StateRecord is { } record)
         {
-            if (record.SessionThreadId is not null) { _ackedToolUses.Add(toolUseId); return; }
-            if (native.TryGetProperty("session_thread_id", out var scope) && scope.ValueKind == JsonValueKind.String && record.PrimaryThreadId is null)
+            if (record.SessionThreadId is null && native.TryGetProperty("session_thread_id", out var scope) && scope.ValueKind == JsonValueKind.String && record.PrimaryThreadId is null)
                 record.PrimaryThreadId = await _client.GetPrimaryThreadIdAsync(_sessionId, cancellationToken).ConfigureAwait(false);
-            if (!ManagedAgentsState.Primary(native, record)) { _ackedToolUses.Add(toolUseId); return; }
+            if (record.SessionThreadId is not null || !ManagedAgentsState.Primary(native, record))
+            {
+                // The primary state handler does not own this child call. Keep its
+                // original identity actionable until an explicit native result arrives.
+                EmitToolCall(toolUseId, name, inputJson);
+                _clientParks.Add(toolUseId);
+                if (_onClientPark is not null) await _onClientPark(toolUseId).ConfigureAwait(false);
+                return;
+            }
             if (record.PreserveTools)
             {
                 var catalog = await _client.GetSessionToolsAsync(_sessionId, cancellationToken).ConfigureAwait(false);

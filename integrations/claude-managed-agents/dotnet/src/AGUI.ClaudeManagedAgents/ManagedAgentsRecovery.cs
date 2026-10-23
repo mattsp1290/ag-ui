@@ -58,13 +58,6 @@ public sealed partial class ManagedAgentsAgent
             if (id is not null && (type == "agent.custom_tool_use" ||
                 (type is "agent.tool_use" or "agent.mcp_tool_use" && StringOf(evt, "evaluated_permission") == "ask")))
             {
-                if (type == "agent.custom_tool_use" && StringOf(evt, "name") == ManagedAgentsState.Name &&
-                    (record.SessionThreadId is not null || !ManagedAgentsState.Primary(evt, record)))
-                {
-                    // Cross-posted child activity is not an action owned by the primary adapter.
-                    answered.Add(id);
-                    continue;
-                }
                 calls[id] = evt;
                 if (type != "agent.custom_tool_use") confirmations.Add(id);
             }
@@ -115,7 +108,7 @@ public sealed partial class ManagedAgentsAgent
         }
         // A cold reconnect may find a reserved call whose result never landed. Resume it
         // under its original native ID, with the same revision and catalog checks as a live call.
-        foreach (var pending in calls.Where(entry => StringOf(entry.Value, "type") == "agent.custom_tool_use" && StringOf(entry.Value, "name") == ManagedAgentsState.Name).ToList())
+        foreach (var pending in calls.Where(entry => StringOf(entry.Value, "type") == "agent.custom_tool_use" && StringOf(entry.Value, "name") == ManagedAgentsState.Name && record.SessionThreadId is null && ManagedAgentsState.Primary(entry.Value, record)).ToList())
         {
             var stateTurn = new ManagedAgentsTurn(_client, record.SessionId, [], clientTools, _backendTools, null, _options.StreamDeltas, onError: _options.OnError)
             { StateRecord = record, PersistState = () => PersistDeliveredAsync(key, record), Recovering = true, SuppressStateCall = knownToolCalls.Contains(pending.Key),

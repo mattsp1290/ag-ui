@@ -122,3 +122,22 @@ python integrations/claude-agent-sdk/scripts/test_imported_recovery.py ts
 Repeat with `py`. Run `uv run --frozen pytest tests -q` from the Python integration
 for its unit suite. The standalone single-child controls use
 `test_child_recovery.py ts allow`, `ts deny`, and `ts allow --stall` (and `py`).
+
+## Public-client recovery contract
+
+`test_dependency_recovery.py ts --mixed --frontend --public-client` (also `py`)
+uses a real HttpAgent over loopback HTTP, fresh adapter/SDK processes per request,
+and a synthetic local provider. It imports root history without inventing child
+assistant calls, submits the full public resume array plus the actual frontend
+result, then retries and continues after another restart. The harness verifies
+all original IDs, frontend interrupt classification, exact tool catalog/context
+forwarding, and one execution per native call. Partial public-client submissions
+must fail before reaching the host. Optional `--cpk-core /absolute/package/path`
+exercises installed CopilotKitCore.runAgent; `--cancel-frontend` checks cancellation.
+
+The standard-resume unit tests additionally simulate a downstream timeout after
+answers are persisted and emitted, then retry the old approvals with those saved
+results. Canonical results remain unchanged and the executor runs only once.
+These controls do not verify React rendering or recovery of the coordinator's
+specific timed-out nested session; that original-session browser retry remains
+consumer validation.

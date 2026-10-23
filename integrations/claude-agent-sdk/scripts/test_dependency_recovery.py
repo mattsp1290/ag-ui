@@ -11,6 +11,8 @@ frontend = '--frontend' in sys.argv
 mixed = '--mixed' in sys.argv
 deny = '--deny' in sys.argv
 followup = '--followup' in sys.argv
+public_client = '--public-client' in sys.argv
+cancel_frontend = '--cancel-frontend' in sys.argv
 root = Path(tempfile.mkdtemp(prefix='agui-parallel-'))
 marker = 'ACTUAL_' + uuid.uuid4().hex
 (root/'fixture.txt').write_text(marker)
@@ -43,13 +45,13 @@ class Handler(BaseHTTPRequestHandler):
    else:
     if not background:
      for key in (['parent0'] if nested else ['parent0','parent1']):
-      assert key in results and any(v in str(results[key]['content']) for v in [marker,'FRONTEND_ACTUAL','denied by user']),results
+      assert key in results and any(v in str(results[key]['content']) for v in [marker,'FRONTEND_ACTUAL','denied by user'] + (['cancelled'] if cancel_frontend else [])),results
     else:
      assert marker in json.dumps(body['messages']), 'Background completion absent'
     blocks=[dict(type='text',text='PARENT_VERIFIED')]
   else:
    key='inner0' if role=='middle' else label
-   assert key in results and (any(v in str(results[key]['content']) for v in [marker,'FRONTEND_ACTUAL','denied by user'])),results
+   assert key in results and (any(v in str(results[key]['content']) for v in [marker,'FRONTEND_ACTUAL','denied by user'] + (['cancelled'] if cancel_frontend else []))),results
    if followup and role=='leaf' and label=='leaf0' and 'followup' not in results:
     blocks=[tool('followup','mcp__ag_ui__chart' if frontend else 'Read',dict(value=8) if frontend else dict(file_path=str(root/'fixture.txt')))]
    else:
@@ -67,6 +69,13 @@ server=ThreadingHTTPServer(('127.0.0.1',0),Handler);threading.Thread(target=serv
 env=dict(PATH=os.environ['PATH'],HOME=str(root),CLAUDE_CONFIG_DIR=str(root/'config'),ANTHROPIC_API_KEY='synthetic-not-a-secret',ANTHROPIC_AUTH_TOKEN='',ANTHROPIC_BASE_URL=f'http://127.0.0.1:{server.server_port}',CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC='1',DISABLE_TELEMETRY='1')
 outputs={}
 try:
+ if public_client:
+  assert mixed and frontend and not nested and not background and not followup
+  from public_client_control import run_public_client
+  cpk_core=sys.argv[sys.argv.index('--cpk-core')+1] if '--cpk-core' in sys.argv else None
+  run_public_client(base,root,session,env,lang,lambda value:globals().__setitem__('phase',value),outputs,cpk_core,cancel_frontend)
+  print(json.dumps(dict(passed=True,language=lang,publicClient=True,cpk=bool(cpk_core),evidence=str(root/'evidence.json'))))
+  raise SystemExit(0)
  phases=(['start','refresh','answer1','repeat','second_restart'] if nested else ['start','refresh','answer_partial','refresh_partial','answer1','repeat','second_restart'])
  if followup: phases[phases.index('repeat'):phases.index('repeat')]=['refresh_followup','answer_followup']
  for phase in phases:

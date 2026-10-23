@@ -21,6 +21,17 @@ from .utils import build_agui_tool_message
 MESSAGE = 'Continue the original task using the recorded tool results. Do not repeat completed tools.'
 
 
+def same_json(left, right):
+    """JSON equality without Python's True == 1 coercion."""
+    if isinstance(left, bool) or isinstance(right, bool):
+        return type(left) is type(right) and left == right
+    if isinstance(left, dict) and isinstance(right, dict):
+        return left.keys() == right.keys() and all(same_json(left[k], right[k]) for k in left)
+    if isinstance(left, list) and isinstance(right, list):
+        return len(left) == len(right) and all(same_json(a, b) for a, b in zip(left, right))
+    return left == right
+
+
 @dataclass
 class NativeChildRecoveryConfig:
     directory: str
@@ -93,7 +104,7 @@ class NativeChildRecovery:
         return NativeHistory(self.config.directory, self.session_id, self.config.tools)
 
     def interrupt(self, checkpoint):
-        self.outcome = {'type': 'interrupt', 'interrupts': [dict(id=c['id'], toolCallId=c['id'], reason='tool_approval',
+        self.outcome = {'type': 'interrupt', 'interrupts': [dict(id=c['id'], toolCallId=c['id'], reason='tool_call' if c['name'] in self.frontend_names else 'tool_approval',
                          metadata=dict(source='claude-sdk-native-child', sessionId=self.session_id, childId=checkpoint['childId'], parentToolUseId=checkpoint['parent']['id'],toolName=c['name'], input=c['input'])) for c in checkpoint['pending']]}
 
     def interrupt_pending(self, checkpoints):
@@ -119,13 +130,16 @@ class NativeChildRecovery:
         for call in checkpoint['calls']:
             decisions = [r for r in (input_data.resume or []) if r.interrupt_id == call['id']]
             messages = [m for m in input_data.messages if m.role == 'tool' and m.tool_call_id == call['id']]
-            if len(decisions) > 1 or len(messages) > 1 or (decisions and messages):
+            if len(decisions) > 1 or len(messages) > 1:
                 raise ValueError('Duplicate or conflicting tool answers')
             response = decisions[0] if decisions else None
             message = messages[0] if messages else None
             if response is None and message is None:
                 continue
             saved = self.history().result(checkpoint, call['id'])
+            frontend = call['name'] in self.frontend_names
+            if response is not None and message is not None and not frontend and saved is None:
+                raise ValueError('Duplicate or conflicting tool answers')
             submitted = None
             if message is not None:
                 if saved is None and call['name'] not in self.frontend_names:
@@ -136,12 +150,23 @@ class NativeChildRecovery:
             if response is not None:
                 if call['name'] in self.automatic:
                     raise ValueError('Internal state acknowledgements do not accept approval answers')
-                if call['name'] in self.frontend_names:
-                    raise ValueError('Frontend calls require their actual tool result')
-                if response.status != 'cancelled' and (response.payload or {}).get('behavior') not in ('allow', 'deny'):
-                    raise ValueError('Child answer requires behavior allow or deny')
-                if (response.payload or {}).get('updatedInput'):
-                    raise ValueError('Native recovery answers cannot change the original tool input')
+                if frontend:
+                    if submitted is None:
+                        raise ValueError('Frontend resume requires its actual tool result')
+                    expected = {'status': 'cancelled'} if response.status == 'cancelled' else response.payload if response.payload is not None else {'status': 'resolved'}
+                    try:
+                        actual = json.loads(saved['content'] if saved is not None else submitted['content'])
+                    except (TypeError, ValueError) as error:
+                        raise ValueError('Frontend resume payload conflicts with its tool result') from error
+                    if not same_json(actual, expected):
+                        raise ValueError('Frontend resume payload conflicts with its tool result')
+                    if response.status == 'cancelled':
+                        submitted['is_error'] = True
+                else:
+                    if response.status != 'cancelled' and (not isinstance(response.payload, dict) or response.payload.get('behavior') not in ('allow', 'deny')):
+                        raise ValueError('Child answer requires behavior allow or deny')
+                    if isinstance(response.payload, dict) and response.payload.get('updatedInput'):
+                        raise ValueError('Native recovery answers cannot change the original tool input')
             if saved is not None:
                 if submitted is not None and (submitted['content'] != saved['content'] or submitted['is_error'] != saved['is_error']) and not (submitted['is_error'] == saved['is_error'] and message.content == build_agui_tool_message(call['id'], saved['rawContent'], saved['is_error']).content):
                     raise ValueError('Retransmitted frontend result differs from canonical history')
@@ -176,17 +201,10 @@ class NativeChildRecovery:
             ids = [r.interrupt_id for r in (input_data.resume or [])]
             if len(set(ids)) != len(ids) or any(key not in {c['id'] for c in known} for key in ids):
                 raise ValueError('Answer does not match the original tool call or is duplicated')
-            for response in input_data.resume or []:
-                if response.status != 'cancelled' and (response.payload or {}).get('behavior') not in ('allow', 'deny'):
-                    raise ValueError('Child answer requires behavior allow or deny')
-                if (response.payload or {}).get('updatedInput'):
-                    raise ValueError('Native recovery answers cannot change the original tool input')
-                if next(c for c in known if c['id'] == response.interrupt_id)['name'] in self.frontend_names:
-                    raise ValueError('Frontend calls require their actual tool result')
             for message in (m for m in input_data.messages if m.role == 'tool'):
                 if not any(c['id'] == message.tool_call_id for c in known):
                     raise ValueError('Frontend result does not match original native history')
-                if message.tool_call_id in ids or sum(m.role == 'tool' and m.tool_call_id == message.tool_call_id for m in input_data.messages) > 1:
+                if sum(m.role == 'tool' and m.tool_call_id == message.tool_call_id for m in input_data.messages) > 1:
                     raise ValueError('Duplicate or conflicting tool answers')
             for cp in checkpoints:
                 async for _ in self.answer_checkpoint(input_data, cp, True):

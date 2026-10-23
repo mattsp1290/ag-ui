@@ -1,4 +1,5 @@
 import { buildAguiToolMessage } from "./utils";
+import { isDeepStrictEqual } from "node:util";
 import { spawn, type ChildProcess } from "node:child_process";
 import {
   query,
@@ -103,7 +104,7 @@ export class NativeChildRecovery {
       interrupts: checkpoint.pending.map((c) => ({
         id: c.id,
         toolCallId: c.id,
-        reason: "tool_approval",
+        reason: this.frontendNames.has(c.name) ? "tool_call" : "tool_approval",
         metadata: {
           source: "claude-sdk-native-child",
           sessionId: this.sessionId,
@@ -165,16 +166,15 @@ export class NativeChildRecovery {
       const messages = input.messages.filter(
         (m) => m.role === "tool" && m.toolCallId === call.id,
       );
-      if (
-        decisions.length > 1 ||
-        messages.length > 1 ||
-        (decisions.length && messages.length)
-      )
+      if (decisions.length > 1 || messages.length > 1)
         throw new Error("Duplicate or conflicting tool answers");
       const response = decisions[0];
       const message = messages[0];
       if (!response && !message) continue;
       const saved = await this.history().result(checkpoint, call.id);
+      const frontend = this.frontendNames.has(call.name);
+      if (response && message && !frontend && !saved)
+        throw new Error("Duplicate or conflicting tool answers");
       let submitted: NativeResult | undefined;
       if (message?.role === "tool") {
         if (!saved && !this.frontendNames.has(call.name))
@@ -200,17 +200,37 @@ export class NativeChildRecovery {
           throw new Error(
             "Internal state acknowledgements do not accept approval answers",
           );
-        if (this.frontendNames.has(call.name))
-          throw new Error("Frontend calls require their actual tool result");
-        if (
-          response.status !== "cancelled" &&
-          !["allow", "deny"].includes(response.payload?.behavior)
-        )
-          throw new Error("Child answer requires behavior allow or deny");
-        if (response.payload?.updatedInput)
-          throw new Error(
-            "Native recovery answers cannot change the original tool input",
-          );
+        if (frontend) {
+          if (!submitted)
+            throw new Error("Frontend resume requires its actual tool result");
+          const expected =
+            response.status === "cancelled"
+              ? { status: "cancelled" }
+              : (response.payload ?? { status: "resolved" });
+          let actual: unknown;
+          try {
+            actual = JSON.parse(saved?.content ?? submitted.content);
+          } catch {
+            throw new Error(
+              "Frontend resume payload conflicts with its tool result",
+            );
+          }
+          if (!isDeepStrictEqual(actual, expected))
+            throw new Error(
+              "Frontend resume payload conflicts with its tool result",
+            );
+          if (response.status === "cancelled") submitted.is_error = true;
+        } else {
+          if (
+            response.status !== "cancelled" &&
+            !["allow", "deny"].includes(response.payload?.behavior)
+          )
+            throw new Error("Child answer requires behavior allow or deny");
+          if (response.payload?.updatedInput)
+            throw new Error(
+              "Native recovery answers cannot change the original tool input",
+            );
+        }
       }
       if (saved) {
         if (
@@ -333,24 +353,7 @@ export class NativeChildRecovery {
         (input.resume ?? []).length
       )
         throw new Error("Duplicate tool answers");
-      // Validate the entire submission before any external side effect.
-      for (const response of input.resume ?? []) {
-        if (
-          response.status !== "cancelled" &&
-          !["allow", "deny"].includes(response.payload?.behavior)
-        )
-          throw new Error("Child answer requires behavior allow or deny");
-        if (response.payload?.updatedInput)
-          throw new Error(
-            "Native recovery answers cannot change the original tool input",
-          );
-        if (
-          this.frontendNames.has(
-            known.find((c) => c.id === response.interruptId)!.name,
-          )
-        )
-          throw new Error("Frontend calls require their actual tool result");
-      }
+      // Per-checkpoint validation below covers the entire submission before effects.
       for (const message of input.messages.filter((m) => m.role === "tool")) {
         if (message.role !== "tool") continue;
         if (!known.some((c) => c.id === message.toolCallId))
@@ -358,9 +361,6 @@ export class NativeChildRecovery {
             "Frontend result does not match original native history",
           );
         if (
-          (input.resume ?? []).some(
-            (r) => r.interruptId === message.toolCallId,
-          ) ||
           input.messages.filter(
             (m) => m.role === "tool" && m.toolCallId === message.toolCallId,
           ).length > 1

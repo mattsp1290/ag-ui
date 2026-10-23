@@ -225,11 +225,24 @@ children linked through native `.meta.json` files. Ambiguous identities,
 remote/SessionStore, forked, and rewound sessions fail closed. Default single-call
 `defer` recovery and its safeguards remain unchanged.
 
-Provide current frontend tool declarations in `input.tools`. Answer frontend
-calls with original-ID `role: "tool"` messages containing the actual result;
-native approvals use `resume`. Partial answers persist immediately, and the next
-interrupt contains only unanswered calls. Retransmissions do not execute a
-completed tool again; conflicting frontend results fail explicitly.
+Provide current frontend tool declarations in `input.tools`. Frontend interrupts
+use `reason: "tool_call"`; native approvals use `reason: "tool_approval"`.
+Answer frontend calls with original-ID `role: "tool"` messages containing the
+actual result. The public interrupt hook also supplies a `resume` entry for that
+same ID: its payload must equal the JSON tool result (cancellation uses
+`{"status":"cancelled"}` and saves an error result). The message remains the
+source of the result; a frontend resume entry alone cannot supply it.
+
+Native approvals use `resume`. After a downstream error, retrying the approval
+alongside an already-streamed matching native result reuses the canonical saved
+result without executing again. A client-supplied result cannot answer a native
+call that has no saved result. Conflicting results fail before execution.
+
+The adapter supports partial submissions and persists each answer immediately.
+The public AG-UI client requires a resume entry for every pending interrupt,
+so collect all answers before submitting through that client. Imported child
+calls may exist only in child history: render their interrupt metadata and
+answer the original ID without fabricating a root assistant tool call.
 
 The built-in `mcp__ag_ui__ag_ui_update_state` tool is automatic, not a user
 approval. If shutdown interrupted its acknowledgement, the adapter invokes its

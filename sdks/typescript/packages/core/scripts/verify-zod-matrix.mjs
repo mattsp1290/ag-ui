@@ -6,7 +6,7 @@
 // pinned zod (an npm override forces the package's own dependency onto that
 // major) and runs the same smoke through require() and import.
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { mkdtempSync, writeFileSync, rmSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -147,6 +147,12 @@ try {
       }
       // The peer guarantee: every package resolves the consumer's zod, so an application
       // that pins a patched zod gets no older copy nested beneath @ag-ui/*.
+      const consumerZodPath = realpathSync(
+        execFileSync("node", ["-p", "require.resolve('zod/package.json')"], {
+          cwd: consumer,
+          encoding: "utf8",
+        }).trim(),
+      );
       for (const name of ["core", ...SIBLINGS]) {
         const resolved = execFileSync(
           "node",
@@ -158,6 +164,16 @@ try {
         ).trim();
         if (resolved !== installed) {
           throw new Error(`@ag-ui/${name} resolved zod ${resolved}, not the consumer's ${installed}`);
+        }
+        const resolvedPath = realpathSync(
+          execFileSync(
+            "node",
+            ["-p", `require.resolve("zod/package.json", { paths: [require.resolve("@ag-ui/${name}/package.json")] })`],
+            { cwd: consumer, encoding: "utf8" },
+          ).trim(),
+        );
+        if (resolvedPath !== consumerZodPath) {
+          throw new Error(`@ag-ui/${name} resolved a different zod installation: ${resolvedPath}, not ${consumerZodPath}`);
         }
       }
       console.log(`\n== zod@${installed} ==`);

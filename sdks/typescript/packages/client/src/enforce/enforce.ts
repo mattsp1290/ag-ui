@@ -82,9 +82,8 @@ export const enforceEvents = (debugLogger?: DebugLoggerInput, options?: Enforcem
           warnDeviation(
             `Dropping unrecognised event '${String(event.type)}': no middleware translated it and the protocol does not describe it.`,
           );
-          log?.event("ENFORCE", "Unrecognised event dropped:", event, {
-            type: event.type,
-          });
+          const summary = { type: event.type };
+          log?.event("ENFORCE", "Unrecognised event dropped:", summary, summary);
           return EMPTY;
         }
         const schema = EVENT_SCHEMA_BY_TYPE.get(event.type as string);

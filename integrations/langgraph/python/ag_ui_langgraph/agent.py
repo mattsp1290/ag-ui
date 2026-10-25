@@ -19,6 +19,7 @@ except ImportError:
 from langchain_core.runnables import RunnableConfig, ensure_config
 from langchain_core.runnables.config import merge_configs
 from langchain_core.messages import AIMessage, HumanMessage
+from langgraph.errors import GraphBubbleUp
 from langgraph.types import Command
 
 from .types import (
@@ -3769,11 +3770,13 @@ class LangGraphAgent:
             self.active_run["has_function_streaming"] = False
             # OnToolEnd never fires for this call. When ToolNode handles the
             # error it returns an error ToolMessage instead, which OnChainEnd
-            # below streams as the call's result. A GraphInterrupt also arrives
-            # here, but ToolNode re-raises it rather than returning a message,
-            # so nothing is streamed for it.
-            tool_call_id = (event.get("data") or {}).get("tool_call_id")
-            if isinstance(tool_call_id, str):
+            # below streams as the call's result. A GraphBubbleUp (an
+            # interrupt, or a Command for the parent graph) is control flow,
+            # not a failure: ToolNode re-raises it and the call has no result,
+            # so it is not recorded.
+            data = event.get("data") or {}
+            tool_call_id = data.get("tool_call_id")
+            if isinstance(tool_call_id, str) and not isinstance(data.get("error"), GraphBubbleUp):
                 self.active_run.setdefault("failed_tool_calls", {})[tool_call_id] = event
 
         elif event_type == LangGraphEventTypes.OnChainEnd:

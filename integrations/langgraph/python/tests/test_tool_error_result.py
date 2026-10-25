@@ -17,7 +17,7 @@ from langchain_core.tools import tool
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import START, MessagesState, StateGraph
 from langgraph.prebuilt import ToolNode, tools_condition
-from langgraph.types import Command
+from langgraph.types import Command, interrupt
 
 from ag_ui.core import EventType, RunAgentInput, UserMessage
 from ag_ui_langgraph import LangGraphAgent
@@ -36,6 +36,14 @@ def get_weather_by_zip(zip_code: int) -> str:
     return f"Sunny in {zip_code}"
 
 
+class _SameCallIdModel(_FakeToolCallingModel):
+    """Like _FakeToolCallingModel, but its tool call has the id ``call_1`` on every turn."""
+
+    def _plan(self, messages):
+        kind, _ = super()._plan(messages)
+        return kind, "call_1"
+
+
 async def _error_to_command(request, execute):
     """An awrap_tool_call error handler that returns the error as a Command."""
     try:
@@ -45,8 +53,9 @@ async def _error_to_command(request, execute):
             content=f"Error: {exc}", tool_call_id=request.tool_call["id"], status="error")]})
 
 
-def _make_agent(tool_node: ToolNode, streaming: bool = True) -> LangGraphAgent:
-    model = _FakeToolCallingModel(disable_streaming=not streaming)
+def _make_agent(tool_node: ToolNode, streaming: bool = True,
+                model_class=_FakeToolCallingModel) -> LangGraphAgent:
+    model = model_class(disable_streaming=not streaming)
 
     async def agent_node(state: MessagesState):
         return {"messages": [await model.ainvoke(state["messages"])]}
@@ -173,6 +182,42 @@ class TestFailedToolCallResult(unittest.IsolatedAsyncioTestCase):
         self.assertIn(EventType.TEXT_MESSAGE_START, [e.type for e in events])
         result = self._assert_failed_result_streamed(events)
         self.assertEqual(result.content, "Error: service unavailable")
+
+    async def test_interrupted_call_reusing_an_earlier_call_id_has_no_result(self):
+        # The second turn reuses call_1 and the tool interrupts. The root
+        # graph's output still holds the first turn's call_1 result, which is
+        # not this call's result.
+        for first_fails in (False, True):
+            with self.subTest(first_fails=first_fails):
+                calls = []
+
+                @tool("get_weather")
+                def weather_then_confirm(city: str) -> str:
+                    """Get weather. Later calls ask the user first."""
+                    calls.append(city)
+                    if len(calls) > 1:
+                        interrupt("Look up the weather again?")
+                    if first_fails:
+                        raise RuntimeError("service unavailable")
+                    return f"Sunny in {city}"
+
+                agent = _make_agent(ToolNode([weather_then_confirm], handle_tool_errors=True),
+                                    model_class=_SameCallIdModel)
+                events = await _run(agent)
+                results = [e for e in events if e.type == EventType.TOOL_CALL_RESULT]
+                self.assertEqual([r.tool_call_id for r in results], ["call_1"])
+                snapshot = [e for e in events if e.type == EventType.MESSAGES_SNAPSHOT][-1]
+
+                events2 = await _run(agent, run_id="run-2", messages=[
+                    *snapshot.messages,
+                    UserMessage(id="user-2", role="user", content="And again?"),
+                ])
+                self.assertEqual(len(calls), 2)
+                types2 = [e.type for e in events2]
+                self.assertNotIn(EventType.RUN_ERROR, types2)
+                self.assertTrue(any(e.type == EventType.CUSTOM and e.name == "on_interrupt"
+                                    for e in events2))
+                self.assertNotIn(EventType.TOOL_CALL_RESULT, types2)
 
 
 if __name__ == "__main__":

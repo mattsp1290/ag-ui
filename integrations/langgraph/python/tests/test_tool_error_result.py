@@ -12,10 +12,12 @@ model from test_tool_result_snapshot_id, the prebuilt ToolNode and MemorySaver.
 import unittest
 from typing import List
 
+from langchain_core.messages import ToolMessage
 from langchain_core.tools import tool
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import START, MessagesState, StateGraph
 from langgraph.prebuilt import ToolNode, tools_condition
+from langgraph.types import Command
 
 from ag_ui.core import EventType, RunAgentInput, UserMessage
 from ag_ui_langgraph import LangGraphAgent
@@ -32,6 +34,15 @@ def get_weather(city: str) -> str:
 def get_weather_by_zip(zip_code: int) -> str:
     """Get weather. The fake model passes ``city``, so the call fails validation."""
     return f"Sunny in {zip_code}"
+
+
+async def _error_to_command(request, execute):
+    """An awrap_tool_call error handler that returns the error as a Command."""
+    try:
+        return await execute(request)
+    except RuntimeError as exc:
+        return Command(update={"messages": [ToolMessage(
+            content=f"Error: {exc}", tool_call_id=request.tool_call["id"], status="error")]})
 
 
 def _make_agent(tool_node: ToolNode, streaming: bool = True) -> LangGraphAgent:
@@ -151,6 +162,17 @@ class TestFailedToolCallResult(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(attempts), 2)
         results = [e for e in events if e.type == EventType.TOOL_CALL_RESULT]
         self.assertEqual([r.content for r in results], ["Sunny in Paris"])
+
+    async def test_error_handler_returning_a_command(self):
+        # The wrapper catches the error, so no on_tool_end fires, and the
+        # ToolNode's output holds a Command rather than the message itself.
+        agent = _make_agent(ToolNode([get_weather], handle_tool_errors=False,
+                                     awrap_tool_call=_error_to_command))
+        events = await _run(agent)
+        # The result must come before the next assistant response.
+        self.assertIn(EventType.TEXT_MESSAGE_START, [e.type for e in events])
+        result = self._assert_failed_result_streamed(events)
+        self.assertEqual(result.content, "Error: service unavailable")
 
 
 if __name__ == "__main__":

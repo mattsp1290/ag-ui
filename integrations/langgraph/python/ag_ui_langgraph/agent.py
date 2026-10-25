@@ -170,12 +170,12 @@ def _command_update_tool_messages(messages: Any) -> List[ToolMessage]:
 
 
 def _node_output_tool_messages(output: Any) -> List[ToolMessage]:
-    """The ToolMessages in a node's on_chain_end output.
-
-    ToolNode returns ``{"messages": [...]}``, a bare list of messages for a list
-    input, or a list mixing those with Commands when a tool returned a Command.
-    Commands are skipped: their tool messages already streamed at OnToolEnd.
-    """
+    """Extract ToolMessages from node outputs, including Command updates."""
+    if isinstance(output, Command):
+        update = output.update
+        return _command_update_tool_messages(
+            update.get("messages") if isinstance(update, dict) else update
+        )
     if isinstance(output, ToolMessage):
         return [output]
     if isinstance(output, dict):

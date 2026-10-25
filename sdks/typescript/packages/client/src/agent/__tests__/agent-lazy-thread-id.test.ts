@@ -1,5 +1,6 @@
 import { vi } from "vitest";
 import { AbstractAgent } from "../agent";
+import { HttpAgent } from "../http";
 import { BaseEvent, RunAgentInput } from "@ag-ui/core";
 import { EMPTY, Observable } from "rxjs";
 
@@ -26,6 +27,12 @@ describe("AbstractAgent lazy threadId", () => {
 
   it("does not generate a UUID during construction", () => {
     new TestAgent();
+
+    expect(v4Spy).not.toHaveBeenCalled();
+  });
+
+  it("constructs an HttpAgent without generating a UUID", () => {
+    new HttpAgent({ url: "https://example.com/agent" });
 
     expect(v4Spy).not.toHaveBeenCalled();
   });

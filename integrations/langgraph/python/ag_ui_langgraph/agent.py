@@ -186,6 +186,19 @@ def _node_output_tool_messages(output: Any) -> List[ToolMessage]:
     return []
 
 
+def _tool_invocation_key(tool_event: Any, tool_call_id: Any) -> Optional[tuple]:
+    """Key a tool call by the run that executed the tool and its raw tool_call_id.
+
+    The tool's parent run is the node (e.g. ToolNode) whose on_chain_end
+    returns the call's result. A raw tool_call_id alone can repeat across
+    turns and across concurrent graphs.
+    """
+    parent_ids = (tool_event or {}).get("parent_ids") or []
+    if not parent_ids or not isinstance(tool_call_id, str):
+        return None
+    return (parent_ids[-1], tool_call_id)
+
+
 # Lane key for root/supervisor-level streaming state (events with no subagent).
 # Subagent lanes use the derived subagent id (e.g. "tools:<uuid>").
 _ROOT_LANE = "__root__"
@@ -1661,9 +1674,9 @@ class LangGraphAgent:
             # tool message by (streamed in TOOL_CALL_RESULT, or echoed back in
             # the input). See _present_streamed_tool_message_ids.
             "tool_message_ids_by_call": {},
-            # Raw tool_call_id -> its on_tool_error event, for calls whose tool
-            # raised and that have no TOOL_CALL_RESULT yet. See OnChainEnd in
-            # _handle_single_event.
+            # (parent run id, raw tool_call_id) -> its on_tool_error event, for
+            # calls whose tool raised and that have no TOOL_CALL_RESULT yet. See
+            # _tool_invocation_key and OnChainEnd in _handle_single_event.
             "failed_tool_calls": {},
             "model_made_tool_call": False,
             "state_reliable": True,
@@ -3775,21 +3788,23 @@ class LangGraphAgent:
             # not a failure: ToolNode re-raises it and the call has no result,
             # so it is not recorded.
             data = event.get("data") or {}
-            tool_call_id = data.get("tool_call_id")
-            if isinstance(tool_call_id, str) and not isinstance(data.get("error"), GraphBubbleUp):
-                self.active_run.setdefault("failed_tool_calls", {})[tool_call_id] = event
+            key = _tool_invocation_key(event, data.get("tool_call_id"))
+            if key is not None and not isinstance(data.get("error"), GraphBubbleUp):
+                self.active_run.setdefault("failed_tool_calls", {})[key] = event
 
         elif event_type == LangGraphEventTypes.OnChainEnd:
             # Stream a failed call's error ToolMessage like a successful
             # result, with the content ToolNode produced rather than the raw
-            # exception. Only calls that failed in this run match, so the root
-            # graph's final output, which repeats every tool message on the
-            # thread, streams nothing twice.
+            # exception. A failure matches only the output of the run that
+            # executed its tool, so the root graph's final output, which
+            # repeats every tool message on the thread, never matches, and
+            # concurrent graphs that reuse a raw tool_call_id stay apart.
             failed_tool_calls = self.active_run.get("failed_tool_calls")
             if failed_tool_calls:
                 output = (event.get("data") or {}).get("output")
                 for tool_msg in _node_output_tool_messages(output):
-                    error_event = failed_tool_calls.pop(tool_msg.tool_call_id, None)
+                    key = (event.get("run_id"), tool_msg.tool_call_id)
+                    error_event = failed_tool_calls.pop(key, None)
                     if error_event is not None:
                         for result_event in self._tool_result_events(tool_msg, error_event):
                             yield result_event
@@ -3840,7 +3855,8 @@ class LangGraphAgent:
         self.active_run["streamed_tool_call_ids"].discard(self._streamed_call_key(public_call_id))
         # The call has its result now. If an earlier attempt failed and a
         # retry succeeded, the node's output must not stream it again.
-        (self.active_run.get("failed_tool_calls") or {}).pop(tool_msg.tool_call_id, None)
+        (self.active_run.get("failed_tool_calls") or {}).pop(
+            _tool_invocation_key(event, tool_msg.tool_call_id), None)
 
         # The tool's objects are never written to (it may reuse them), so an
         # id-less message streams under its tool_call_id: add_messages stores

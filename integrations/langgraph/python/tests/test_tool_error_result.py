@@ -12,10 +12,10 @@ model from test_tool_result_snapshot_id, the prebuilt ToolNode and MemorySaver.
 import unittest
 from typing import List
 
-from langchain_core.messages import ToolMessage
+from langchain_core.messages import AIMessage, ToolMessage
 from langchain_core.tools import tool
 from langgraph.checkpoint.memory import MemorySaver
-from langgraph.graph import START, MessagesState, StateGraph
+from langgraph.graph import END, START, MessagesState, StateGraph
 from langgraph.prebuilt import ToolNode, tools_condition
 from langgraph.types import Command, interrupt
 
@@ -34,6 +34,12 @@ def get_weather(city: str) -> str:
 def get_weather_by_zip(zip_code: int) -> str:
     """Get weather. The fake model passes ``city``, so the call fails validation."""
     return f"Sunny in {zip_code}"
+
+
+@tool("get_weather")
+def get_weather_ok(city: str) -> str:
+    """Get weather."""
+    return f"Sunny in {city}"
 
 
 class _SameCallIdModel(_FakeToolCallingModel):
@@ -67,6 +73,30 @@ def _make_agent(tool_node: ToolNode, streaming: bool = True,
     graph.add_conditional_edges("agent", tools_condition)
     graph.add_edge("tools", "agent")
     return LangGraphAgent(name="tool-error-result",
+                          graph=graph.compile(checkpointer=MemorySaver()))
+
+
+def _make_parallel_agent(*tool_nodes: ToolNode) -> LangGraphAgent:
+    """Run one child graph per ToolNode concurrently, each calling ``call_1``."""
+    def child(tool_node: ToolNode):
+        def ask(state: MessagesState):
+            return {"messages": [AIMessage(content="", tool_calls=[{
+                "name": "get_weather", "args": {"city": "Paris"},
+                "id": "call_1", "type": "tool_call"}])]}
+
+        graph = StateGraph(MessagesState)
+        graph.add_node("ask", ask)
+        graph.add_node("tools", tool_node)
+        graph.add_edge(START, "ask")
+        graph.add_edge("ask", "tools")
+        graph.add_edge("tools", END)
+        return graph.compile()
+
+    graph = StateGraph(MessagesState)
+    for index, tool_node in enumerate(tool_nodes):
+        graph.add_node(f"child_{index}", child(tool_node))
+        graph.add_edge(START, f"child_{index}")
+    return LangGraphAgent(name="tool-error-result-parallel",
                           graph=graph.compile(checkpointer=MemorySaver()))
 
 
@@ -218,6 +248,28 @@ class TestFailedToolCallResult(unittest.IsolatedAsyncioTestCase):
                 self.assertTrue(any(e.type == EventType.CUSTOM and e.name == "on_interrupt"
                                     for e in events2))
                 self.assertNotIn(EventType.TOOL_CALL_RESULT, types2)
+
+    async def test_concurrent_failures_sharing_a_call_id_both_stream(self):
+        agent = _make_parallel_agent(ToolNode([get_weather], handle_tool_errors=True),
+                                     ToolNode([get_weather], handle_tool_errors=True))
+        events = await _run(agent)
+        self.assertNotIn(EventType.RUN_ERROR, [e.type for e in events])
+        results = [e for e in events if e.type == EventType.TOOL_CALL_RESULT]
+        self.assertEqual([r.tool_call_id for r in results], ["call_1", "call_1"])
+        for result in results:
+            self.assertIn("service unavailable", result.content)
+
+    async def test_failure_with_a_successful_sibling_sharing_the_call_id(self):
+        # The sibling's success settles its own call_1, not the failed one.
+        agent = _make_parallel_agent(ToolNode([get_weather], handle_tool_errors=True),
+                                     ToolNode([get_weather_ok]))
+        events = await _run(agent)
+        self.assertNotIn(EventType.RUN_ERROR, [e.type for e in events])
+        results = [e for e in events if e.type == EventType.TOOL_CALL_RESULT]
+        self.assertEqual([r.tool_call_id for r in results], ["call_1", "call_1"])
+        failed, succeeded = sorted(results, key=lambda r: r.content)
+        self.assertIn("service unavailable", failed.content)
+        self.assertEqual(succeeded.content, "Sunny in Paris")
 
 
 if __name__ == "__main__":

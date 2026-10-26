@@ -272,6 +272,7 @@ public sealed partial class ManagedAgentsAgent
 
         // Resolve the binding before selecting the preflight. First contact sends only
         // the newest user message, so validate that message before creating a session.
+        // An existing session converts only its undelivered messages, when it sends them.
         bool hasFirstContactUserContent = false;
         bool hasSendableContent = false;
         string? attachmentError = null;
@@ -281,10 +282,6 @@ public sealed partial class ManagedAgentsAgent
             {
                 hasFirstContactUserContent = HasFirstContactUserContent(messages);
                 hasSendableContent = hasFirstContactUserContent || messages.Any(static message => message is AGUIToolMessage);
-            }
-            else
-            {
-                hasSendableContent = HasSendableContent(messages);
             }
         }
         catch (Exception error) when (error is FormatException or System.Text.DecoderFallbackException)
@@ -782,22 +779,6 @@ public sealed partial class ManagedAgentsAgent
     private static string FormatSeconds(TimeSpan timeout)
     {
         return $"{timeout.TotalSeconds.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture)}s";
-    }
-
-    /// <summary>
-    /// Whether the run carries a user message with text or a tool result.
-    /// </summary>
-    private static bool HasSendableContent(IList<AGUIMessage> messages)
-    {
-        return messages.Any(static message => message is AGUIToolMessage) || HasUserText(messages);
-    }
-
-    /// <summary>
-    /// Whether the run carries a user message with text, the only thing that can start a thread.
-    /// </summary>
-    private static bool HasUserText(IList<AGUIMessage> messages)
-    {
-        return messages.Any(static message => message is AGUIUserMessage user && ManagedAgentsContent.Blocks(user.Content).Count > 0);
     }
 
     /// <summary>Validate the same newest user message that first contact will send.</summary>

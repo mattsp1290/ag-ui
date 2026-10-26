@@ -32,6 +32,7 @@ import { LegacyRuntimeProtocolEvent } from "@/legacy/types";
 import { lastValueFrom } from "rxjs";
 import { transformChunks } from "@/chunks";
 import { enforceEvents } from "@/enforce";
+import { resolveMaxEntries } from "@/enforce/limits";
 import {
   CompatibilityBoundary,
   compatibilityBoundaryOperator,
@@ -118,13 +119,20 @@ export abstract class AbstractAgent {
   public state: State;
   private _debug: ResolvedAgentDebugConfig;
   private _debugLogger: DebugLogger | undefined;
+  private _maxEnforcedEntries: number;
   public subscribers: AgentSubscriber[] = [];
   public isRunning: boolean = false;
   /** Interrupts emitted by the most recent run that have not yet been resolved.
    *  Populated when RUN_FINISHED arrives with outcome.type === "interrupt".
    *  Cleared when a subsequent run completes successfully. */
   public pendingInterrupts: Interrupt[] = [];
-  private middlewares: Middleware[] = [];
+  /**
+   * Registered with use(). Protected so a subclass whose clone() builds a fresh
+   * instance instead of copying through super.clone() can carry them over;
+   * otherwise they run on the original and never on its clones.
+   * See MastraAgent.clone().
+   */
+  protected middlewares: Middleware[] = [];
   // Emits to immediately detach from the active run (stop processing its stream)
   private activeRunDetach$?: Subject<void>;
   private activeRunCompletionPromise?: Promise<void>;
@@ -194,6 +202,15 @@ export abstract class AbstractAgent {
     this._debugLogger = createDebugLogger(this._debug);
   }
 
+  /** See AgentConfig.maxEnforcedEntries. */
+  get maxEnforcedEntries(): number {
+    return this._maxEnforcedEntries;
+  }
+
+  set maxEnforcedEntries(value: number) {
+    this._maxEnforcedEntries = resolveMaxEntries(value);
+  }
+
   get debugLogger(): DebugLogger | undefined {
     return this._debugLogger;
   }
@@ -230,6 +247,7 @@ export abstract class AbstractAgent {
     initialMessages,
     initialState,
     debug,
+    maxEnforcedEntries,
   }: AgentConfig = {}) {
     this.agentId = agentId;
     this.description = description ?? "";
@@ -238,6 +256,7 @@ export abstract class AbstractAgent {
     this.state = structuredClone_(initialState ?? {});
     this._debug = resolveAgentDebugConfig(debug);
     this._debugLogger = createDebugLogger(this._debug);
+    this._maxEnforcedEntries = resolveMaxEntries(maxEnforcedEntries);
 
     // Resolved ONCE, and checked before it is compared. A subclass ceiling is
     // read through a getter, and this constructor runs before the subclass's
@@ -365,7 +384,7 @@ export abstract class AbstractAgent {
         // when it sent it as a chunk. Verification stays after expansion,
         // because what it checks (messages opening and closing, pairing) only
         // exists once the chunk has become a start and a content event.
-        enforceEvents(this.debugLogger),
+        enforceEvents(this.debugLogger, { maxEntries: this.maxEnforcedEntries }),
         transformChunks(this.debugLogger),
         verifyEvents(this.debugLogger),
         // Stop processing immediately when this run is detached
@@ -448,7 +467,9 @@ export abstract class AbstractAgent {
         // boundary applies as a plain operator here (composed with enforcement:
         // rxjs pipe() runs out of typed arities beyond nine stages).
         (source$: Observable<BaseEvent>) =>
-          enforceEvents(this.debugLogger)(compatibilityBoundaryOperator()(source$)),
+          enforceEvents(this.debugLogger, { maxEntries: this.maxEnforcedEntries })(
+            compatibilityBoundaryOperator()(source$),
+          ),
         transformChunks(this.debugLogger),
         verifyEvents(this.debugLogger),
         // Stop processing immediately when this run is detached
@@ -805,6 +826,7 @@ export abstract class AbstractAgent {
     cloned.state = structuredClone_(this.state);
     cloned._debug = this._debug;
     cloned._debugLogger = this._debugLogger;
+    cloned._maxEnforcedEntries = this._maxEnforcedEntries;
     cloned.isRunning = this.isRunning;
     cloned.subscribers = [...this.subscribers];
     cloned.middlewares = [...this.middlewares];
@@ -958,7 +980,7 @@ export abstract class AbstractAgent {
     })();
 
     return runObservable.pipe(
-      enforceEvents(this.debugLogger),
+      enforceEvents(this.debugLogger, { maxEntries: this.maxEnforcedEntries }),
       transformChunks(this.debugLogger),
       verifyEvents(this.debugLogger),
       convertToLegacyEvents(this.threadId, input.runId, this.agentId),

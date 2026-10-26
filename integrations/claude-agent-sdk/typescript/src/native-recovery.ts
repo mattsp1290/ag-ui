@@ -170,8 +170,16 @@ export class NativeChildRecovery {
         throw new Error("Duplicate or conflicting tool answers");
       const response = decisions[0];
       const message = messages[0];
-      if (!response && !message) continue;
       const saved = await this.history().result(checkpoint, call.id);
+      // A previous checkpoint may have persisted a result before a sibling
+      // failed, without ever delivering it to AG-UI. Native history is the
+      // source for replay; the client need not resubmit that tool's approval.
+      if (
+        !response &&
+        !message &&
+        !(saved && this.config.tools.includes(call.name))
+      )
+        continue;
       const frontend = this.frontendNames.has(call.name);
       if (response && message && !frontend && !saved)
         throw new Error("Duplicate or conflicting tool answers");
@@ -253,6 +261,23 @@ export class NativeChildRecovery {
           throw new Error(
             "Retransmitted frontend result differs from canonical history",
           );
+        if (!validateOnly && !message && this.config.tools.includes(call.name))
+          yield {
+            type: "user",
+            session_id: this.sessionId!,
+            parent_tool_use_id: checkpoint.parent.id || null,
+            message: {
+              role: "user",
+              content: [
+                {
+                  type: "tool_result",
+                  tool_use_id: call.id,
+                  content: saved.rawContent,
+                  is_error: !!saved.is_error,
+                },
+              ],
+            },
+          } as SDKMessage;
         continue;
       }
       if (!checkpoint.pending.some((c) => c.id === call.id))

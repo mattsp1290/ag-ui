@@ -134,9 +134,11 @@ class NativeChildRecovery:
                 raise ValueError('Duplicate or conflicting tool answers')
             response = decisions[0] if decisions else None
             message = messages[0] if messages else None
-            if response is None and message is None:
-                continue
             saved = self.history().result(checkpoint, call['id'])
+            # A sibling may have failed after this result was saved but before
+            # AG-UI received it. Replay from native history, without execution.
+            if response is None and message is None and not (saved is not None and call['name'] in self.config.tools):
+                continue
             frontend = call['name'] in self.frontend_names
             if response is not None and message is not None and not frontend and saved is None:
                 raise ValueError('Duplicate or conflicting tool answers')
@@ -170,6 +172,8 @@ class NativeChildRecovery:
             if saved is not None:
                 if submitted is not None and (submitted['content'] != saved['content'] or submitted['is_error'] != saved['is_error']) and not (submitted['is_error'] == saved['is_error'] and message.content == build_agui_tool_message(call['id'], saved['rawContent'], saved['is_error']).content):
                     raise ValueError('Retransmitted frontend result differs from canonical history')
+                if not validate_only and message is None and call['name'] in self.config.tools:
+                    yield UserMessage(content=[ToolResultBlock(tool_use_id=call['id'], content=saved['rawContent'], is_error=saved['is_error'])], parent_tool_use_id=checkpoint['parent']['id'] or None)
                 continue
             if not any(c['id'] == call['id'] for c in checkpoint['pending']):
                 raise ValueError('Tool is not awaiting an answer')

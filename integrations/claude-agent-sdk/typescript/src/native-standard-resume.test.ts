@@ -2,8 +2,9 @@ import { afterEach, expect, it, vi } from "vitest";
 import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { lastValueFrom, toArray } from "rxjs";
 import { AbstractAgent, buildResumeArray } from "@ag-ui/client";
-import type { RunAgentInput } from "@ag-ui/core";
+import type { ToolCallResultEvent, RunAgentInput } from "@ag-ui/core";
 import { ClaudeAgentAdapter } from "./adapter";
 const { queryMock } = vi.hoisted(() => ({ queryMock: vi.fn() }));
 vi.mock("@anthropic-ai/claude-agent-sdk", async (importOriginal) => ({
@@ -102,7 +103,7 @@ async function fixture() {
       { close: () => {} },
     ),
   );
-  return { client, options, path, execute, requests: () => requests };
+  return { client, options, path, execute, create, requests: () => requests };
 }
 it.each([false, true])(
   "accepts public-client full resume and one actual frontend result (cancelled=%s)",
@@ -258,3 +259,71 @@ it("retries stale client interrupts after downstream failure without executing s
   expect(execute).toHaveBeenCalledTimes(1);
   expect(await readFile(path, "utf8")).toBe(before);
 });
+
+it.each([false, true])(
+  "replays A after B fails and cold retry (resubmit A=%s)",
+  async (resubmitFirst) => {
+    const { path, execute, create, options } = await fixture();
+    await writeFile(
+      path,
+      (await readFile(path, "utf8")).replace("mcp__ag_ui__chart", "Read"),
+    );
+    execute
+      .mockResolvedValueOnce({ content: "ACTUAL_A" })
+      .mockRejectedValueOnce(new Error("B executor failed"))
+      .mockResolvedValueOnce({ content: "ACTUAL_B" });
+    const approvals = ["native", "frontend"].map((interruptId) => ({
+      interruptId,
+      status: "resolved" as const,
+      payload: { behavior: "allow" },
+    }));
+    const input: RunAgentInput = {
+      ...options,
+      threadId: session,
+      runId: "first",
+      state: {},
+      messages: [],
+      resume: approvals,
+    };
+    const first = await lastValueFrom(create().run(input).pipe(toArray()));
+    expect(first.some((e) => e.type === "RUN_ERROR")).toBe(true);
+    expect(await readFile(path, "utf8")).toContain("ACTUAL_A");
+    const retry = await lastValueFrom(
+      create()
+        .run({
+          ...input,
+          runId: "retry",
+          resume: resubmitFirst ? approvals : approvals.slice(1),
+        })
+        .pipe(toArray()),
+    );
+    expect(retry.some((e) => e.type === "RUN_ERROR")).toBe(false);
+    const results = retry.filter(
+      (e) => e.type === "TOOL_CALL_RESULT",
+    ) as ToolCallResultEvent[];
+    expect(results.map((e) => [e.toolCallId, e.content])).toEqual([
+      ["native", "ACTUAL_A"],
+      ["frontend", "ACTUAL_B"],
+    ]);
+    expect(execute).toHaveBeenCalledTimes(3);
+    const repeated = await lastValueFrom(
+      create()
+        .run({
+          ...input,
+          runId: "repeat",
+          messages: results.map((e) => ({
+            id: e.messageId,
+            role: "tool" as const,
+            toolCallId: e.toolCallId,
+            content: e.content,
+          })),
+        })
+        .pipe(toArray()),
+    );
+    expect(repeated.some((e) => e.type === "RUN_ERROR")).toBe(false);
+    expect(repeated.filter((e) => e.type === "TOOL_CALL_RESULT")).toHaveLength(
+      0,
+    );
+    expect(execute).toHaveBeenCalledTimes(3);
+  },
+);

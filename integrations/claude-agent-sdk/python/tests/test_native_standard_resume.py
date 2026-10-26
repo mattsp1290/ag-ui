@@ -74,3 +74,30 @@ async def test_retry_saved_answers_after_downstream_timeout(standard_fixture, mo
         pass
     executor.assert_awaited_once()
     assert path.read_bytes() == before
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('resubmit_first', [False, True])
+async def test_saved_result_reaches_agui_after_sibling_failure(standard_fixture, resubmit_first):
+    from ag_ui_claude_sdk.adapter import ClaudeAgentAdapter
+    path, executor, config, data = standard_fixture
+    path.write_text(path.read_text().replace('mcp__ag_ui__chart', 'Read'))
+    executor.side_effect = [dict(content='ACTUAL_A'), RuntimeError('B executor failed'), dict(content='ACTUAL_B')]
+    approvals = [dict(interruptId=key, status='resolved', payload=dict(behavior='allow')) for key in ['native','frontend']]
+    data['resume'] = approvals
+    async def collect():
+        inp = RunAgentInput(**data)
+        recovery = NativeChildRecovery(config)
+        adapter = ClaudeAgentAdapter(name='retry')
+        return [e async for e in adapter._stream_claude_sdk(recovery.run(inp, ClaudeAgentOptions(resume=SESSION), 'continue'), inp.thread_id, inp.run_id, inp, {'chart'})]
+    with pytest.raises(RuntimeError, match='B executor failed'):
+        await collect()
+    assert 'ACTUAL_A' in path.read_text()
+    data['resume'] = approvals if resubmit_first else approvals[1:]
+    events = await collect()
+    results = [e for e in events if e.type == 'TOOL_CALL_RESULT']
+    assert [(e.tool_call_id,e.content) for e in results] == [('native','ACTUAL_A'),('frontend','ACTUAL_B')]
+    assert executor.await_count == 3
+    assert [c.args[0]['id'] for c in executor.await_args_list] == ['native','frontend','frontend']
+    data['messages'] = [dict(id=e.message_id,role='tool',toolCallId=e.tool_call_id,content=e.content) for e in results]
+    assert not [e for e in await collect() if e.type == 'TOOL_CALL_RESULT']
+    assert executor.await_count == 3

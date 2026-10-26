@@ -161,3 +161,13 @@ comparator accepted only the exact SDK environment reminder with `/var` and
 `/private/var` paths resolving to the same recorded directory. The failed attempt
 and its ledger/history were retained. The coordinator's original browser session
 still requires retry after deploying this change.
+
+### Saved result delivery after executor failure
+
+Both adapters replay configured tool results from native history when absent
+from the submitted client messages. This covers A succeeding and being saved,
+then sibling B throwing before the checkpoint emits its results. A cold retry
+emits both original results without executing A again, even if the retry only
+answers B. Once the client includes the matching tool messages, no replay is
+needed. Regressions check original IDs, actual content, executor counts and
+acknowledged-history retries through the AG-UI event translator.

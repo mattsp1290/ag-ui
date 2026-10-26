@@ -101,3 +101,26 @@ async def test_saved_result_reaches_agui_after_sibling_failure(standard_fixture,
     data['messages'] = [dict(id=e.message_id,role='tool',toolCallId=e.tool_call_id,content=e.content) for e in results]
     assert not [e for e in await collect() if e.type == 'TOOL_CALL_RESULT']
     assert executor.await_count == 3
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('content', ['', 'RAW_HANDLER_RESULT', '{"status":"rendered"}', '"quoted"'])
+async def test_raw_handler_result_is_preserved_with_parallel_native_approval(standard_fixture, content):
+    path, executor, config, data = standard_fixture
+    data['messages'] = [dict(id='existing-handler-result',role='tool',toolCallId='frontend',content=content)]
+    data['resume'] = [dict(interruptId='native',status='resolved',payload=dict(behavior='allow')),dict(interruptId='frontend',status='resolved',payload=content)]
+    for _ in range(2):
+        async for _ in NativeChildRecovery(config).run(RunAgentInput(**data),ClaudeAgentOptions(resume=SESSION),'continue'):pass
+    executor.assert_awaited_once()
+    results=[b for r in map(json.loads,path.read_text().splitlines()) if r['type']=='user' for b in r['message']['content'] if b.get('tool_use_id')=='frontend']
+    assert results == [dict(type='tool_result',tool_use_id='frontend',content=content,is_error=False)]
+
+@pytest.mark.asyncio
+async def test_raw_handler_conflict_is_rejected_before_execution(standard_fixture):
+    path, executor, config, data = standard_fixture
+    before=path.read_bytes()
+    data['messages']=[dict(id='existing-handler-result',role='tool',toolCallId='frontend',content='')]
+    data['resume']=[dict(interruptId='native',status='resolved',payload=dict(behavior='allow')),dict(interruptId='frontend',status='resolved',payload=dict(status='displayed'))]
+    with pytest.raises(ValueError,match='conflicts'):
+        async for _ in NativeChildRecovery(config).run(RunAgentInput(**data),ClaudeAgentOptions(resume=SESSION),'continue'):pass
+    executor.assert_not_awaited()
+    assert path.read_bytes()==before

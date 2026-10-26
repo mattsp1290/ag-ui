@@ -5,7 +5,8 @@ from pathlib import Path
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 base = Path(__file__).resolve().parent.parent
 lang = sys.argv[1]
-frontend = '--frontend' in sys.argv
+registered_root = '--registered-root' in sys.argv
+frontend = '--frontend' in sys.argv or registered_root
 deny = '--deny' in sys.argv
 state_control = '--state' in sys.argv
 root = Path(tempfile.mkdtemp(prefix='agui-parallel-'))
@@ -19,13 +20,13 @@ class Handler(BaseHTTPRequestHandler):
   if 'count_tokens' in self.path: self.send_response(200);self.end_headers();self.wfile.write(b'{"input_tokens":10}');return
   requests.append(dict(phase=phase,body=body))
   if phase=='start':
-   blocks=[dict(type='tool_use',id='parallel'+str(i),name='mcp__ag_ui__chart' if frontend and i==1 else 'Read',input=dict(value=7) if frontend and i==1 else dict(file_path=str(root/'fixture.txt'))) for i in range(2)] + ([dict(type='tool_use',id='state-update',name='mcp__ag_ui__ag_ui_update_state',input=dict(state_updates=dict(counter=2)))] if state_control else [])
+   blocks=[dict(type='tool_use',id='parallel'+str(i),name='mcp__ag_ui__chart' if frontend and (i==1 or registered_root) else 'Read',input=dict(value=7) if frontend and (i==1 or registered_root) else dict(file_path=str(root/'fixture.txt'))) for i in range(2)] + ([dict(type='tool_use',id='state-update',name='mcp__ag_ui__ag_ui_update_state',input=dict(state_updates=dict(counter=2)))] if state_control else [])
   else:
    results=[b for m in body['messages'] if isinstance(m.get('content'),list) for b in m['content'] if b.get('type')=='tool_result']
    for i in range(2):
     result=next((r for r in results if r['tool_use_id']=='parallel'+str(i)),None)
-    expected = 'FRONTEND_ACTUAL' if frontend and i==1 else ('denied by user' if deny and i==1 else marker)
-    assert result and expected in str(result['content']), (i,results)
+    expected = 'FRONTEND_ACTUAL' if frontend and (i==1 or registered_root) else ('denied by user' if deny and i==1 else marker)
+    assert result and (result['content']=='' if registered_root else expected in str(result['content'])), (i,results)
    blocks=[dict(type='text',text='Verified original results')]
   self.send_response(200);self.send_header('Content-Type','text/event-stream');self.end_headers()
   def send(t,**data): self.wfile.write(('event: '+t+'\ndata: '+json.dumps(dict(type=t,**data))+'\n\n').encode())
@@ -39,6 +40,12 @@ server=ThreadingHTTPServer(('127.0.0.1',0),Handler);threading.Thread(target=serv
 env=dict(PATH=os.environ['PATH'],HOME=str(root),CLAUDE_CONFIG_DIR=str(root/'config'),ANTHROPIC_API_KEY='synthetic-not-a-secret',ANTHROPIC_AUTH_TOKEN='',ANTHROPIC_BASE_URL=f'http://127.0.0.1:{server.server_port}',CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC='1',DISABLE_TELEMETRY='1')
 outputs={}
 try:
+ if registered_root:
+  from public_client_control import run_registered_root_client
+  cpk_core=sys.argv[sys.argv.index('--cpk-core')+1]
+  run_registered_root_client(base,root,session,env,lang,lambda value:globals().__setitem__('phase',value),outputs,cpk_core)
+  print(json.dumps(dict(passed=True,language=lang,registeredRoot=True,evidence=str(root/'evidence.json'))))
+  raise SystemExit(0)
  for phase in ['start','refresh','answer1','refresh_partial','answer2','repeat','second_restart']:
   data=dict(threadId='parallel',runId=str(uuid.uuid4()),messages=[dict(id='prompt',role='user',content='Read two files concurrently.')],tools=[dict(name='chart',description='Render chart',parameters=dict(type='object',properties=dict(value=dict(type='number'))))] if frontend else [],context=[],state=dict(counter=1 if phase=='start' else 2) if state_control else {},forwardedProps={} if phase=='start' else dict(resume=session))
   if phase=='answer1': data['resume']=[dict(interruptId='parallel0',status='resolved',payload=dict(behavior='allow'))]

@@ -215,15 +215,20 @@ export class NativeChildRecovery {
             response.status === "cancelled"
               ? { status: "cancelled" }
               : (response.payload ?? { status: "resolved" });
-          let actual: unknown;
-          try {
-            actual = JSON.parse(saved?.content ?? submitted.content);
-          } catch {
-            throw new Error(
-              "Frontend resume payload conflicts with its tool result",
-            );
+          // Registered frontend handlers return raw strings (including ""),
+          // whereas useInterrupt serializes its payload as JSON. Both carry
+          // actual results; validation must not rewrite either representation.
+          const actualContent = saved?.content ?? submitted.content;
+          let matches =
+            typeof expected === "string" && actualContent === expected;
+          if (!matches) {
+            try {
+              matches = isDeepStrictEqual(JSON.parse(actualContent), expected);
+            } catch {
+              // Non-JSON strings can only match their exact raw payload above.
+            }
           }
-          if (!isDeepStrictEqual(actual, expected))
+          if (!matches)
             throw new Error(
               "Frontend resume payload conflicts with its tool result",
             );

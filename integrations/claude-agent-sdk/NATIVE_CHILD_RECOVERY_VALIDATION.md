@@ -171,3 +171,27 @@ emits both original results without executing A again, even if the retry only
 answers B. Once the client includes the matching tool messages, no replay is
 needed. Regressions check original IDs, actual content, executor counts and
 acknowledged-history retries through the AG-UI event translator.
+
+### Registered frontend handler outcomes
+
+Raw frontend strings, including empty strings and JSON-looking strings, match
+an identical resume payload without changing the original result bytes. The
+hook's JSON payload encoding also remains supported. Conflicting payloads fail
+before native execution; duplicate tool messages remain rejected.
+
+No-cost registered-handler controls for TS and Python use actual CopilotKitCore,
+HttpAgent, and fresh real SDK workers behind a localhost synthetic provider:
+
+```sh
+python integrations/claude-agent-sdk/scripts/test_parallel_recovery.py ts --registered-root --cpk-core /absolute/path/to/@copilotkit/core
+python integrations/claude-agent-sdk/scripts/test_dependency_recovery.py ts --mixed --frontend --public-client --raw-frontend
+```
+
+Repeat with `py`. The root control registers a real handler returning an empty
+string, verifies two parallel root tool_call interrupts, reuses both actual
+messages for explicit full resume, retries, and continues after another restart.
+It checks handler executions, original message IDs/content, catalog/context and
+zero native executor calls. It sets `followUp: false` so it can submit the full
+resume explicitly; this does NOT certify automatic CopilotKit reconciliation.
+The mixed control covers root/native child approvals plus a raw child frontend
+result with the real public client and further fresh workers.

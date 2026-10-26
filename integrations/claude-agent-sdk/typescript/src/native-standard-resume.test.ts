@@ -327,3 +327,86 @@ it.each([false, true])(
     expect(execute).toHaveBeenCalledTimes(3);
   },
 );
+
+it.each(["", "RAW_HANDLER_RESULT", '{"status":"rendered"}', '"quoted"'])(
+  "preserves actual raw frontend handler bytes %j with parallel native approval",
+  async (content) => {
+    const { client, options, path, execute } = await fixture();
+    await client.runAgent(options);
+    client.addMessage({
+      id: "existing-handler-result",
+      role: "tool",
+      toolCallId: "frontend",
+      content,
+    });
+    const resume = buildResumeArray(client.pendingInterrupts, {
+      native: { status: "resolved", payload: { behavior: "allow" } },
+      frontend: { status: "resolved", payload: content },
+    });
+    const errors: string[] = [];
+    for (let i = 0; i < 2; i++)
+      await client.runAgent(
+        { ...options, resume },
+        {
+          onRunErrorEvent: ({ event }) => {
+            errors.push(event.message);
+          },
+        },
+      );
+    expect(errors).toEqual([]);
+    expect(execute).toHaveBeenCalledTimes(1);
+    expect(
+      client.messages.filter(
+        (m) => m.role === "tool" && m.toolCallId === "frontend",
+      ),
+    ).toEqual([
+      expect.objectContaining({ id: "existing-handler-result", content }),
+    ]);
+    const results = (await readFile(path, "utf8"))
+      .trim()
+      .split("\n")
+      .map((l) => JSON.parse(l))
+      .flatMap((r) =>
+        r.type === "user" && Array.isArray(r.message?.content)
+          ? r.message.content
+          : [],
+      )
+      .filter((b) => b.tool_use_id === "frontend");
+    expect(results).toEqual([
+      {
+        type: "tool_result",
+        tool_use_id: "frontend",
+        content,
+        is_error: false,
+      },
+    ]);
+  },
+);
+
+it("rejects a mismatched raw frontend payload before native execution", async () => {
+  const { client, options, execute, path } = await fixture();
+  await client.runAgent(options);
+  const before = await readFile(path, "utf8");
+  client.addMessage({
+    id: "existing-handler-result",
+    role: "tool",
+    toolCallId: "frontend",
+    content: "",
+  });
+  const resume = buildResumeArray(client.pendingInterrupts, {
+    native: { status: "resolved", payload: { behavior: "allow" } },
+    frontend: { status: "resolved", payload: { status: "displayed" } },
+  });
+  const errors: string[] = [];
+  await client.runAgent(
+    { ...options, resume },
+    {
+      onRunErrorEvent: ({ event }) => {
+        errors.push(event.message);
+      },
+    },
+  );
+  expect(errors).toEqual([expect.stringContaining("conflicts")]);
+  expect(execute).not.toHaveBeenCalled();
+  expect(await readFile(path, "utf8")).toBe(before);
+});

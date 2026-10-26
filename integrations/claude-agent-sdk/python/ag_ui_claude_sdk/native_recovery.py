@@ -156,11 +156,16 @@ class NativeChildRecovery:
                     if submitted is None:
                         raise ValueError('Frontend resume requires its actual tool result')
                     expected = {'status': 'cancelled'} if response.status == 'cancelled' else response.payload if response.payload is not None else {'status': 'resolved'}
-                    try:
-                        actual = json.loads(saved['content'] if saved is not None else submitted['content'])
-                    except (TypeError, ValueError) as error:
-                        raise ValueError('Frontend resume payload conflicts with its tool result') from error
-                    if not same_json(actual, expected):
+                    # Registered handlers return raw strings, including "";
+                    # useInterrupt emits JSON. Preserve the actual message bytes.
+                    actual_content = saved['content'] if saved is not None else submitted['content']
+                    matches = isinstance(expected, str) and actual_content == expected
+                    if not matches:
+                        try:
+                            matches = same_json(json.loads(actual_content), expected)
+                        except (TypeError, ValueError):
+                            pass  # Non-JSON strings require an exact raw match.
+                    if not matches:
                         raise ValueError('Frontend resume payload conflicts with its tool result')
                     if response.status == 'cancelled':
                         submitted['is_error'] = True

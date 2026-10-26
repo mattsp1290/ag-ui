@@ -85,7 +85,9 @@ await assert.rejects(
     }),
   /not addressed/,
 );
-const actualResult = { status: "FRONTEND_ACTUAL", value: 7 };
+const actualResult = c.raw
+  ? "FRONTEND_ACTUAL"
+  : { status: "FRONTEND_ACTUAL", value: 7 };
 const responses = Object.fromEntries(
   agent.pendingInterrupts.map((i) => [
     i.id,
@@ -106,11 +108,14 @@ for (const i of agent.pendingInterrupts.filter(
     id: "frontend-" + i.id,
     role: "tool",
     toolCallId: i.toolCallId,
-    content: JSON.stringify(
-      response.status === "cancelled"
-        ? { status: "cancelled" }
-        : (response.payload ?? { status: "resolved" }),
-    ),
+    content:
+      c.raw && response.status !== "cancelled"
+        ? response.payload
+        : JSON.stringify(
+            response.status === "cancelled"
+              ? { status: "cancelled" }
+              : (response.payload ?? { status: "resolved" }),
+          ),
   });
 }
 await run(resume);

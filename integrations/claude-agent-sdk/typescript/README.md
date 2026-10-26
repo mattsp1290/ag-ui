@@ -235,9 +235,15 @@ Provide current frontend tool declarations in `input.tools`. Frontend interrupts
 use `reason: "tool_call"`; native approvals use `reason: "tool_approval"`.
 Answer frontend calls with original-ID `role: "tool"` messages containing the
 actual result. The public interrupt hook also supplies a `resume` entry for that
-same ID: its payload must equal the JSON tool result (cancellation uses
+same ID: its payload must equal the raw string result (including an empty string) or
+the parsed JSON tool result (cancellation uses
 `{"status":"cancelled"}` and saves an error result). The message remains the
 source of the result; a frontend resume entry alone cannot supply it.
+When a registered frontend handler already added its result, reuse that exact
+message and put its content in the matching resume payload. Do not append a
+second tool result or replace empty content with a display acknowledgement.
+Automatic handler/interrupt reconciliation is a client responsibility; explicit
+full resume works without modifying pending interrupts or native history.
 
 Native approvals use `resume`. After a downstream error, retrying the approval
 alongside an already-streamed matching native result reuses the canonical saved

@@ -73,7 +73,7 @@ try:
   assert mixed and frontend and not nested and not background and not followup
   from public_client_control import run_public_client
   cpk_core=sys.argv[sys.argv.index('--cpk-core')+1] if '--cpk-core' in sys.argv else None
-  run_public_client(base,root,session,env,lang,lambda value:globals().__setitem__('phase',value),outputs,cpk_core,cancel_frontend)
+  run_public_client(base,root,session,env,lang,lambda value:globals().__setitem__('phase',value),outputs,cpk_core,cancel_frontend,'--raw-frontend' in sys.argv)
   print(json.dumps(dict(passed=True,language=lang,publicClient=True,cpk=bool(cpk_core),evidence=str(root/'evidence.json'))))
   raise SystemExit(0)
  phases=(['start','refresh','answer1','repeat','second_restart'] if nested else ['start','refresh','answer_partial','refresh_partial','answer1','repeat','second_restart'])

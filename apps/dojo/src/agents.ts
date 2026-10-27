@@ -868,8 +868,8 @@ export const agentsIntegrations = {
         new HttpAgent({ url: `${envVars.cloudflareAgentsUrl}/${path}` }),
       {
         agentic_chat: "agentic_chat",
-        // The adapter puts the client's context into the prompt, so the
-        // plain chat agent serves the generative UI demos.
+        // The example agent puts the client's context into its system
+        // prompt, so the plain chat agent serves the generative UI demos.
         generative_ui_markdown: "agentic_chat",
         generative_ui_tool: "agentic_chat",
         backend_tool_rendering: "backend_tool_rendering",

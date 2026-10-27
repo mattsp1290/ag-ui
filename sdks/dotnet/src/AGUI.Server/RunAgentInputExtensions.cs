@@ -326,17 +326,17 @@ public static class RunAgentInputExtensions
 
     /// <summary>
     /// Recovers the tool call a <c>toolCall</c>-less approval resume answers from the run's
-    /// messages: by the <c>toolCallId</c> the client sent back when it sent one, otherwise by the
-    /// interrupt id, which is the approval request id FunctionInvokingChatClient minted for the call
-    /// (see <see cref="FiccApprovalRequestIdFor"/>).
+    /// messages. The interrupt id is the approval request id FunctionInvokingChatClient minted for
+    /// the call (see <see cref="FiccApprovalRequestIdFor"/>), so it alone names the call; a
+    /// <c>toolCallId</c> in the payload, when present, must agree with it.
     /// </summary>
     /// <returns>
-    /// The recovered call, or <see langword="null"/> when nothing in the messages identifies one
-    /// (the entry then stays a generic interrupt response).
+    /// The recovered call, or <see langword="null"/> when the interrupt is not an approval
+    /// interrupt or its call is already answered (the entry then stays a generic interrupt response).
     /// </returns>
     /// <exception cref="InvalidOperationException">
-    /// The entry names a tool call the run's messages do not carry, by <c>toolCallId</c> or by an
-    /// approval interrupt id.
+    /// The entry's <c>toolCallId</c> names a different call than its approval interrupt id, or the
+    /// run's messages do not carry the call.
     /// </exception>
     private static FunctionCallContent? ResolvePendingApprovalCall(
         AGUIResume resume,
@@ -344,31 +344,8 @@ public static class RunAgentInputExtensions
         Dictionary<string, FunctionCallContent> originalCallsById,
         List<FunctionCallContent> pendingApprovalCalls)
     {
-        if (element.TryGetProperty("toolCallId", out var toolCallIdElement)
-            && toolCallIdElement.ValueKind is JsonValueKind.String
-            && toolCallIdElement.GetString() is { Length: > 0 } toolCallId)
-        {
-            foreach (var pending in pendingApprovalCalls)
-            {
-                if (string.Equals(pending.CallId, toolCallId, StringComparison.Ordinal))
-                {
-                    return pending;
-                }
-            }
-
-            // The named call is in the history but already answered — resolved elsewhere, or a
-            // replayed resume. Do not approve it a second time.
-            if (originalCallsById.ContainsKey(toolCallId))
-            {
-                return null;
-            }
-
-            throw new InvalidOperationException(
-                $"Resume entry '{resume.InterruptId}' answers tool call '{toolCallId}', which the run's messages do not carry.");
-        }
-
-        // Otherwise only the call this interrupt was raised for. An interrupt id that is not an
-        // approval id (another kind of interrupt) approves nothing.
+        // An interrupt id that is not an approval id (another kind of interrupt) approves nothing,
+        // whatever its payload carries.
         var approvalIdPrefix = FiccApprovalRequestIdFor(string.Empty);
         if (string.IsNullOrEmpty(resume.InterruptId)
             || !resume.InterruptId.StartsWith(approvalIdPrefix, StringComparison.Ordinal))
@@ -377,6 +354,16 @@ public static class RunAgentInputExtensions
         }
 
         var interruptCallId = resume.InterruptId[approvalIdPrefix.Length..];
+
+        if (element.TryGetProperty("toolCallId", out var toolCallIdElement)
+            && toolCallIdElement.ValueKind is JsonValueKind.String
+            && toolCallIdElement.GetString() is { Length: > 0 } toolCallId
+            && !string.Equals(toolCallId, interruptCallId, StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException(
+                $"Resume entry '{resume.InterruptId}' is the approval for tool call '{interruptCallId}', but its payload names tool call '{toolCallId}'.");
+        }
+
         foreach (var pending in pendingApprovalCalls)
         {
             if (string.Equals(pending.CallId, interruptCallId, StringComparison.Ordinal))
@@ -385,8 +372,8 @@ public static class RunAgentInputExtensions
             }
         }
 
-        // Same as a toolCallId: a call already answered is not approved a second time, and a call
-        // the messages do not carry at all is rejected.
+        // A call already answered (resolved elsewhere, or a replayed resume) is not approved a
+        // second time, and a call the messages do not carry at all is rejected.
         if (originalCallsById.ContainsKey(interruptCallId))
         {
             return null;

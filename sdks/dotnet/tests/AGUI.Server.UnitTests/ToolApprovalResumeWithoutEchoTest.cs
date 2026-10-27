@@ -7,10 +7,10 @@ using Xunit;
 namespace AGUI.Server.UnitTests;
 
 /// <summary>
-/// Characterizes issue #2815: a tool-approval resume whose payload matches the interrupt's own
-/// advertised <c>responseSchema</c> (<c>{"approved":true}</c>) is not recognised as an approval,
-/// because <c>RunAgentInputExtensions.TryDecodeToolApprovalResume</c> gates on the presence of a
-/// <c>toolCall</c> echo that the schema never asks for.
+/// A tool-approval resume whose payload matches the interrupt's advertised <c>responseSchema</c>
+/// (<c>{"approved":true}</c>, no <c>toolCall</c> echo) resumes the call its approval interrupt id
+/// names, recovered from the run's messages. A payload that echoes <c>toolCall</c> still resumes
+/// too, and a non-approval interrupt never resolves to an approval.
 /// </summary>
 public sealed class ToolApprovalResumeWithoutEchoTest
 {
@@ -31,18 +31,14 @@ public sealed class ToolApprovalResumeWithoutEchoTest
         """;
 
     // ---------------------------------------------------------------------------------------
-    // The reported defect.
+    // Schema-shaped answers without a toolCall echo.
     // ---------------------------------------------------------------------------------------
 
     /// <summary>
-    /// EXPECTED (per the reporter and per the interrupt's advertised responseSchema): a resume
-    /// entry of <c>{interruptId, status:"resolved", payload:{approved:true}}</c>, sent on a thread
-    /// whose messages still carry the unresolved approval-gated tool call, resumes THAT call —
-    /// the adapter produces a ToolApprovalRequestContent/ToolApprovalResponseContent pair bound to
-    /// call_01 so FunctionInvokingChatClient executes the tool.
-    ///
-    /// ACTUAL on this worktree: no approval content is produced at all. The entry falls through to
-    /// a generic InterruptResponseContent, which FICC cannot match to the pending approval.
+    /// A resume entry of <c>{interruptId, status:"resolved", payload:{approved:true}}</c>, sent on
+    /// a thread whose messages still carry the unresolved approval-gated tool call, resumes that
+    /// call: the adapter produces a ToolApprovalRequestContent/ToolApprovalResponseContent pair
+    /// bound to call_01 so FunctionInvokingChatClient executes the tool.
     /// </summary>
     [Fact]
     public void ResumeWithoutToolCallEcho_WhenHistoryCarriesThePendingCall_ShouldResumeThatApproval()
@@ -62,11 +58,8 @@ public sealed class ToolApprovalResumeWithoutEchoTest
     }
 
     /// <summary>
-    /// EXPECTED: the same resume entry does not ALSO arrive as a generic interrupt answer. A
-    /// tool-approval interrupt answered as an approval is answered once, not twice.
-    ///
-    /// ACTUAL on this worktree: the only content produced is the generic
-    /// InterruptResponseContent — the silent downgrade the issue describes.
+    /// The same resume entry does not also arrive as a generic interrupt answer. A tool-approval
+    /// interrupt answered as an approval is answered once, not twice.
     /// </summary>
     [Fact]
     public void ResumeWithoutToolCallEcho_WhenHistoryCarriesThePendingCall_ShouldNotDowngradeToGenericInterrupt()
@@ -85,13 +78,10 @@ public sealed class ToolApprovalResumeWithoutEchoTest
     }
 
     /// <summary>
-    /// EXPECTED: a payload built from exactly the fields the server itself advertised on the
-    /// interrupt's <c>responseSchema</c> is a valid answer to that interrupt. This test takes the
-    /// schema off a real emitted interrupt rather than hardcoding it, so it pins the contradiction
-    /// between what AGUI.Server promises on the way out and what it accepts on the way back in.
-    ///
-    /// ACTUAL on this worktree: the advertised schema is <c>{"required":["approved"]}</c> with no
-    /// mention of <c>toolCall</c>, yet a payload carrying only <c>approved</c> is rejected.
+    /// A payload built from exactly the fields the server advertised on the interrupt's
+    /// <c>responseSchema</c> is a valid answer to that interrupt. The schema is taken off a real
+    /// emitted interrupt rather than hardcoded, so what AGUI.Server promises on the way out and
+    /// what it accepts on the way back in cannot drift apart.
     /// </summary>
     [Fact]
     public async Task PayloadBuiltFromTheAdvertisedResponseSchema_ShouldBeAcceptedAsAnApproval()
@@ -132,12 +122,8 @@ public sealed class ToolApprovalResumeWithoutEchoTest
     }
 
     /// <summary>
-    /// EXPECTED: a resume entry whose status is "cancelled" abandons the interrupt. It must never
-    /// produce an approved ToolApprovalResponseContent, whatever its payload claims.
-    ///
-    /// ACTUAL on this worktree: <c>AGUIResume.Status</c> is never read by
-    /// <c>TryDecodeToolApprovalResume</c>, so a cancelled entry carrying
-    /// <c>{approved:true, toolCall:{…}}</c> approves and executes the tool.
+    /// A resume entry whose status is "cancelled" abandons the interrupt. It never produces an
+    /// approved ToolApprovalResponseContent, whatever its payload claims.
     /// </summary>
     [Fact]
     public void CancelledResume_CarryingAnApprovedPayload_ShouldNotApproveTheToolCall()
@@ -157,16 +143,14 @@ public sealed class ToolApprovalResumeWithoutEchoTest
     }
 
     // ---------------------------------------------------------------------------------------
-    // Characterization of what works today, and of the limits of a history-based recovery.
-    // These pass on this worktree and are here to bound the design question.
+    // The toolCall echo, and the limits of a history-based recovery.
     // ---------------------------------------------------------------------------------------
 
     /// <summary>
-    /// Current behavior, passing: the full <c>toolCall</c> echo is the only resume payload shape
-    /// AGUI.Server resolves to an approval today.
+    /// A payload that echoes the full <c>toolCall</c> still resumes the approval.
     /// </summary>
     [Fact]
-    public void ResumeWithToolCallEcho_IsTheOnlyShapeThatResumesTheApprovalToday()
+    public void ResumeWithToolCallEcho_StillResumesTheApproval()
     {
         var context = BuildResumeInput(
             payloadJson: ApprovedWithEchoPayload,
@@ -198,8 +182,8 @@ public sealed class ToolApprovalResumeWithoutEchoTest
     }
 
     /// <summary>
-    /// Current behavior, passing: exactly one tool call in the history is unresolved, so a
-    /// single-pending-approval recovery rule would be unambiguous for this input.
+    /// The history of a resuming run carries exactly one unresolved tool call, the one the
+    /// approval interrupt was raised for.
     /// </summary>
     [Fact]
     public void HistoryOnAResumingRun_CarriesExactlyOneUnresolvedToolCall()
@@ -297,18 +281,19 @@ public sealed class ToolApprovalResumeWithoutEchoTest
     }
 
     /// <summary>
-    /// A <c>toolCallId</c> entry followed by an echo entry for the same call. The call is answered
-    /// once, by the first entry; the echo stays a generic interrupt response.
+    /// An approval entry with a matching <c>toolCallId</c> and an echo entry for the same call. The
+    /// <c>toolCallId</c> entry sorts ahead of the echo and answers the call once; the echo stays a
+    /// generic interrupt response.
     /// </summary>
     [Fact]
     public void ToolCallIdEntryAndEchoEntryForTheSameCall_AnswerItOnce()
     {
         var context = BuildTwoCallResumeInput(
-            Resume("custom-approval", """{"approved":true,"toolCallId":"call_01"}"""),
+            Resume("ficc_call_01", """{"approved":true,"toolCallId":"call_01"}"""),
             Resume("echo-approval", ApprovedWithEchoPayload)).ToChatRequestContext(SerializerOptions);
 
         var response = Assert.Single(ApprovalResponsesByCallId(context)).Value;
-        Assert.Equal("custom-approval", response.RequestId);
+        Assert.Equal("ficc_call_01", response.RequestId);
         Assert.Equal("echo-approval", Assert.Single(context.Messages
             .SelectMany(m => m.Contents)
             .OfType<InterruptResponseContent>()).RequestId);
@@ -333,21 +318,21 @@ public sealed class ToolApprovalResumeWithoutEchoTest
     }
 
     /// <summary>
-    /// A payload carrying <c>toolCallId</c> binds to that call even when a bare entry for the
-    /// other pending call comes first.
+    /// An approval entry whose <c>toolCallId</c> matches its interrupt's call is accepted whatever
+    /// its position, here after a bare entry for the other pending call.
     /// </summary>
     [Fact]
     public void ToolCallIdEntry_BindsTheNamedCall_WhateverItsPosition()
     {
         var context = BuildTwoCallResumeInput(
             Resume("ficc_call_01", """{"approved":false}"""),
-            Resume("custom-approval", """{"approved":true,"toolCallId":"call_02"}""")).ToChatRequestContext(SerializerOptions);
+            Resume("ficc_call_02", """{"approved":true,"toolCallId":"call_02"}""")).ToChatRequestContext(SerializerOptions);
 
         var responses = ApprovalResponsesByCallId(context);
         Assert.Equal(2, responses.Count);
         Assert.False(responses["call_01"].Approved);
         Assert.True(responses["call_02"].Approved);
-        Assert.Equal("custom-approval", responses["call_02"].RequestId);
+        Assert.Equal("ficc_call_02", responses["call_02"].RequestId);
     }
 
     /// <summary>
@@ -400,6 +385,58 @@ public sealed class ToolApprovalResumeWithoutEchoTest
 
         Assert.Empty(contents.OfType<ToolApprovalResponseContent>());
         Assert.Equal("confirm-plan", Assert.Single(contents.OfType<InterruptResponseContent>()).RequestId);
+    }
+
+    /// <summary>
+    /// A non-approval interrupt whose answer carries <c>approved</c> and a <c>toolCallId</c> naming
+    /// the pending call stays a generic interrupt response, so its own handler gets the answer.
+    /// </summary>
+    [Fact]
+    public void NonApprovalInterrupt_WithToolCallIdOfThePendingCall_StaysGeneric()
+    {
+        var input = BuildResumeInput(
+            payloadJson: """{"approved":true,"toolCallId":"call_01"}""",
+            includePendingCallInHistory: true);
+        input.Resume![0].InterruptId = "confirm-plan";
+
+        var contents = input.ToChatRequestContext(SerializerOptions).Messages.SelectMany(m => m.Contents).ToList();
+
+        Assert.Empty(contents.OfType<ToolApprovalResponseContent>());
+        Assert.Equal("confirm-plan", Assert.Single(contents.OfType<InterruptResponseContent>()).RequestId);
+    }
+
+    /// <summary>
+    /// A non-approval interrupt whose <c>toolCallId</c> names a call the messages do not carry is
+    /// not an approval, so it is not rejected either: it stays a generic interrupt response.
+    /// </summary>
+    [Fact]
+    public void NonApprovalInterrupt_WithToolCallIdNotInTheHistory_StaysGeneric()
+    {
+        var input = BuildResumeInput(
+            payloadJson: """{"approved":true,"toolCallId":"call_zz"}""",
+            includePendingCallInHistory: true);
+        input.Resume![0].InterruptId = "confirm-plan";
+
+        var contents = input.ToChatRequestContext(SerializerOptions).Messages.SelectMany(m => m.Contents).ToList();
+
+        Assert.Empty(contents.OfType<ToolApprovalResponseContent>());
+        Assert.Equal("confirm-plan", Assert.Single(contents.OfType<InterruptResponseContent>()).RequestId);
+    }
+
+    /// <summary>
+    /// An approval interrupt is bound to its own call. A <c>toolCallId</c> naming a different call
+    /// contradicts it, and the request is rejected naming both calls.
+    /// </summary>
+    [Fact]
+    public void ApprovalInterrupt_WithToolCallIdOfAnotherCall_Throws()
+    {
+        var input = BuildTwoCallResumeInput(
+            Resume("ficc_call_01", """{"approved":true,"toolCallId":"call_02"}"""));
+
+        var ex = Assert.Throws<InvalidOperationException>(() => input.ToChatRequestContext(SerializerOptions));
+        Assert.Contains("ficc_call_01", ex.Message, StringComparison.Ordinal);
+        Assert.Contains("'call_01'", ex.Message, StringComparison.Ordinal);
+        Assert.Contains("'call_02'", ex.Message, StringComparison.Ordinal);
     }
 
     // ---------------------------------------------------------------------------------------

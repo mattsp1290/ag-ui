@@ -1,0 +1,18 @@
+id: MESSAGES_SNAPSHOT_1790532759871
+data: {"type":"MESSAGES_SNAPSHOT","timestamp":1790532759871,"messages":[{"id":"sample-message","role":"assistant","content":""}]}
+
+id: STATE_SNAPSHOT_1790532759871
+data: {"type":"STATE_SNAPSHOT","timestamp":1790532759871,"snapshot":{"Watermark":{"StoreID":"sample-store","SessionID":"sample-session","Revision":1},"Exists":true,"OmittedOlderMessages":false,"Runs":[{"ID":"sample-run","Status":"running","ProviderID":"","ModelID":"","LeaseUntil":"0001-01-01T00:00:00Z"}],"Tools":null,"Live":[]}}
+
+id: MESSAGES_SNAPSHOT_1790532759871
+data: {"type":"MESSAGES_SNAPSHOT","timestamp":1790532759871,"messages":[{"id":"sample-message","role":"assistant","content":"Working through the sample…"}]}
+
+id: STATE_SNAPSHOT_1790532759871
+data: {"type":"STATE_SNAPSHOT","timestamp":1790532759871,"snapshot":{"Watermark":{"StoreID":"sample-store","SessionID":"sample-session","Revision":1},"Exists":true,"OmittedOlderMessages":false,"Runs":[{"ID":"sample-run","Status":"running","ProviderID":"","ModelID":"","LeaseUntil":"0001-01-01T00:00:00Z"}],"Tools":null,"Live":[{"Identity":{"ServiceID":"sample-service","SessionID":"sample-session","RunID":"sample-run","MessageID":"sample-message","RequestID":"sample-request","Attempt":0,"Step":0},"Available":true,"PublicationVersion":1}]}}
+
+id: MESSAGES_SNAPSHOT_1790532759871
+data: {"type":"MESSAGES_SNAPSHOT","timestamp":1790532759871,"messages":[{"id":"sample-message","role":"assistant","content":"Sample complete."}]}
+
+id: STATE_SNAPSHOT_1790532759871
+data: {"type":"STATE_SNAPSHOT","timestamp":1790532759871,"snapshot":{"Watermark":{"StoreID":"sample-store","SessionID":"sample-session","Revision":2},"Exists":true,"OmittedOlderMessages":false,"Runs":[{"ID":"sample-run","Status":"completed","ProviderID":"","ModelID":"","LeaseUntil":"0001-01-01T00:00:00Z"}],"Tools":null,"Live":[]}}
+

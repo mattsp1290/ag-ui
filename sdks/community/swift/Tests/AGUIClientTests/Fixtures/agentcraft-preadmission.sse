@@ -1,0 +1,6 @@
+id: MESSAGES_SNAPSHOT_1790532759870
+data: {"type":"MESSAGES_SNAPSHOT","timestamp":1790532759870,"messages":[]}
+
+id: STATE_SNAPSHOT_1790532759870
+data: {"type":"STATE_SNAPSHOT","timestamp":1790532759870,"snapshot":{"Watermark":{"StoreID":"sample-store","SessionID":"sample-session","Revision":1},"Exists":true,"OmittedOlderMessages":false,"Runs":null,"Tools":null,"Live":[]}}
+

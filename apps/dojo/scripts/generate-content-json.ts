@@ -618,6 +618,11 @@ const agentFilesMapper: Record<
       {},
     );
   },
+  "codex-sdk-typescript": (agentKeys: string[]) =>
+    Object.fromEntries(agentKeys.map((agentId) => [agentId, [
+      path.join(__dirname, integrationsFolderPath, `community/codex-sdk/typescript/examples/${agentId}.ts`),
+      path.join(__dirname, "../src/components/CodexTextChat.tsx"),
+    ]])),
   "claude-agent-sdk-typescript": (agentKeys: string[]) => {
     return agentKeys.reduce(
       (acc, agentId) => ({
@@ -735,6 +740,11 @@ const agentFilesMapper: Record<
         `/watsonx/typescript/src/index.ts`,
       ),
     ],
+  }),
+  pi: () => ({
+    agentic_chat: ["server.ts", "conversation.ts", "client-tools.ts"].map((file) =>
+      path.join(__dirname, integrationsFolderPath, "community/pi/typescript/examples", file),
+    ),
   }),
   "cloudflare-agents": (agentKeys: string[]) =>
     agentKeys.reduce(

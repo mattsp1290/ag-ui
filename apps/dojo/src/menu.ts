@@ -465,6 +465,11 @@ export const menuIntegrations = [
     ],
   },
   {
+    id: "codex-sdk-typescript",
+    name: "Codex SDK (TypeScript)",
+    features: ["agentic_chat"],
+  },
+  {
     id: "claude-agent-sdk-typescript",
     name: "Claude Agent SDK (Typescript)",
     features: [
@@ -528,6 +533,12 @@ export const menuIntegrations = [
     ],
     // The example is a Worker run locally with `wrangler dev`; nothing is
     // deployed for the hosted Dojo yet.
+    localOnly: true,
+  },
+  {
+    id: "pi",
+    name: "Pi",
+    features: ["agentic_chat"],
     localOnly: true,
   },
   {

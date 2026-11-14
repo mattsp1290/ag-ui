@@ -26,12 +26,14 @@ type envVars = {
   awsStrandsTypescriptUrl: string;
   claudeAgentSdkPythonUrl: string;
   claudeAgentSdkTypescriptUrl: string;
+  codexSdkTypescriptUrl: string;
   openaiAgentsPythonUrl: string;
   claudeManagedAgentsDotnetUrl: string;
   claudeManagedAgentsPythonUrl: string;
   claudeManagedAgentsTypescriptUrl: string;
   langroidUrl: string;
   cloudflareAgentsUrl: string;
+  piUrl: string;
   watsonxRegion: string;
   watsonxInstanceId: string;
   watsonxAgentId: string;
@@ -96,6 +98,8 @@ export default function getEnvVars(): envVars {
       process.env.AWS_STRANDS_TYPESCRIPT_URL || "http://localhost:8022",
     claudeAgentSdkPythonUrl:
       process.env.CLAUDE_AGENT_SDK_PYTHON_URL || "http://localhost:8019",
+    codexSdkTypescriptUrl:
+      process.env.CODEX_SDK_TYPESCRIPT_URL || "http://localhost:8032",
     claudeAgentSdkTypescriptUrl:
       process.env.CLAUDE_AGENT_SDK_TYPESCRIPT_URL || "http://localhost:8020",
     openaiAgentsPythonUrl:
@@ -110,6 +114,7 @@ export default function getEnvVars(): envVars {
     langroidUrl: process.env.LANGROID_URL || "http://localhost:8021",
     cloudflareAgentsUrl:
       process.env.CLOUDFLARE_AGENTS_URL || "http://localhost:8030",
+    piUrl: process.env.PI_URL || "http://localhost:8032",
     watsonxRegion: process.env.WATSONX_REGION || "",
     watsonxInstanceId: process.env.WATSONX_INSTANCE_ID || "",
     watsonxAgentId: process.env.WATSONX_AGENT_ID || "",

@@ -60,10 +60,22 @@
     "notice": "integrations/community/cloudflare-agents/typescript/LICENSE"
   },
   {
+    "directory": "integrations/community/codex-sdk/typescript",
+    "names": ["@ag-ui/codex-sdk"],
+    "license": "MIT",
+    "notice": "integrations/community/codex-sdk/typescript/LICENSE"
+  },
+  {
     "directory": "integrations/community/omnara/typescript",
     "names": ["@ag-ui/omnara"],
     "license": "MIT",
     "notice": "integrations/community/omnara/typescript/LICENSE"
+  },
+  {
+    "directory": "integrations/community/pi/typescript",
+    "names": ["@ag-ui/pi"],
+    "license": "MIT",
+    "notice": "integrations/community/pi/typescript/LICENSE"
   },
   {
     "directory": "integrations/community/spring-ai/typescript",

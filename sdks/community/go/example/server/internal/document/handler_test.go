@@ -80,6 +80,14 @@ func TestExtractDocumentPart(t *testing.T) {
 			wantOK:   true,
 		},
 		{
+			name: "new text-only turn does not reuse old document",
+			messages: []aguitypes.Message{
+				makeUserMsg([]aguitypes.InputContent{docPart("old", "application/pdf")}),
+				{Role: aguitypes.RoleUser, Content: "new question without a document"},
+			},
+			wantOK: false,
+		},
+		{
 			name: "URL-source document is skipped",
 			messages: []aguitypes.Message{
 				makeUserMsg([]aguitypes.InputContent{

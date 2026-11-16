@@ -88,6 +88,30 @@ func TestExtractAudioPart(t *testing.T) {
 			wantOK:   true,
 		},
 		{
+			name: "new text-only turn does not reuse old audio",
+			messages: []aguitypes.Message{
+				makeUserMsg([]aguitypes.InputContent{audioPart("old", "audio/wav")}),
+				{Role: aguitypes.RoleUser, Content: "different request"},
+			},
+			wantOK: false,
+		},
+		{
+			name: "new text-part array does not reuse old audio",
+			messages: []aguitypes.Message{
+				makeUserMsg([]aguitypes.InputContent{audioPart("old", "audio/wav")}),
+				makeUserMsg([]aguitypes.InputContent{textPart("new request")}),
+			},
+			wantOK: false,
+		},
+		{
+			name: "new URL audio does not reuse old inline audio",
+			messages: []aguitypes.Message{
+				makeUserMsg([]aguitypes.InputContent{audioPart("old", "audio/wav")}),
+				makeUserMsg([]aguitypes.InputContent{{Type: aguitypes.InputContentTypeAudio, Source: &aguitypes.InputContentSource{Type: aguitypes.InputContentSourceTypeURL, Value: "https://example.com/new.wav"}}}),
+			},
+			wantOK: false,
+		},
+		{
 			name: "URL-source audio is skipped",
 			messages: []aguitypes.Message{
 				makeUserMsg([]aguitypes.InputContent{
